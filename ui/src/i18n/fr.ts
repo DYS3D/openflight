@@ -240,6 +240,9 @@ export const fr: Messages = {
   'menu.consistencyColors': 'Couleurs de régularité',
   'menu.voiceCallout': 'Annonce vocale',
   'menu.showNormalizedCarry': 'Afficher le carry normalisé',
+  'metric.consistencyGood': 'Dans votre plage habituelle',
+  'metric.consistencyFair': 'Un peu hors de votre plage habituelle',
+  'metric.consistencyPoor': 'Loin de votre plage habituelle',
 
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',

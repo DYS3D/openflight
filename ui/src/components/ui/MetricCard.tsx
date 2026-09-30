@@ -1,5 +1,6 @@
 import type { SpinQuality } from '../../types/shot';
-import { t } from '../../i18n';
+import { t, type MessageKey } from '../../i18n';
+import type { ConsistencyBand } from '../panel/consistency';
 import './MetricCard.css';
 
 export interface MetricCardProps {
@@ -23,7 +24,14 @@ export interface MetricCardProps {
   onClick?: () => void;
   /** Marks an interactive card as the currently promoted one (`aria-pressed`). */
   selected?: boolean;
+  consistency?: ConsistencyBand;
 }
+
+const CONSISTENCY_LABELS: Record<ConsistencyBand, MessageKey> = {
+  good: 'metric.consistencyGood',
+  fair: 'metric.consistencyFair',
+  poor: 'metric.consistencyPoor',
+};
 
 export function EstimatedMark() {
   return (
@@ -50,6 +58,7 @@ export function MetricCard({
   onClick,
   selected,
   estimated,
+  consistency,
 }: MetricCardProps) {
   const classes = ['metric-card', `metric-card--${variant}`, `metric-card--label-${labelPosition}`];
   if (size === 'hero') {
@@ -61,11 +70,17 @@ export function MetricCard({
   if (selected) {
     classes.push('metric-card--selected');
   }
+  if (consistency) {
+    classes.push(`metric-card--consistency-${consistency}`);
+  }
 
   const label_ = (
     <span className="metric-card__label">
       {label}
       {estimated ? <EstimatedMark /> : null}
+      {consistency ? (
+        <span className="metric-card__consistency-label">{t(CONSISTENCY_LABELS[consistency])}</span>
+      ) : null}
     </span>
   );
   const meta = (

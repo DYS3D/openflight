@@ -4,9 +4,11 @@ import { computeSwingSpeedStats, filterShotsByProfile } from '../../types/shot';
 import { useUnitPreference } from '../../state/useUnitPreference';
 import { useI18n } from '../../i18n/useI18n';
 import { useSharedFitFontSize } from '../../hooks/useFitFontSize';
+import { useDisplayPreferencesStore } from '../../stores/useDisplayPreferencesStore';
 import { MetricCard } from '../ui/MetricCard';
 import { PanelHeader } from './PanelHeader';
 import { buildLiveMetrics, pinSelectedMetric } from './liveMetrics';
+import { consistencyBands } from './consistency';
 
 interface LivePanelProps {
   shot: Shot | null;
@@ -23,6 +25,8 @@ interface LivePanelProps {
   isNewShot?: boolean;
   /** Pinned header control, e.g. Change club. */
   headerAction?: ReactNode;
+  /** Omit to read the display preferences store; pass it in tests. */
+  consistencyColors?: boolean;
 }
 
 /**
@@ -40,9 +44,12 @@ export function LivePanel({
   onSelectMetric,
   isNewShot = false,
   headerAction,
+  consistencyColors: consistencyColorsProp,
 }: LivePanelProps) {
   const { locale, t } = useI18n();
   const { unitSystem } = useUnitPreference();
+  const storeConsistencyColors = useDisplayPreferencesStore((state) => state.preferences.consistencyColors);
+  const consistencyColors = consistencyColorsProp ?? storeConsistencyColors;
   const profileShots = useMemo(() => filterShotsByProfile(shots, profileId), [shots, profileId]);
   const displayedShot = profileShots[profileShots.length - 1] ?? null;
   const isProfileNewShot = Boolean(isNewShot && shot && displayedShot && shot.timestamp === displayedShot.timestamp);
@@ -58,6 +65,10 @@ export function LivePanel({
     // changing language would keep stale metric labels.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
     [displayedShot, unitSystem, swingStats, selectedMetricId, locale]
+  );
+  const bands = useMemo(
+    () => (consistencyColors && displayedShot ? consistencyBands(displayedShot, profileShots, profileId) : {}),
+    [consistencyColors, displayedShot, profileShots, profileId]
   );
   const selected = metrics[0] ?? null;
   const gridRef = useSharedFitFontSize(
@@ -94,6 +105,7 @@ export function LivePanel({
               estimated={metric.estimated}
               confidence={metric.confidence}
               confidenceLabel={metric.confidenceLabel}
+              consistency={bands[metric.id]}
               labelPosition="above"
               selected={metric.id === selected.id}
               onClick={onSelectMetric ? () => onSelectMetric(metric.id) : undefined}

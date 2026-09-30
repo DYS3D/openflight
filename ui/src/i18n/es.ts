@@ -239,6 +239,9 @@ export const es: Messages = {
   'menu.consistencyColors': 'Colores de consistencia',
   'menu.voiceCallout': 'Anuncio por voz',
   'menu.showNormalizedCarry': 'Mostrar carry normalizado',
+  'metric.consistencyGood': 'Dentro de tu rango habitual',
+  'metric.consistencyFair': 'Algo fuera de tu rango habitual',
+  'metric.consistencyPoor': 'Muy fuera de tu rango habitual',
 
   'display.tvAria': 'Modo pantalla TV',
   'display.streamUnavailable': 'Transmisión de cámara no disponible',

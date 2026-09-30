@@ -209,6 +209,48 @@ describe('LivePanel', () => {
     expect(html).not.toContain('metric-card--interactive');
   });
 
+  describe('consistency colours', () => {
+    const history = [150, 150, 160, 170, 170].map((carry, index) =>
+      makeShot({ carry_spin_adjusted: carry, ball_speed_mph: 100 + index, timestamp: `h${index}` })
+    );
+
+    function renderWith(shots: Shot[], consistencyColors: boolean) {
+      const current = shots[shots.length - 1];
+      return renderToString(
+        <LivePanel
+          shot={current}
+          shots={shots}
+          profileId="james"
+          profileName="James"
+          clubLabel="DR"
+          consistencyColors={consistencyColors}
+        />
+      );
+    }
+
+    it('tints only carry, ball speed, smash and V. launch when on', () => {
+      const current = makeShot({ carry_spin_adjusted: 200, ball_speed_mph: 102, timestamp: 'now' });
+      const html = renderWith([...history, current], true);
+      const tinted = [...html.matchAll(/metric-card--consistency-(\w+)[\s\S]*?metric-card__label[^>]*>([^<]+)/g)].map(
+        (match) => `${match[2]}:${match[1]}`
+      );
+
+      expect(tinted).toEqual(['Ball speed:good', 'Carry:poor', 'Smash:good', 'V. launch:good']);
+    });
+
+    it('leaves every tile untinted when off', () => {
+      const current = makeShot({ carry_spin_adjusted: 200, timestamp: 'now' });
+
+      expect(renderWith([...history, current], false)).not.toContain('metric-card--consistency');
+    });
+
+    it('leaves tiles untinted before the club has five earlier shots', () => {
+      const current = makeShot({ carry_spin_adjusted: 200, timestamp: 'now' });
+
+      expect(renderWith([...history.slice(1), current], true)).not.toContain('metric-card--consistency');
+    });
+  });
+
   it('renders the five-tile grid for a swing-speed shot', () => {
     const swing = makeShot({
       mode: 'swing-speed',

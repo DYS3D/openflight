@@ -236,6 +236,9 @@ export const en = {
   'menu.consistencyColors': 'Consistency colours',
   'menu.voiceCallout': 'Voice callout',
   'menu.showNormalizedCarry': 'Show normalized carry',
+  'metric.consistencyGood': 'Within your usual range',
+  'metric.consistencyFair': 'A little off your usual range',
+  'metric.consistencyPoor': 'Well off your usual range',
 
   'display.tvAria': 'TV display mode',
   'display.streamUnavailable': 'Camera stream unavailable',

@@ -1,0 +1,227 @@
+/* No padding: the header keeps its 44px control height, so Summary does not move. */
+.stats-panel__views .segmented-control {
+  width: auto;
+  padding: 0;
+  gap: 0;
+  background: transparent;
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.stats-panel__views .segmented-control__button {
+  flex: 0 0 auto;
+  min-height: var(--panel-control-height, 44px);
+  padding: 0 7px;
+  border-radius: var(--radius);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+}
+
+.stats-flight,
+.stats-dispersion,
+.stats-gapping {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 26px 12px;
+}
+
+.stats-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.stats-readout__label {
+  font-weight: 600;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.stats-readout__value {
+  font-weight: 700;
+  font-size: 1.125rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stats-readout__unit {
+  margin-left: 0.25em;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+
+.stats-flight__summary {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.1rem;
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.stats-flight__club {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 0.875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stats-dispersion__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.stats-dispersion__bar .chart-legend {
+  flex: 1;
+}
+
+.stats-dispersion__note {
+  flex-shrink: 0;
+  font-weight: 500;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+
+.stats-gapping__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.stats-gapping__caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.stats-gapping__rule {
+  font-weight: 500;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+
+.stats-gapping__columns,
+.stats-gapping__row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 7.5rem) minmax(0, 1fr) 6rem 5.5rem 3.25rem;
+  align-items: center;
+  gap: 12px;
+}
+
+.stats-gapping__columns {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.stats-gapping__rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Own the drag; see ui/AGENTS.md "Overflow + tap". */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.stats-gapping__row {
+  min-height: 2.25rem;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.stats-gapping__club {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stats-gapping__club-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stats-gapping__count {
+  font-weight: 600;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+
+.stats-gapping__track {
+  width: 100%;
+  height: 1.25rem;
+  overflow: visible;
+}
+
+.stats-gapping__bar-fill {
+  fill: currentColor;
+}
+
+.stats-gapping__range {
+  stroke: var(--color-text-muted);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.stats-gapping__sd line {
+  stroke: var(--color-text);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.stats-gapping__num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-gapping__value {
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+
+.stats-gapping__sd-text {
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.stats-gapping__muted {
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-height: 640px) {
+  .stats-flight,
+  .stats-dispersion,
+  .stats-gapping {
+    padding: 8px 18px 10px;
+  }
+}

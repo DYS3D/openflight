@@ -12,7 +12,14 @@ import { useUnitPreference } from '../../state/useUnitPreference';
 import { useI18n } from '../../i18n/useI18n';
 import { formatDistance, formatSpeed, getDistanceUnit, getSpeedUnit } from '../../utils/units';
 import { MetricCard } from '../ui/MetricCard';
+import { SegmentedControl } from '../ui/SegmentedControl';
 import { PanelHeader } from './PanelHeader';
+import { StatsDispersionView } from './StatsDispersionView';
+import { StatsFlightView } from './StatsFlightView';
+import { StatsGappingView } from './StatsGappingView';
+import './statsViews.css';
+
+export type StatsView = 'summary' | 'flight' | 'dispersion' | 'gapping';
 
 interface StatsPanelProps {
   shots: Shot[];
@@ -21,6 +28,8 @@ interface StatsPanelProps {
   profileName: string;
   /** Pinned header control, e.g. Clear session. */
   headerAction?: ReactNode;
+  /** For tests; the kiosk always opens on Summary. */
+  initialView?: StatsView;
 }
 
 interface StatTile {
@@ -35,8 +44,16 @@ interface StatTile {
  * filter chips above the tiles. Six tiles for a ball-strike session (3x2 as
  * drawn), four for a swing-speed one.
  */
-export function StatsPanel({ shots, activeClub, profileId, profileName, headerAction }: StatsPanelProps) {
+export function StatsPanel({
+  shots,
+  activeClub,
+  profileId,
+  profileName,
+  headerAction,
+  initialView = 'summary',
+}: StatsPanelProps) {
   const { t } = useI18n();
+  const [view, setView] = useState<StatsView>(initialView);
   const profileShots = useMemo(() => filterShotsByProfile(shots, profileId), [shots, profileId]);
   const hasShotsForActiveClub = profileShots.some((shot) => shot.club === activeClub);
   const [selectedClub, setSelectedClub] = useState<string | null>(hasShotsForActiveClub ? activeClub : null);
@@ -167,23 +184,61 @@ export function StatsPanel({ shots, activeClub, profileId, profileName, headerAc
     </div>
   );
 
+  const viewSwitch = (
+    <div className="stats-panel__views">
+      <SegmentedControl
+        ariaLabel={t('stats.views')}
+        value={view}
+        options={[
+          { id: 'summary', label: t('stats.viewSummary') },
+          { id: 'flight', label: t('stats.viewFlight') },
+          { id: 'dispersion', label: t('stats.viewDispersion') },
+          { id: 'gapping', label: t('stats.viewGapping') },
+        ]}
+        onChange={setView}
+      />
+    </div>
+  );
+
   return (
     <div className="panel">
-      <PanelHeader title={t('nav.stats')} subtitle={profileName} actions={headerAction} />
+      <PanelHeader
+        title={t('nav.stats')}
+        subtitle={profileName}
+        actions={
+          <>
+            {viewSwitch}
+            {headerAction}
+          </>
+        }
+      />
       <div className="panel__body stats-panel">
-        {profileShots.length > 0 ? clubFilters : null}
-        {profileShots.length === 0 ? (
-          <div className="panel__body--empty">
-            <span className="panel__empty-title">{t('stats.noShots')}</span>
-            <span className="panel__empty-detail">{t('stats.noShotsDetail')}</span>
-          </div>
-        ) : (
-          <div className={`stats-panel__grid stats-panel__grid--of-${tiles.length}`}>
-            {tiles.map((tile) => (
-              <MetricCard key={tile.id} label={tile.label} value={tile.value} unit={tile.unit} labelPosition="above" />
-            ))}
-          </div>
-        )}
+        {view === 'summary' ? (
+          <>
+            {profileShots.length > 0 ? clubFilters : null}
+            {profileShots.length === 0 ? (
+              <div className="panel__body--empty">
+                <span className="panel__empty-title">{t('stats.noShots')}</span>
+                <span className="panel__empty-detail">{t('stats.noShotsDetail')}</span>
+              </div>
+            ) : (
+              <div className={`stats-panel__grid stats-panel__grid--of-${tiles.length}`}>
+                {tiles.map((tile) => (
+                  <MetricCard
+                    key={tile.id}
+                    label={tile.label}
+                    value={tile.value}
+                    unit={tile.unit}
+                    labelPosition="above"
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        ) : null}
+        {view === 'flight' ? <StatsFlightView shots={profileShots} unitSystem={unitSystem} /> : null}
+        {view === 'dispersion' ? <StatsDispersionView shots={profileShots} unitSystem={unitSystem} /> : null}
+        {view === 'gapping' ? <StatsGappingView shots={profileShots} unitSystem={unitSystem} /> : null}
       </div>
     </div>
   );

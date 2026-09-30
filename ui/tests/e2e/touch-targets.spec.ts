@@ -140,6 +140,18 @@ for (const viewport of KIOSK_VIEWPORTS) {
         .getByRole('button', { name: 'Cancel' })
         .click();
 
+      // Stats sub-views: header switch, dispersion legend chips, mishit toggle.
+      const statsViews = page.getByRole('group', { name: 'Stats view' });
+      for (const view of ['Flight', 'Dispersion', 'Gapping']) {
+        await statsViews.getByRole('button', { name: view, exact: true }).click();
+        await expect(statsViews.getByRole('button', { name: view, exact: true })).toHaveAttribute(
+          'aria-pressed',
+          'true'
+        );
+        await check(`stats (${view.toLowerCase()})`);
+      }
+      await statsViews.getByRole('button', { name: 'Summary', exact: true }).click();
+
       // Shots: row buttons, delete, and the expanded validation editor.
       await page.getByRole('button', { name: 'Shots' }).click();
       await expect(page.locator('.shots-panel__row')).toHaveCount(2);
@@ -175,6 +187,14 @@ for (const viewport of KIOSK_VIEWPORTS) {
       await page.getByRole('button', { name: 'Profiles' }).click();
       await expect(page.getByLabel('Remove Alex')).toBeVisible();
       await check('profiles (two profiles)');
+
+      // Practice (menu → Practice): game switch, distance steppers, New round.
+      await page.getByRole('button', { name: 'Open menu' }).click();
+      await page.getByRole('dialog', { name: 'Menu' }).getByRole('button', { name: 'Practice' }).click();
+      await expect(page.locator('.panel-header__title')).toHaveText('Practice');
+      await check('practice (target)');
+      await page.getByRole('group', { name: 'Game' }).getByRole('button', { name: 'Ladder' }).click();
+      await check('practice (ladder)');
 
       // Debug: sub-tabs plus the Record header action.
       await page.getByRole('button', { name: 'Debug' }).click();

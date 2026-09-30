@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Shot, SpinQuality } from '../src/types/shot.js';
+import type { Shot, ShotFlight, SpinQuality } from '../src/types/shot.js';
 
 /** [avg_ball_speed, std_dev, smash_factor] */
 const CLUB_BALL_SPEEDS: Record<string, [number, number, number]> = {
@@ -109,6 +109,40 @@ export function estimateCarryYards(ballSpeedMph: number): number {
   return Math.round(ballSpeedMph * 1.45);
 }
 
+const FLIGHT_POINTS = 30;
+
+/** A plausible trace for the UI, not ballistics: a skewed parabola that drifts with start line and spin axis. */
+export function mockFlight(
+  carry: number,
+  ballSpeed: number,
+  launchV: number,
+  launchH: number,
+  spinAxis: number
+): ShotFlight {
+  const apex = carry * (0.06 + launchV * 0.006);
+  const startLine = Math.tan((launchH * Math.PI) / 180) * carry;
+  const curve = carry * (spinAxis / 100) * 0.8;
+  const points: [number, number, number][] = [];
+  for (let index = 0; index <= FLIGHT_POINTS; index += 1) {
+    const u = index / FLIGHT_POINTS;
+    const skewed = u ** 1.35;
+    points.push([
+      Math.round(u * carry * 10) / 10,
+      Math.round((startLine * u + curve * u * u) * 10) / 10,
+      Math.round(4 * apex * skewed * (1 - skewed) * 10) / 10,
+    ]);
+  }
+  const lateral = points[FLIGHT_POINTS]![1];
+  return {
+    points,
+    carry_yards: carry,
+    lateral_yards: lateral,
+    apex_yards: Math.round(apex * 10) / 10,
+    landing_angle_deg: Math.round((Math.atan((5.4 * apex) / carry) * 180) / Math.PI),
+    flight_time_s: Math.round((carry / (ballSpeed * 0.4889)) * 1.7 * 10) / 10,
+  };
+}
+
 export interface GenerateShotOptions {
   club: string;
   profileId: string;
@@ -168,5 +202,6 @@ export function generateShot(options: GenerateShotOptions): Shot {
       duration_seconds: 1.65,
       display_mirror_horizontal: true,
     },
+    flight: mockFlight(carry, ballSpeed, launchV, launchH, spinAxis),
   };
 }

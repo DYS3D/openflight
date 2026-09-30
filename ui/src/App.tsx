@@ -13,6 +13,7 @@ import { DebugView } from './components/DebugView';
 import { IWR6843Alert } from './components/IWR6843Alert';
 import { StatusBanner } from './components/StatusBanner';
 import { DisplayMode } from './components/DisplayMode';
+import { TvDisplay } from './components/TvDisplay';
 import { SimShotBadges } from './components/SimShotBadges';
 import { ShotProcessingArea } from './components/ShotProcessingArea';
 import { ShutdownDialog, type ShutdownState } from './components/ShutdownDialog';
@@ -30,6 +31,7 @@ import {
   PanelFooter,
   PanelAction,
   PickerOverlay,
+  PracticePanel,
   ShotsPanel,
   StatsPanel,
   clubSections,
@@ -41,6 +43,7 @@ import type { Profile } from './types/profile';
 import { getClubName } from './data/clubs';
 import { getTrainingImplementLabel } from './data/trainingImplements';
 import { unlockAudioCue } from './utils/audioCue';
+import { displayLayoutFromSearch } from './utils/displayLayout';
 import { useLaunchDaddy, LaunchDaddyOverlay, LaunchDaddyBrand } from './components/LaunchDaddy';
 
 import { useI18n } from './i18n/useI18n';
@@ -233,6 +236,12 @@ function AppContent() {
     isNewShot && latestShot && profileLatestShot && latestShot.timestamp === profileLatestShot.timestamp
   );
 
+  if (isDisplayRoute && displayLayoutFromSearch(window.location.search) === 'tv') {
+    return (
+      <TvDisplay connected={connected} shots={shots} profileId={activeProfileId} profileName={activeProfileName} />
+    );
+  }
+
   if (isDisplayRoute) {
     return (
       <DisplayMode connected={connected} captureSettings={captureSettings} latestShot={latestShot} shots={shots} />
@@ -357,7 +366,10 @@ function AppContent() {
           />
         )}
         {currentView === 'debug' && <DebugView />}
-        {mockMode && currentView === 'live' ? (
+        {currentView === 'practice' && (
+          <PracticePanel shots={shots} profileId={activeProfileId} profileName={activeProfileName} />
+        )}
+        {mockMode && (currentView === 'live' || currentView === 'practice') ? (
           <SimulateBubble
             label={isSwingSpeedMode ? t('app.simulateSwing') : t('app.simulateShot')}
             onSimulate={() => socketService.simulateShot()}
@@ -375,6 +387,10 @@ function AppContent() {
           updateStatus={updateStatus}
           onOpenUpdate={openUpdate}
           onCheckUpdates={() => socketService.checkForUpdates()}
+          onOpenPractice={() => {
+            setMenuOpen(false);
+            setCurrentView('practice');
+          }}
           onShutdown={() => {
             setMenuOpen(false);
             setShutdownState('confirm');

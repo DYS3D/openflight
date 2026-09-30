@@ -88,3 +88,16 @@ describe('MenuSheet software updates', () => {
     expect(html).toContain('>Check now</button>');
   });
 });
+
+describe('MenuSheet practice', () => {
+  it('offers Practice in the System section when the app wires it up', () => {
+    const html = renderToString(<MenuSheet onClose={() => {}} onShutdown={() => {}} onOpenPractice={() => {}} />);
+    const system = html.slice(html.indexOf('menu-sheet__section-title">System'));
+
+    expect(system).toContain('class="menu-sheet__practice">Practice</button>');
+  });
+
+  it('hides Practice without a handler', () => {
+    expect(renderMenu()).not.toContain('menu-sheet__practice');
+  });
+});

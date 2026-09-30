@@ -16,6 +16,7 @@ interface MenuSheetProps {
   updateStatus?: UpdateStatus | null;
   onOpenUpdate?: () => void;
   onCheckUpdates?: () => void;
+  onOpenPractice?: () => void;
 }
 
 /**
@@ -26,7 +27,14 @@ interface MenuSheetProps {
  * state had nowhere else to go. Battery lives in the footer.
  * Socket connection lives on the panel header LED.
  */
-export function MenuSheet({ onClose, onShutdown, updateStatus = null, onOpenUpdate, onCheckUpdates }: MenuSheetProps) {
+export function MenuSheet({
+  onClose,
+  onShutdown,
+  updateStatus = null,
+  onOpenUpdate,
+  onCheckUpdates,
+  onOpenPractice,
+}: MenuSheetProps) {
   const simStatuses = useSystemStore((state) => state.simStatuses);
   const { t } = useI18n();
   const { unitSystem, setUnitSystem } = useUnitPreference();
@@ -81,6 +89,11 @@ export function MenuSheet({ onClose, onShutdown, updateStatus = null, onOpenUpda
 
         <section className="menu-sheet__section">
           <span className="menu-sheet__section-title">{t('menu.system')}</span>
+          {onOpenPractice ? (
+            <button type="button" className="menu-sheet__practice" onClick={onOpenPractice}>
+              {t('practice.title')}
+            </button>
+          ) : null}
           {Object.keys(simStatuses).length > 0 ? (
             <div className="menu-sheet__status-row">
               <span className="menu-sheet__status-label">{t('menu.simulators')}</span>

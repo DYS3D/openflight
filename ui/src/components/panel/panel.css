@@ -1273,6 +1273,20 @@
   cursor: pointer;
 }
 
+.menu-sheet__practice {
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
 .panel-footer__menu {
   position: relative;
 }

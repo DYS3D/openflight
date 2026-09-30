@@ -25,8 +25,8 @@ Retained for existing builds. See [Legacy (K-LD7)](../legacy/index.md).
 
 | Document | Contents |
 | --- | --- |
-| [K-LD7 datasheet](../K-LD7_Datasheet.pdf) | Module specs |
-| [K-LD7 EVAL datasheet](../K-LD7-EVAL_Datasheet.pdf) | Evaluation board |
+| [K-LD7 datasheet](../legacy/K-LD7_Datasheet.pdf) | Module specs |
+| [K-LD7 EVAL datasheet](../legacy/K-LD7-EVAL_Datasheet.pdf) | Evaluation board |
 
 ## TI IWR6843
 

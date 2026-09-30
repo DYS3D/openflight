@@ -94,8 +94,8 @@ Standalone script for data gathering. No integration with the server or OPS243 y
 
 ### Datasheets
 
-- `docs/K-LD7_Datasheet.pdf` — Module datasheet
-- `docs/K-LD7-EVAL_Datasheet.pdf` — EVAL board datasheet
+- `docs/legacy/K-LD7_Datasheet.pdf` — Module datasheet
+- `docs/legacy/K-LD7-EVAL_Datasheet.pdf` — EVAL board datasheet
 
 ## Future Phases (not in scope now)
 

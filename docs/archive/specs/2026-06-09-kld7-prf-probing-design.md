@@ -34,7 +34,7 @@ This is not a broad brute-force scanner. The unsafe phase must only send command
 - `src/openflight/kld7/tracker.py` configures `RRAI`, `RSPI`, `RBFR`, `DEDI`, `THOF`, `TRFT`, `MIAN`, `MAAN`, `MIRA`, `MARA`, `MISP`, `MASP`, and `VISU`.
 - `src/openflight/kld7/serial_io.py` connects through the existing `kld7.KLD7` package at 3 Mbaud and patches packet reads for robust RADC streaming.
 - The installed `kld7` package is a thin wrapper around binary packets: 4-byte command, 4-byte length, optional payload, then `RESP` plus data packets.
-- `docs/K-LD7_Datasheet.pdf` lists documented commands: `INIT`, `GNFD`, `GRPS`, `SRPS`, `RFSE`, `GBYE`, and individual parameter setters including `RBFR`, `RSPI`, `RRAI`, `THOF`, `TRFT`, `VISU`, detection bounds, output routing, hold time, and micro-detection settings.
+- `docs/legacy/K-LD7_Datasheet.pdf` lists documented commands: `INIT`, `GNFD`, `GRPS`, `SRPS`, `RFSE`, `GBYE`, and individual parameter setters including `RBFR`, `RSPI`, `RRAI`, `THOF`, `TRFT`, `VISU`, detection bounds, output routing, hold time, and micro-detection settings.
 - The datasheet notes RADC is 3072 bytes and recommends the highest baud rate. It also states real-time readout is not possible if requested data readout time exceeds the typical frame duration.
 
 ## Architecture

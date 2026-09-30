@@ -33,6 +33,7 @@ from flask_cors import CORS
 from flask_socketio import SocketIO
 
 from . import __version__
+from .access import TOKEN_HEADER, TOKEN_QUERY_PARAM, AccessPolicy, add_access_args
 from .ballistics import AIR_DENSITY_STD, air_density_kg_m3, resolve_launch, simulate
 from .clubs import ClubType
 from .clubs.physics import (
@@ -92,6 +93,71 @@ FRONTEND_SOURCE_DIR = REPO_ROOT / "ui"
 app = Flask(__name__, static_folder=str(FRONTEND_DIST_DIR), static_url_path="")
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+
+# --auth-required (off by default) and the request limits. Set in main().
+access_policy: AccessPolicy = AccessPolicy.disabled()
+request_rate_limit_per_s: float = 0.0
+_rate_buckets: dict[str, list[float]] = {}
+_rate_lock = threading.Lock()
+RATE_LIMIT_BURST_S = 2.0
+
+
+def _request_token(auth=None) -> Optional[str]:
+    """Token from Socket.IO auth, the X-OpenFlight-Token / bearer header, or ?token=."""
+    if isinstance(auth, dict) and isinstance(auth.get(TOKEN_QUERY_PARAM), str):
+        return auth[TOKEN_QUERY_PARAM]
+    header = request.headers.get(TOKEN_HEADER)
+    if header:
+        return header
+    authorization = request.headers.get("Authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return request.args.get(TOKEN_QUERY_PARAM)
+
+
+def _access_refusal(auth=None) -> Optional[tuple[str, int]]:
+    """Why the current request must be refused under --auth-required, or None."""
+    if not access_policy.enabled:
+        return None
+    if not access_policy.origin_ok(request.headers.get("Origin")):
+        return "Origin not allowed", 403
+    if access_policy.client_is_exempt(request.remote_addr):
+        return None
+    if access_policy.token_ok(_request_token(auth)):
+        return None
+    return "Device token required", 401
+
+
+def _rate_limited(remote_addr: Optional[str], now: Optional[float] = None) -> bool:
+    """Per-IP sliding window: more than limit*burst requests in the window is refused."""
+    if request_rate_limit_per_s <= 0 or access_policy.client_is_exempt(remote_addr):
+        return False
+    now = time.monotonic() if now is None else now
+    key = remote_addr or "?"
+    cap = int(request_rate_limit_per_s * RATE_LIMIT_BURST_S)
+    with _rate_lock:
+        window = [t for t in _rate_buckets.get(key, []) if now - t < RATE_LIMIT_BURST_S]
+        if len(window) >= cap:
+            _rate_buckets[key] = window
+            return True
+        window.append(now)
+        _rate_buckets[key] = window
+        return False
+
+
+@app.before_request
+def _enforce_access_and_limits():
+    if _rate_limited(request.remote_addr):
+        return jsonify({"error": "Too many requests"}), 429
+    cap = app.config.get("MAX_CONTENT_LENGTH")
+    if cap and (request.content_length or 0) > cap:
+        return jsonify({"error": "Request body too large"}), 413
+    refusal = _access_refusal()
+    if refusal is not None:
+        message, status = refusal
+        return jsonify({"error": message}), status
+    return None
+
 
 # Global state
 monitor = None
@@ -1879,8 +1945,13 @@ def start_power_monitor(provider: str) -> None:
 
 
 @socketio.on("connect")
-def handle_connect(*_args):
-    """Send the connecting client the current state."""
+def handle_connect(auth=None, *_args):
+    """Admit the client (token/origin under --auth-required) and send it the current state."""
+    if has_request_context():
+        refusal = _access_refusal(auth)
+        if refusal is not None:
+            logger.warning("[SERVER] Rejected socket from %s: %s", request.remote_addr, refusal[0])
+            return False
     logger.info("Client connected")
     _emit_sim_snapshot()
     _reply("profiles", get_profile_store().snapshot())
@@ -4962,6 +5033,24 @@ def main():
         help="K-LD7 horizontal angle offset in degrees (default: 0.0)",
     )
     add_radar_timing_args(parser)
+    add_access_args(parser)
+    server_group = parser.add_argument_group("Web server limits (off by default)")
+    server_group.add_argument(
+        "--request-rate-limit",
+        type=float,
+        default=0.0,
+        metavar="PER_SECOND",
+        help=(
+            "Refuse HTTP requests from one non-loopback IP above this sustained rate "
+            f"(burst {RATE_LIMIT_BURST_S:g}s). 0 = no limit (default)."
+        ),
+    )
+    server_group.add_argument(
+        "--max-request-bytes",
+        type=int,
+        default=0,
+        help="Reject HTTP request bodies larger than this (413). 0 = unlimited (default).",
+    )
     args = parser.parse_args()
     _apply_kld7_device_defaults(args)
 
@@ -5019,11 +5108,17 @@ def main():
         parser.error(f"--ops-baud must be one of {supported} (got {args.ops_baud})")
     global ballistics_enabled
     global air_density
+    site_defaults = (args.altitude_ft, args.temperature_f, args.humidity) == (0.0, 59.0, 0.0)
     try:
-        air_density = air_density_kg_m3(
-            altitude_m=args.altitude_ft * 0.3048,
-            temperature_c=(args.temperature_f - 32.0) * 5.0 / 9.0,
-            relative_humidity=args.humidity / 100.0,
+        # Defaults keep the exact ISA constant rather than a rounded recomputation.
+        air_density = (
+            AIR_DENSITY_STD
+            if site_defaults
+            else air_density_kg_m3(
+                altitude_m=args.altitude_ft * 0.3048,
+                temperature_c=(args.temperature_f - 32.0) * 5.0 / 9.0,
+                relative_humidity=args.humidity / 100.0,
+            )
         )
     except ValueError as exc:
         parser.error(f"--altitude-ft/--temperature-f/--humidity: {exc}")
@@ -5048,6 +5143,15 @@ def main():
     ballistics_enabled = args.ballistics
     battery_provider = args.battery
     profile_store = ProfileStore(args.profiles_path)
+    global access_policy, request_rate_limit_per_s
+    if args.request_rate_limit < 0 or args.max_request_bytes < 0:
+        parser.error("--request-rate-limit and --max-request-bytes must not be negative")
+    try:
+        access_policy = AccessPolicy.from_args(args)
+    except OSError as exc:
+        parser.error(f"--auth-token-file: {exc}")
+    request_rate_limit_per_s = args.request_rate_limit
+    app.config["MAX_CONTENT_LENGTH"] = args.max_request_bytes or None
     startup_status = StartupStatusReporter(
         args.startup_status_file,
         configured_startup_components(
@@ -5355,11 +5459,25 @@ def main():
         logger.info("Running in SWING SPEED mode - no ball impact trigger required")
 
     logger.info("Server starting at http://%s:%s", args.host, args.web_port)
+    if access_policy.enabled:
+        logger.info(
+            "Access control ON: non-loopback clients need the token in %s "
+            "(header %s or ?%s=); browsers limited to %s",
+            args.auth_token_file,
+            TOKEN_HEADER,
+            TOKEN_QUERY_PARAM,
+            ", ".join(sorted(access_policy.allowed_hosts)),
+        )
+    if request_rate_limit_per_s:
+        logger.info("Request rate limit: %.0f/s per non-loopback IP", request_rate_limit_per_s)
     startup_status.start("server", "Starting OpenFlight server")
 
     try:
         # Note: Flask debug mode (reloader) is disabled to prevent duplicate processes
         # fighting over the serial port. OpenFlight --debug enables verbose logging only.
+        # allow_unsafe_werkzeug stays: Flask-SocketIO refuses to start Werkzeug
+        # when stdin is not a TTY (systemd), and the threading async mode has no
+        # other in-process server. See docs/setup/hardware-validation.md.
         socketio.run(
             app, host=args.host, port=args.web_port, debug=False, allow_unsafe_werkzeug=True
         )

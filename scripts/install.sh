@@ -87,7 +87,7 @@ HARDWARE_GROUPS=(dialout gpio i2c video)
 # Overridable so tests can point the boot-file edits at a temp directory.
 BOOT_DIR="${OPENFLIGHT_BOOT_DIR:-/boot/firmware}"
 LOG_FILE="${OPENFLIGHT_INSTALL_LOG:-$HOME/openflight-install.log}"
-TOTAL_STEPS=10
+TOTAL_STEPS=11
 
 ASSUME_YES=false
 WITH_IWR6843=false
@@ -424,6 +424,23 @@ configure_kiosk() {
     run sudo raspi-config nonint do_blanking 1
 }
 
+# The device token only matters with `--auth-required` (off by default), but
+# creating it here means the installer can show it once for phones/laptops.
+device_token() {
+    step "Device token (for --auth-required)"
+    if [ "$DRY_RUN" = true ]; then
+        run uv --directory "$PROJECT_DIR" run python -m openflight.access print-token
+        return 0
+    fi
+    local token
+    if token="$(uv --directory "$PROJECT_DIR" run python -m openflight.access print-token)"; then
+        log "Device token (also in ~/.config/openflight/token): $token"
+        log "Only needed if you start the server with --auth-required; see docs/setup/hardware-validation.md"
+    else
+        warn "Could not create the device token; run: uv run python -m openflight.access print-token"
+    fi
+}
+
 software_check() {
     step "Software self-check"
     run uv --directory "$PROJECT_DIR" run python scripts/hardware-test/self_test.py --software-only \
@@ -450,6 +467,7 @@ main() {
     install_udev_rules
     install_service
     configure_kiosk
+    device_token
     software_check
 
     echo

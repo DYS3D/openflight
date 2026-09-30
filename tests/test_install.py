@@ -26,6 +26,7 @@ INSTALL_STEPS = [
     "udev rules",
     "openflight systemd service",
     "Kiosk autostart",
+    "Device token (for --auth-required)",
     "Software self-check",
 ]
 

@@ -29,6 +29,11 @@ Binding, ports, and debug output.
 | `--mock-swing-speed` | flag | Run swing speed training mode with simulated reps and no OPS radar |
 | `--host` | default `0.0.0.0` | Host to bind to (default: 0.0.0.0) |
 | `--web-port` | int; default `8080` | Web server port (default: 8080) |
+| `--auth-required` | flag; default off | Require the device token from clients that are not on the Pi itself and only accept browsers from the Pi's own hostname/IP, `localhost`, or `--allowed-origin`. The kiosk (loopback) is always exempt. Off = today's open server |
+| `--auth-token-file` | path; default `~/.config/openflight/token` | Device token file (created with mode 0600 on first `--auth-required` start or by the installer; `$OPENFLIGHT_AUTH_TOKEN` overrides it). Send it as `X-OpenFlight-Token`, `Authorization: Bearer`, `?token=`, or Socket.IO `auth: {token}` |
+| `--allowed-origin` | repeatable | Extra browser origin/hostname accepted with `--auth-required` |
+| `--request-rate-limit` | float/s; default `0` | Refuse HTTP requests from one non-loopback IP above this sustained rate (2 s burst window) with 429. 0 = no limit |
+| `--max-request-bytes` | int; default `0` | Reject HTTP bodies larger than this with 413. 0 = unlimited |
 | `--startup-status-file` | path | Write structured initialization progress for the optional kiosk splash |
 | `--debug`, `-d` | flag | Enable verbose FFT/CFAR debug output |
 | `--radar-log` | flag | Log raw radar data to console (Python logging) |

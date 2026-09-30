@@ -85,7 +85,7 @@ class TestServerFlags:
 
     def test_defaults_keep_standard_density(self, monkeypatch):
         self._run_main(monkeypatch)
-        assert math.isclose(server_module.air_density, AIR_DENSITY_STD, rel_tol=1e-3)
+        assert server_module.air_density == AIR_DENSITY_STD
 
     def test_site_flags_set_density(self, monkeypatch):
         self._run_main(monkeypatch, "--altitude-ft", "5280", "--temperature-f", "85")

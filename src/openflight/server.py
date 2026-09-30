@@ -303,6 +303,9 @@ inclinometer_runtime_config: dict = {"enabled": False}
 ballistics_enabled: bool = True
 # Air density for the ballistic model, from --altitude-ft/--temperature-f/--humidity.
 air_density: float = AIR_DENSITY_STD
+# TrackMan normalization: sea level, 77 °F (25 °C), 0% humidity, no wind.
+NORMALIZED_AIR_DENSITY = air_density_kg_m3(altitude_m=0.0, temperature_c=25.0)
+show_normalized_carry: bool = False
 
 # Simulator connectors (optional). Populated in main() from config/sim.json +
 # CLI flags; shots fan out to every connected connector. Player/club state is
@@ -1122,6 +1125,8 @@ def shot_to_dict(shot: Shot) -> dict:
         if data[field] is not None:
             data[field] = round(data[field], digits) if digits is not None else round(data[field])
     data["carry_range"] = [round(value) for value in data["carry_range"]]
+    if "carry_normalized_yards" in data:
+        data["carry_normalized_yards"] = round(data["carry_normalized_yards"])
     if shot.flight is not None:
         data["flight"] = shot.flight
     return data
@@ -3696,6 +3701,14 @@ def _finalize_shot_detected(
             trajectory = simulate(conditions, air_density=air_density)
             shot.carry_spin_adjusted = trajectory.carry_yards
             shot.flight = _flight_payload(trajectory)
+            if show_normalized_carry:
+                shot.carry_normalized_yards = simulate(
+                    conditions, air_density=NORMALIZED_AIR_DENSITY
+                ).carry_yards
+                logger.info(
+                    "[SERVER] Normalized carry: %.0f yds (sea level, 77 °F, 0%% RH)",
+                    shot.carry_normalized_yards,
+                )
             logger.info(
                 "[SERVER] Ballistic carry: %.0f yds (spin: %.0f rpm, source: %s)",
                 shot.carry_spin_adjusted,
@@ -4976,6 +4989,14 @@ def main():
         help="Relative humidity in percent for the ballistic carry model (default: 0)",
     )
     parser.add_argument(
+        "--show-normalized-carry",
+        action="store_true",
+        help=(
+            "Also report carry_normalized_yards: the same launch re-simulated at "
+            "TrackMan normalized conditions (sea level, 77 °F, 0%% humidity). Default off"
+        ),
+    )
+    parser.add_argument(
         "--log-retention-days",
         type=float,
         default=90,
@@ -5411,6 +5432,8 @@ def main():
     calculated_spin_enabled = args.calculated_spin
     global spin_axis_model
     spin_axis_model = args.spin_axis_model
+    global show_normalized_carry
+    show_normalized_carry = args.show_normalized_carry
     global radar_auto_reconnect_enabled
     radar_auto_reconnect_enabled = args.radar_auto_reconnect
     ballistics_enabled = args.ballistics

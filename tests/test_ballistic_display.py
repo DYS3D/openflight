@@ -1,12 +1,13 @@
-"""Ballistic display data in UI shot payloads: simulated flight path."""
+"""Ballistic display data in UI shot payloads: flight path and normalized carry."""
 
 import json
+import sys
 from datetime import datetime
 
 import pytest
 
 from openflight import server as server_module
-from openflight.ballistics import resolve_launch, simulate
+from openflight.ballistics import air_density_kg_m3, resolve_launch, simulate
 from openflight.clubs import ClubType
 from openflight.launch_monitor import Shot
 from openflight.session_logger import SessionLogger
@@ -39,6 +40,7 @@ def emitted(monkeypatch):
     monkeypatch.setattr(server_module, "calculated_spin_enabled", False)
     monkeypatch.setattr(server_module, "ballistics_enabled", True)
     monkeypatch.setattr(server_module, "air_density", server_module.AIR_DENSITY_STD)
+    monkeypatch.setattr(server_module, "show_normalized_carry", False)
     monkeypatch.setattr(server_module, "debug_mode", False)
     monkeypatch.setattr(server_module, "sim_connectors", [])
     monkeypatch.setattr(server_module, "get_session_logger", lambda: None)
@@ -206,6 +208,104 @@ class TestMockShotFlight:
 
         assert shot.flight is not None
         assert shot.to_dict() == before
+
+
+class TestNormalizedCarry:
+    def test_standard_conditions_are_trackman_normalization(self):
+        assert server_module.NORMALIZED_AIR_DENSITY == pytest.approx(
+            air_density_kg_m3(altitude_m=0.0, temperature_c=25.0, relative_humidity=0.0)
+        )
+        assert server_module.NORMALIZED_AIR_DENSITY == pytest.approx(1.184, abs=0.001)
+
+    def test_off_by_default_key_absent(self, emitted):
+        assert server_module.show_normalized_carry is False
+        shot = _live_shot()
+
+        payload = _finalize(shot)
+
+        assert shot.carry_normalized_yards is None
+        assert "carry_normalized_yards" not in payload
+        assert "carry_normalized_yards" not in shot.to_dict()
+
+    def test_on_equals_simulation_at_standard_density(self, monkeypatch, emitted):
+        monkeypatch.setattr(server_module, "show_normalized_carry", True)
+        shot = _live_shot()
+
+        payload = _finalize(shot)
+
+        expected = simulate(
+            resolve_launch(shot), air_density=server_module.NORMALIZED_AIR_DENSITY
+        ).carry_yards
+        assert shot.carry_normalized_yards == pytest.approx(expected)
+        assert payload["carry_normalized_yards"] == round(expected)
+        assert shot.to_dict()["carry_normalized_yards"] == pytest.approx(expected)
+
+    def test_on_differs_from_actual_carry_at_altitude(self, monkeypatch, emitted):
+        monkeypatch.setattr(server_module, "show_normalized_carry", True)
+        monkeypatch.setattr(server_module, "air_density", air_density_kg_m3(altitude_m=1609.0))
+        shot = _live_shot()
+
+        payload = _finalize(shot)
+
+        assert shot.carry_spin_adjusted - shot.carry_normalized_yards > 5.0
+        assert payload["carry_normalized_yards"] < payload["carry_spin_adjusted"]
+
+    def test_on_is_logged_in_the_session_shot_entry(self, monkeypatch, tmp_path, emitted):
+        monkeypatch.setattr(server_module, "show_normalized_carry", True)
+        session_log = SessionLogger(log_dir=tmp_path, enabled=True)
+        session_log.start_session(mode="rolling-buffer", trigger_type="sound")
+        monkeypatch.setattr(server_module, "get_session_logger", lambda: session_log)
+        shot = _live_shot()
+
+        _finalize(shot)
+        session_log.flush()
+
+        entries = [json.loads(line) for line in session_log.session_path.read_text().splitlines()]
+        logged = [entry for entry in entries if entry["type"] == "shot_detected"]
+        assert logged[0]["carry_normalized_yards"] == pytest.approx(shot.carry_normalized_yards)
+        session_log.end_session()
+
+    @pytest.mark.parametrize("ballistics", [False, True])
+    def test_absent_without_the_physics_simulation(self, monkeypatch, emitted, ballistics):
+        monkeypatch.setattr(server_module, "show_normalized_carry", True)
+        monkeypatch.setattr(server_module, "ballistics_enabled", ballistics)
+        shot = _live_shot(mode="mock", spin_source="mock") if ballistics else _live_shot()
+
+        payload = _finalize(shot)
+
+        assert "carry_normalized_yards" not in payload
+
+    def test_flag_sets_the_runtime_toggle(self, monkeypatch):
+        for name in (
+            "show_normalized_carry",
+            "ballistics_enabled",
+            "air_density",
+            "calculated_spin_enabled",
+            "spin_axis_model",
+            "battery_provider",
+            "profile_store",
+            "ball_speed_correction_enabled",
+            "ball_speed_correction_distance_ft",
+            "ball_speed_correction_ball_above_radar_ft",
+            "_VERTICAL_RADAR_GATE_BYPASS",
+            "radar_auto_reconnect_enabled",
+            "sim_connectors",
+        ):
+            monkeypatch.setattr(server_module, name, getattr(server_module, name))
+        monkeypatch.setattr(server_module, "init_session_logger", lambda **_kw: None)
+        monkeypatch.setattr(server_module, "start_monitor", lambda **_kw: None)
+        monkeypatch.setattr(server_module, "_cleanup_hardware_for_shutdown", lambda: None)
+        monkeypatch.setattr(server_module, "install_signal_handlers", lambda: None)
+        monkeypatch.setattr(server_module.socketio, "run", lambda *_a, **_kw: None)
+        base_argv = ["openflight-server", "--mock", "--no-logging"]
+
+        monkeypatch.setattr(sys, "argv", base_argv)
+        server_module.main()
+        assert server_module.show_normalized_carry is False
+
+        monkeypatch.setattr(sys, "argv", [*base_argv, "--show-normalized-carry"])
+        server_module.main()
+        assert server_module.show_normalized_carry is True
 
 
 class TestSwingSpeedPayload:

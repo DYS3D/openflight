@@ -309,6 +309,8 @@ class Shot:
     )
     spin_axis_deg: Optional[float] = None  # Spin axis tilt: 0=backspin, +right(fade), -left(draw)
     inclinometer: Optional[dict] = None  # Stable enclosure orientation used for this shot
+    # Carry re-simulated at TrackMan normalized conditions (--show-normalized-carry).
+    carry_normalized_yards: Optional[float] = None
     # Downsampled simulated flight for UI display only; never written to session logs.
     flight: Optional[dict] = field(default=None, repr=False, compare=False)
 
@@ -399,7 +401,7 @@ class Shot:
 
     def to_dict(self) -> dict:
         """Return the canonical, unrounded representation of this shot."""
-        return {
+        data = {
             "shot_number": self.shot_number,
             "ball_speed_mph": self.ball_speed_mph,
             "ball_speed_raw_mph": self.ball_speed_raw_mph,
@@ -477,6 +479,9 @@ class Shot:
             "spin_rejection_reason": self.spin_rejection_reason,
             "carry_spin_adjusted": self.carry_spin_adjusted,
         }
+        if self.carry_normalized_yards is not None:
+            data["carry_normalized_yards"] = self.carry_normalized_yards
+        return data
 
 
 def summarize_shots(shots: List[Shot], mode: str) -> dict:

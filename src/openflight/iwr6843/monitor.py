@@ -12,9 +12,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+import serial
+
 from openflight.gpio_factory import ensure_lgpio_pin_factory
 from openflight.iwr6843.driver import IWR6843Radar
 from openflight.iwr6843.dump import HEADER, parse_header, payload_nbytes
+from openflight.radar_reconnect import (
+    RADAR_STATE_CONNECTED,
+    RADAR_STATE_RECONNECTING,
+    reconnect_backoff_s,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +88,21 @@ class IWR6843CaptureMonitor:
         match_tolerance_s: float = 0.75,
         save_dumps: bool = False,
         trigger_observers: list[Callable[[float], None]] | None = None,
+        radar_auto_reconnect: bool = False,
+        radar_status_callback: Callable[[str], None] | None = None,
+        radar_factory: Callable[[str | None], IWR6843Radar] = IWR6843Radar,
     ):
         self.config_path = Path(config_path)
         self.output_dir = Path(output_dir).expanduser()
         self.gpio_pin = gpio_pin
         self.match_tolerance_s = match_tolerance_s
         self.save_dumps = save_dumps
-        self.radar = radar or IWR6843Radar(port=port)
+        self.radar = radar or radar_factory(port)
+        self.radar_auto_reconnect = radar_auto_reconnect
+        self.radar_state = RADAR_STATE_CONNECTED
+        self._configured_port = port
+        self._radar_factory = radar_factory
+        self._radar_status_callback = radar_status_callback
         self._button_factory = button_factory
         self._button = None
         self._running = False
@@ -98,6 +113,7 @@ class IWR6843CaptureMonitor:
         self._events: queue.Queue[float | None] = queue.Queue(maxsize=1)
         self._captures: deque[IWR6843Capture] = deque(maxlen=_MAX_PENDING_CAPTURES)
         self._condition = threading.Condition()
+        self._stop_event = threading.Event()
         self._worker: threading.Thread | None = None
         self._trigger_observers = list(trigger_observers or [])
 
@@ -131,6 +147,7 @@ class IWR6843CaptureMonitor:
             # No gpiozero debounce: lgpio delays delivery by the debounce interval,
             # which previously cost the first 50 ms of ball flight.
             self._button = button_factory(self.gpio_pin, pull_up=False, bounce_time=None)
+            self._stop_event.clear()
             self._running = True
             self._worker = threading.Thread(
                 target=self._capture_loop,
@@ -176,6 +193,9 @@ class IWR6843CaptureMonitor:
             return False
         edge_timestamp = time.time() if timestamp is None else float(timestamp)
         with self._condition:
+            if self.radar_state == RADAR_STATE_RECONNECTING:
+                logger.debug("[IWR6843] Ignoring trigger edge while reconnecting")
+                return False
             # Reject acoustic ringing and any second edge while the seven-second
             # UART dump is in flight. The OPS side makes the same shot wait.
             if (
@@ -222,6 +242,7 @@ class IWR6843CaptureMonitor:
             path = None
             error = None
             metadata = None
+            link_error: Exception | None = None
             try:
                 logger.info(
                     "[IWR6843] Trigger #%d: dumping firmware-frozen L3 ring",
@@ -235,7 +256,10 @@ class IWR6843CaptureMonitor:
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 error = str(exc)
                 raw = None
-                logger.warning("[IWR6843] Capture #%d failed: %s", sequence, exc, exc_info=True)
+                if self.radar_auto_reconnect and isinstance(exc, (serial.SerialException, OSError)):
+                    link_error = exc
+                else:
+                    logger.warning("[IWR6843] Capture #%d failed: %s", sequence, exc, exc_info=True)
             completed = time.time()
             capture = IWR6843Capture(
                 sequence=sequence,
@@ -265,6 +289,78 @@ class IWR6843CaptureMonitor:
                 f"{len(raw)} bytes" if raw is not None else error,
                 capture.dump_duration_s,
             )
+            if link_error is not None:
+                self._reconnect_radar(link_error)
+
+    def _set_radar_state(self, state: str) -> None:
+        """Record the serial link state and report it without breaking capture."""
+        self.radar_state = state
+        if self._radar_status_callback is None:
+            return
+        try:
+            self._radar_status_callback(state)
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.warning("[IWR6843] Radar status callback failed", exc_info=True)
+
+    def _reconnect_radar(self, error: Exception) -> None:
+        """Close the dead port and re-detect the board with capped back-off.
+
+        Logs once when the link is lost and once when it is back; individual
+        failed attempts are debug-only. GPIO edges are ignored meanwhile.
+        Returns once the config is re-sent or the monitor is stopped.
+        """
+        logger.error(
+            "[IWR6843] Serial link lost on %s (%s); reconnecting",
+            self.port,
+            error,
+        )
+        self._set_radar_state(RADAR_STATE_RECONNECTING)
+        self._close_quietly(self.radar)
+
+        failed_attempts = 0
+        started = time.monotonic()
+        while self._running:
+            try:
+                # Auto-detect again (stable udev name first) unless a port
+                # was pinned on the command line.
+                radar = self._radar_factory(self._configured_port)
+            except (serial.SerialException, OSError, RuntimeError) as exc:
+                failed_attempts += 1
+                self._wait_before_retry(failed_attempts, exc)
+                continue
+            try:
+                radar.send_config(str(self.config_path))
+            except (serial.SerialException, OSError, RuntimeError) as exc:
+                self._close_quietly(radar)
+                failed_attempts += 1
+                self._wait_before_retry(failed_attempts, exc)
+                continue
+            self.radar = radar
+            logger.info(
+                "[IWR6843] Reconnected on %s after %d failed attempt(s) in %.0fs",
+                self.port,
+                failed_attempts,
+                time.monotonic() - started,
+            )
+            self._set_radar_state(RADAR_STATE_CONNECTED)
+            return
+
+    def _wait_before_retry(self, failed_attempts: int, exc: Exception) -> None:
+        delay = reconnect_backoff_s(failed_attempts)
+        logger.debug(
+            "[IWR6843] Reconnect attempt %d failed (%s); retry in %.0fs",
+            failed_attempts,
+            exc,
+            delay,
+        )
+        self._stop_event.wait(delay)
+
+    @staticmethod
+    def _close_quietly(radar: IWR6843Radar) -> None:
+        try:
+            radar.close()
+        except (serial.SerialException, OSError):
+            logger.debug("[IWR6843] Ignoring close error on lost port", exc_info=True)
 
     def _discard_expired_captures(self) -> None:
         """Drop completed captures nobody claimed in time. Caller holds the lock."""
@@ -337,6 +433,7 @@ class IWR6843CaptureMonitor:
             return
         self._armed = False
         self._running = False
+        self._stop_event.set()
         if self._button is not None:
             self._button.when_pressed = None
             self._button.close()

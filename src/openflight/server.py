@@ -49,6 +49,7 @@ from .ops243 import (
 )
 from .power import SUPPORTED_BATTERY_PROVIDERS, PowerMonitor, PowerStatus
 from .profiles import ProfileStore
+from .radar_reconnect import RADAR_STATE_CONNECTED
 from .rolling_buffer.monitor import estimate_carry_with_spin, get_optimal_spin_for_ball_speed
 from .session_logger import (
     SessionLogger,
@@ -940,6 +941,7 @@ def _kld7_angle_log_payload(
 def _session_start_config() -> dict:
     """Return hardware configuration recorded at session start."""
     config = radar_config.copy()
+    config["radar_auto_reconnect"] = radar_auto_reconnect_enabled
     config["iwr6843"] = dict(iwr6843_runtime_config)
     config["camera_capture"] = dict(camera_capture_config)
     config["inclinometer"] = dict(inclinometer_runtime_config)
@@ -1137,6 +1139,7 @@ def init_iwr6843(
     azimuth_offset_deg: float = 0.0,
     horizontal_phase_reference_rad: float | None = None,
     save_dumps: bool = False,
+    radar_auto_reconnect: bool = False,
 ) -> bool:
     """Initialize GPIO-triggered TI capture and the frozen LCMF-v1 estimator."""
     global iwr6843_runtime, iwr6843_runtime_config  # pylint: disable=global-statement
@@ -1172,6 +1175,8 @@ def init_iwr6843(
                 if camera_capture_runtime is not None
                 else None
             ),
+            radar_auto_reconnect=radar_auto_reconnect,
+            radar_status_callback=on_radar_status,
         )
         # OPS initialization can pulse the shared sound gate. Configure TI now,
         # but do not accept edges until the OPS trigger path is fully running.
@@ -1698,15 +1703,32 @@ def _get_trigger_status() -> dict:
         if hasattr(monitor, "radar") and hasattr(monitor.radar, "port"):
             radar_port = monitor.radar.port
 
+    radar_connected = monitor is not None and not mock_mode
+    if is_rolling_buffer:
+        radar_state = monitor.radar_state
+        radar_connected = radar_state == RADAR_STATE_CONNECTED
+    else:
+        radar_state = RADAR_STATE_CONNECTED if radar_connected else "disconnected"
+    iwr6843_state = None
+    if iwr6843_runtime is not None:
+        iwr6843_state = iwr6843_runtime.capture_monitor.radar_state
+
     return {
         "mode": mode,
         "trigger_type": trigger_type,
-        "radar_connected": monitor is not None and not mock_mode,
+        "radar_connected": radar_connected,
+        "radar_state": radar_state,
         "radar_port": radar_port,
+        "iwr6843_state": iwr6843_state,
         "triggers_total": stats.get("triggers_total", 0),
         "triggers_accepted": stats.get("triggers_accepted", 0),
         "triggers_rejected": stats.get("triggers_rejected", 0),
     }
+
+
+def on_radar_status(_state: str) -> None:
+    """Push the radar link state to the UI when auto-reconnect changes it."""
+    socketio.emit("trigger_status", _get_trigger_status())
 
 
 def _current_club_id() -> str:
@@ -2072,6 +2094,8 @@ radar_config = {
     "min_magnitude": 0,
     "transmit_power": 0,
 }
+# --radar-auto-reconnect: off keeps the capture loops retrying a dead port.
+radar_auto_reconnect_enabled = False
 
 # Inclusive bounds for UI-tunable radar settings. The OPS243-A only needs
 # golf-plausible speeds; anything outside these is a client bug or abuse and
@@ -3797,6 +3821,7 @@ def start_monitor(
     swing_speed_mode: bool = False,
     swing_speed_kwargs: Optional[dict] = None,
     ops_baud: Optional[int] = None,
+    radar_auto_reconnect: bool = False,
 ):
     """
     Start the monitor in launch monitor or swing speed mode.
@@ -3807,6 +3832,7 @@ def start_monitor(
         trigger_type: Trigger strategy (sound or speed)
         debug: Enable verbose debug output
         ops_baud: Target UART baud when the OPS243 is on the GPIO header
+        radar_auto_reconnect: Re-detect the OPS243 after a serial error
     """
     global monitor, mock_mode, mock_swing_speed_mode, debug_mode, radar_config
 
@@ -3840,6 +3866,7 @@ def start_monitor(
             trigger_type=trigger_type,
             sample_rate_ksps=sample_rate_ksps,
             ops_baud=ops_baud,
+            radar_auto_reconnect=radar_auto_reconnect,
             **(trigger_kwargs or {}),
         )
         print(
@@ -3935,6 +3962,7 @@ def start_monitor(
             live_callback=on_live_reading,
             diagnostic_callback=on_trigger_diagnostic,
             processing_callback=on_shot_processing,
+            radar_status_callback=on_radar_status,
         )
         if iwr6843_runtime is not None:
             iwr6843_runtime.capture_monitor.arm()
@@ -4405,6 +4433,16 @@ def main():
             f"(default {OPS243Radar.DEFAULT_UART_BAUD}). Only meaningful when "
             "--port is a UART device such as /dev/ttyAMA0; drop to 115200 if "
             "230400 proves unreliable on your board."
+        ),
+    )
+    parser.add_argument(
+        "--radar-auto-reconnect",
+        action="store_true",
+        help=(
+            "After a serial error on the OPS243 or IWR6843, close the port and "
+            "re-run radar detection with exponential back-off (max 30s) until "
+            "the radar answers, then re-apply its configuration. Off by "
+            "default: the capture loops keep retrying the dead port instead."
         ),
     )
     parser.add_argument("--mock", "-m", action="store_true", help="Run in mock mode without radar")
@@ -4915,6 +4953,8 @@ def main():
     _VERTICAL_RADAR_GATE_BYPASS = args.kld7_vertical_raw
     global calculated_spin_enabled
     calculated_spin_enabled = args.calculated_spin
+    global radar_auto_reconnect_enabled
+    radar_auto_reconnect_enabled = args.radar_auto_reconnect
     ballistics_enabled = args.ballistics
     battery_provider = args.battery
     profile_store = ProfileStore(args.profiles_path)
@@ -5068,6 +5108,7 @@ def main():
             horizontal_phase_reference_rad=args.iwr6843_horizontal_phase_reference_rad,
             # Raw cloud uploads need the dumps on disk to send them.
             save_dumps=args.debug or _cloud_raw_uploads_enabled(),
+            radar_auto_reconnect=args.radar_auto_reconnect,
         ):
             calibration = iwr6843_runtime.calibration
             ball_speed_correction_distance_ft = args.iwr6843_tee_m * 3.28084
@@ -5165,6 +5206,7 @@ def main():
             swing_speed_mode=args.swing_speed,
             swing_speed_kwargs=swing_speed_kwargs,
             ops_baud=args.ops_baud,
+            radar_auto_reconnect=args.radar_auto_reconnect,
         )
     except Exception:
         monitor_recovery = (

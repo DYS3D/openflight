@@ -8,7 +8,7 @@ import time
 import numpy as np
 
 from openflight.iwr6843.dump import pack_dump
-from openflight.iwr6843.monitor import IWR6843CaptureMonitor
+from openflight.iwr6843.monitor import IWR6843Capture, IWR6843CaptureMonitor
 
 
 class FakeRadar:
@@ -350,3 +350,78 @@ def test_capture_monitor_closes_serial_when_gpio_setup_fails(tmp_path):
         raise AssertionError("expected GPIO setup to fail")
     assert radar.shutdown_events == ["sensorStop", "close"]
     assert radar.closed
+
+
+def _started_monitor(tmp_path):
+    config = tmp_path / "radar.cfg"
+    config.write_text("sensorStart\n", encoding="utf-8")
+    monitor = IWR6843CaptureMonitor(
+        config_path=config,
+        output_dir=tmp_path / "dumps",
+        radar=FakeRadar(_raw_dump()),
+        button_factory=FakeButton,
+    )
+    monitor.start()
+    return monitor
+
+
+def _wait_for_pending_count(monitor, count: int) -> None:
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        with monitor._condition:  # pylint: disable=protected-access
+            if (
+                len(monitor._captures) == count  # pylint: disable=protected-access
+                and not monitor._capture_active  # pylint: disable=protected-access
+                and monitor._events.empty()  # pylint: disable=protected-access
+            ):
+                return
+        time.sleep(0.005)
+    raise AssertionError(f"pending captures never reached {count}")
+
+
+def _expired_capture(sequence: int) -> IWR6843Capture:
+    completed = time.time() - 6.0
+    return IWR6843Capture(
+        sequence=sequence,
+        trigger_timestamp=completed - 5.0,
+        completed_timestamp=completed,
+        dump_duration_s=5.0,
+        raw=_raw_dump(),
+        path=None,
+    )
+
+
+def test_unclaimed_captures_are_bounded_to_the_newest_four(tmp_path):
+    """False triggers must not pile up 768 KiB dumps for a whole session."""
+    monitor = _started_monitor(tmp_path)
+    edge = time.time()
+    for index in range(6):
+        assert monitor.notify_trigger(edge + 0.2 * index)
+        _wait_for_pending_count(monitor, min(index + 1, 4))
+
+    pending = list(monitor._captures)  # pylint: disable=protected-access
+    assert [capture.sequence for capture in pending] == [3, 4, 5, 6]
+    monitor.stop()
+
+
+def test_lookup_drops_captures_unclaimed_for_more_than_five_seconds(tmp_path):
+    monitor = _started_monitor(tmp_path)
+    with monitor._condition:  # pylint: disable=protected-access
+        monitor._captures.append(_expired_capture(sequence=1))  # pylint: disable=protected-access
+
+    assert monitor.capture_for_shot(None, timeout_s=0.05) is None
+    assert not monitor._captures  # pylint: disable=protected-access
+    monitor.stop()
+
+
+def test_append_drops_captures_unclaimed_for_more_than_five_seconds(tmp_path):
+    monitor = _started_monitor(tmp_path)
+    with monitor._condition:  # pylint: disable=protected-access
+        monitor._captures.append(_expired_capture(sequence=99))  # pylint: disable=protected-access
+
+    assert monitor.notify_trigger(time.time())
+    _wait_for_pending_count(monitor, 1)
+
+    pending = list(monitor._captures)  # pylint: disable=protected-access
+    assert [capture.sequence for capture in pending] == [1]
+    monitor.stop()

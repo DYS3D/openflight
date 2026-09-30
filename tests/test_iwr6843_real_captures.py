@@ -41,7 +41,7 @@ def _captures():
     )
 
 
-def _estimate(capture):
+def _estimate(capture, **overrides):
     from openflight.iwr6843.lcmf import estimate_lcmf_v1
     from openflight.iwr6843.replay import build_replay_calibration
 
@@ -60,6 +60,7 @@ def _estimate(capture):
         club="7i",
         net_range_m=4.064,
         tx_order="normal",
+        **overrides,
     )
 
 
@@ -107,6 +108,23 @@ def test_collapsed_channel_no_longer_drags_the_answer():
     mean_angle = sum(angles) / len(angles)
     assert 14.0 <= mean_angle <= 22.0, f"7-iron mean {mean_angle:.1f} deg is implausible"
     assert all(12.0 <= angle <= 26.0 for angle in angles), angles
+
+
+def test_coarse_to_fine_angle_search_matches_the_exhaustive_sweep():
+    """The production coarse-to-fine search must not move a real shot.
+
+    ``grid_step_deg=0.5`` is the previous exhaustive production sweep, kept
+    as the escape hatch. The two differ only by sub-grid interpolation, so
+    they must agree to within half that step and on every discrete choice.
+    """
+    for capture in _captures():
+        exhaustive = _estimate(capture, grid_step_deg=0.5)
+        coarse_to_fine = _estimate(capture)
+        shot = capture["shot_number"]
+        assert coarse_to_fine.status == exhaustive.status, shot
+        assert coarse_to_fine.channels_used == exhaustive.channels_used, shot
+        if exhaustive.angle_deg is not None:
+            assert abs(coarse_to_fine.angle_deg - exhaustive.angle_deg) <= 0.25, shot
 
 
 def test_impact_is_located_early_in_the_ring_on_every_capture():

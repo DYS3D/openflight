@@ -318,21 +318,30 @@ def find_ball(
         times, bins, loops_idx = times[keep], bins[keep], loops_idx[keep]
     tol = 1.2 if geo.n_samples >= 128 else 0.8
     rng = np.random.default_rng(seed)
+    # Pairs are still drawn one call at a time: that keeps the exact random
+    # stream, so a fixed seed yields the same track as the scalar loop did.
+    pairs = np.array(
+        [rng.choice(times.size, 2, replace=False) for _ in range(iterations)], dtype=np.intp
+    ).reshape(-1, 2)
+    first, second = pairs[:, 0], pairs[:, 1]
+    d_t = times[first] - times[second]
+    hypotheses = np.nonzero(np.abs(d_t) >= 3e-3)[0]
+    slopes = (bins[first[hypotheses]] - bins[second[hypotheses]]) / d_t[hypotheses]
+    in_bounds = (speed_bounds_ms[0] <= slopes * res) & (slopes * res <= speed_bounds_ms[1])
+    hypotheses, slopes = hypotheses[in_bounds], slopes[in_bounds]
+    icpts = bins[first[hypotheses]] - slopes * times[first[hypotheses]]
+    inlier_masks = np.abs(bins[None, :] - (slopes[:, None] * times[None, :] + icpts[:, None])) < tol
+    counts = inlier_masks.sum(axis=1)
+    supported = np.nonzero(counts >= 8)[0]
+
     best = None  # most inliers at any speed
     best_fast = None  # most inliers among fast candidates
-    for _ in range(iterations):
-        i, j = rng.choice(times.size, 2, replace=False)
-        d_t = times[i] - times[j]
-        if abs(d_t) < 3e-3:
-            continue
-        slope = (bins[i] - bins[j]) / d_t
-        if not speed_bounds_ms[0] <= slope * res <= speed_bounds_ms[1]:
-            continue
-        icpt = bins[i] - slope * times[i]
-        inliers = np.abs(bins - (slope * times + icpt)) < tol
-        n_new = int(inliers.sum())
-        if n_new < 8:
-            continue
+    # Acceptance depends on the running best, so this pass stays sequential
+    # in draw order; only hypotheses with enough support reach it.
+    for k in supported:
+        slope = slopes[k]
+        inliers = inlier_masks[k]
+        n_new = int(counts[k])
         beats_best = best is None or n_new > best[0]
         beats_fast = slope * res >= min_ball_ms and (best_fast is None or n_new > best_fast[0])
         if not (beats_best or beats_fast):

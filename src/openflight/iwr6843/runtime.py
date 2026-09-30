@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from dataclasses import dataclass, field, replace
 
 from openflight.iwr6843.calibration import Calibration
 from openflight.iwr6843.club import ClubPathResult, ClubWindowPolicy, estimate_club_path
+from openflight.iwr6843.estimator_worker import EstimatorWorker, EstimatorWorkerError
 from openflight.iwr6843.lcmf import (
     LCMFResult,
     PreparedLCMFCapture,
@@ -34,8 +36,21 @@ _TDM_SIGN_BY_POLICY = {"positive": 1, "negative": -1, "auto": 1}
 # disagreement is unusual enough to justify a bounded alternate-track pass,
 # but not enough by itself to choose an angle.
 OPS_TRACK_SPEED_TOLERANCE_FRAC = 0.15
-OPS_GUIDED_MAX_CANDIDATES = 8
+OPS_GUIDED_MAX_CANDIDATES = 3
 OPS_GUIDED_MIN_LAUNCH_DEG = 2.0
+
+
+# The worker decodes each capture itself: the prepared products are ~8x the raw
+# dump, so shipping them per call would cost more than decoding once there.
+_worker_prepared: tuple[bytes, PreparedLCMFCapture] | None = None
+
+
+def _estimate_lcmf_in_worker(raw: bytes, calibration: Calibration, **kwargs) -> LCMFResult:
+    """LCMF-v1 inside the estimator process, decoding each capture only once."""
+    global _worker_prepared  # pylint: disable=global-statement
+    if _worker_prepared is None or _worker_prepared[0] != raw:
+        _worker_prepared = (raw, prepare_lcmf_capture(raw))
+    return estimate_lcmf_v1(raw, calibration, prepared=_worker_prepared[1], **kwargs)
 
 
 def _ops_candidate_rank(candidate: RecoveryCandidate) -> tuple[float, int, float]:
@@ -128,6 +143,69 @@ class IWR6843Runtime:
     # vertical solution may use that prior to recover impact timing for the
     # independent experimental club search, never to publish vertical launch.
     recovery_observations: list[tuple[float, float, float]] = field(default_factory=list)
+    # Run LCMF and club path in one long-lived child process so their
+    # GIL-holding loops cannot stall the OPS serial reader. When disabled, or
+    # after any worker failure, they run inline in this process instead.
+    estimator_process: bool = True
+    estimator_timeout_s: float = 30.0
+    _estimator_worker: EstimatorWorker | None = field(default=None, init=False, repr=False)
+    _estimator_worker_lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
+
+    def _worker(self) -> EstimatorWorker | None:
+        with self._estimator_worker_lock:
+            if self.estimator_process and self._estimator_worker is None:
+                self._estimator_worker = EstimatorWorker()
+            return self._estimator_worker
+
+    def _abandon_worker(self, error: EstimatorWorkerError) -> None:
+        logger.warning(
+            "[IWR6843] Estimator worker failed (%s); running estimators inline from now on",
+            error,
+        )
+        with self._estimator_worker_lock:
+            worker, self._estimator_worker = self._estimator_worker, None
+            self.estimator_process = False
+        if worker is not None:
+            worker.close()
+
+    def _estimate_lcmf(
+        self,
+        raw: bytes,
+        calibration: Calibration,
+        *,
+        prepared: PreparedLCMFCapture,
+        **kwargs,
+    ) -> LCMFResult:
+        worker = self._worker()
+        if worker is not None:
+            try:
+                return worker.call(
+                    _estimate_lcmf_in_worker,
+                    raw,
+                    calibration,
+                    timeout_s=self.estimator_timeout_s,
+                    **kwargs,
+                )
+            except EstimatorWorkerError as error:
+                self._abandon_worker(error)
+        return estimate_lcmf_v1(raw, calibration, prepared=prepared, **kwargs)
+
+    def _estimate_club_path(self, raw: bytes, calibration: Calibration, **kwargs) -> ClubPathResult:
+        worker = self._worker()
+        if worker is not None:
+            try:
+                return worker.call(
+                    estimate_club_path,
+                    raw,
+                    calibration,
+                    timeout_s=self.estimator_timeout_s,
+                    **kwargs,
+                )
+            except EstimatorWorkerError as error:
+                self._abandon_worker(error)
+        return estimate_club_path(raw, calibration, **kwargs)
 
     def _remember_recovery_observation(
         self, measurement: LCMFResult, ball_speed_mph: float
@@ -208,7 +286,7 @@ class IWR6843Runtime:
             return baseline
         recoveries: list[tuple[RecoveryCandidate, LCMFResult]] = []
         for candidate in candidates:
-            result = estimate_lcmf_v1(
+            result = self._estimate_lcmf(
                 raw,
                 calibration,
                 ball_speed_mph=ball_speed_mph,
@@ -264,7 +342,7 @@ class IWR6843Runtime:
         if tilt_deg is not None:
             shot_calibration = replace(self.calibration, tilt_rad=math.radians(tilt_deg))
         prepared = prepare_lcmf_capture(capture.raw)
-        measurement = estimate_lcmf_v1(
+        measurement = self._estimate_lcmf(
             capture.raw,
             shot_calibration,
             ball_speed_mph=ball_speed_mph,
@@ -311,7 +389,7 @@ class IWR6843Runtime:
                 recovered_impact = impact_t_s is not None
             if impact_t_s is not None:
                 impact_t_s += self.club_impact_correction_s
-            club_path = estimate_club_path(
+            club_path = self._estimate_club_path(
                 capture.raw,
                 shot_calibration,
                 ops_club_speed_mph=club_speed_mph,
@@ -336,8 +414,15 @@ class IWR6843Runtime:
         return IWR6843ShotResult(capture=capture, measurement=measurement, club_path=club_path)
 
     def stop(self) -> None:
-        """Release TI hardware."""
-        self.capture_monitor.stop()
+        """Release TI hardware and the estimator process."""
+        try:
+            self.capture_monitor.stop()
+        finally:
+            with self._estimator_worker_lock:
+                worker, self._estimator_worker = self._estimator_worker, None
+                self.estimator_process = False
+            if worker is not None:
+                worker.close()
 
 
 __all__ = ["IWR6843Runtime", "IWR6843ShotResult"]

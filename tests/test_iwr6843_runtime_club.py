@@ -43,6 +43,9 @@ class FakeMonitor:
 
 
 def _runtime(**kwargs):
+    # These tests patch the estimators in this process, so they must run
+    # inline; the worker process path is covered in test_iwr6843_estimator_worker.
+    kwargs.setdefault("estimator_process", False)
     return IWR6843Runtime(
         capture_monitor=FakeMonitor(),
         calibration=object(),
@@ -420,6 +423,7 @@ def test_per_shot_tilt_uses_a_calibration_copy_without_mutating_runtime():
         capture_monitor=FakeMonitor(),
         calibration=calibration,
         net_range_m=4.064,
+        estimator_process=False,
     )
     seen = {}
 

@@ -68,7 +68,7 @@ from .sim import (
     load_sim_config,
     resolve_shot,
 )
-from .speed_correction import correct_ball_speed
+from .speed_correction import SpeedCorrectionConfig, correct_ball_speed
 from .spin_estimate import calculated_spin_rpm
 from .startup_status import StartupStatusReporter, configured_startup_components
 from .swing_speed import SwingSpeedEvent
@@ -4910,7 +4910,9 @@ def main():
     global ball_speed_correction_ball_above_radar_ft
     # Cosine correction rides on whichever vertical radar supplies launch.
     # LCMF itself always receives the original OPS radial speed first.
-    ball_speed_correction_enabled = args.kld7 or args.iwr6843
+    ball_speed_correction_enabled = (
+        args.kld7 or args.iwr6843 or SpeedCorrectionConfig.from_args(args).apply_without_angle_radar
+    )
     ball_speed_correction_distance_ft = args.kld7_ball_distance
     ball_speed_correction_ball_above_radar_ft = -args.kld7_radar_height_inches / 12.0
     global _VERTICAL_RADAR_GATE_BYPASS

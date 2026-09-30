@@ -147,6 +147,7 @@ class TestRadarTimingConfig:
         add_radar_timing_args(parser)
         args = parser.parse_args([])
         assert RadarTimingConfig.from_args(args) == SLOW_DEFAULTS
+        assert args.speed_correction_without_angle_radar is False
 
     def test_cli_flags_set_every_field(self):
         parser = argparse.ArgumentParser()

@@ -14,6 +14,8 @@ import logging
 from dataclasses import dataclass, fields
 from typing import Optional
 
+from .speed_correction import add_speed_correction_args
+
 logger = logging.getLogger("openflight.radar_timing")
 
 
@@ -80,7 +82,11 @@ class ActiveRadarTiming:
 
 
 def add_radar_timing_args(parser: argparse.ArgumentParser) -> None:
-    """Register the timing flags on ``parser``."""
+    """Register the timing flags (plus the speed-correction flag) on ``parser``.
+
+    ``server.py`` makes exactly one registration call, so the
+    speed-correction flag from ``speed_correction.py`` rides along here.
+    """
     group = parser.add_argument_group(
         "OPS243 timing",
         "Clock-sync and re-arm timing. Defaults are the shipped behaviour; the "
@@ -162,3 +168,4 @@ def add_radar_timing_args(parser: argparse.ArgumentParser) -> None:
             "re-arming the radar. Default off: re-arm first, then process."
         ),
     )
+    add_speed_correction_args(parser)

@@ -4671,6 +4671,80 @@ def _run_main_until_start_monitor(monkeypatch, flags: list[str]) -> dict:
     return captured
 
 
+class TestSpeedCorrectionWithoutAngleRadar:
+    """``--speed-correction-without-angle-radar`` applies the cosine correction
+    on OPS-only builds using the table-estimated launch angle. Default off
+    leaves those builds exactly as before: raw radial speed, no
+    ``ball_speed_raw_mph``."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_finalization(self, monkeypatch):
+        server_module._reset_shot_sequence()
+        monkeypatch.setattr(server_module, "monitor", None)
+        monkeypatch.setattr(server_module, "kld7_vertical", None)
+        monkeypatch.setattr(server_module, "kld7_horizontal", None)
+        monkeypatch.setattr(server_module, "iwr6843_runtime", None)
+        monkeypatch.setattr(server_module, "camera_capture_runtime", None)
+        monkeypatch.setattr(server_module, "ball_speed_correction_distance_ft", 5.0)
+        monkeypatch.setattr(server_module, "ball_speed_correction_ball_above_radar_ft", -4.0 / 12.0)
+        monkeypatch.setattr(server_module, "calculated_spin_enabled", False)
+        monkeypatch.setattr(server_module, "ballistics_enabled", False)
+        monkeypatch.setattr(server_module, "debug_mode", False)
+        monkeypatch.setattr(server_module, "sim_connectors", [])
+        monkeypatch.setattr(server_module, "get_session_logger", lambda: None)
+        monkeypatch.setattr(server_module.socketio, "emit", lambda *_args, **_kwargs: None)
+        yield
+        _wait_for_shot_finalization_idle()
+
+    @staticmethod
+    def _ops_only_shot() -> Shot:
+        return Shot(
+            ball_speed_mph=108.0,
+            club_speed_mph=85.0,
+            timestamp=datetime(2026, 9, 30, 12, 0, 0),
+            impact_timestamp=100.0,
+            club=ClubType.IRON_7,
+            spin_rpm=None,
+            launch_angle_vertical=None,
+            mode="rolling-buffer",
+        )
+
+    def test_default_leaves_ops_only_ball_speed_uncorrected(self, monkeypatch):
+        monkeypatch.setattr(server_module, "ball_speed_correction_enabled", False)
+        shot = self._ops_only_shot()
+
+        server_module._finalize_shot_detected(shot, emit_event="shot")
+
+        assert shot.launch_angle_vertical_source == "estimated"
+        assert shot.ball_speed_mph == pytest.approx(108.0)
+        assert shot.ball_speed_raw_mph is None
+
+    def test_flag_corrects_ops_only_ball_speed_with_estimated_angle(self, monkeypatch):
+        monkeypatch.setattr(server_module, "ball_speed_correction_enabled", True)
+        shot = self._ops_only_shot()
+
+        server_module._finalize_shot_detected(shot, emit_event="shot")
+
+        assert shot.launch_angle_vertical_source == "estimated"
+        assert shot.launch_angle_vertical is not None
+        expected = server_module.correct_ball_speed(
+            108.0, shot.launch_angle_vertical, 5.0, -4.0 / 12.0
+        )
+        assert shot.ball_speed_raw_mph == pytest.approx(108.0)
+        assert shot.ball_speed_mph == pytest.approx(expected)
+        assert shot.ball_speed_mph > 108.0
+
+    @pytest.mark.parametrize(
+        ("flags", "expected_enabled"),
+        [([], False), (["--speed-correction-without-angle-radar"], True)],
+    )
+    def test_main_wires_the_flag_into_the_correction_switch(
+        self, monkeypatch, flags, expected_enabled
+    ):
+        _run_main_until_start_monitor(monkeypatch, flags)
+        assert server_module.ball_speed_correction_enabled is expected_enabled
+
+
 class TestRadarTimingFlagsReachTheMonitor:
     """The OPS243 timing group is registered on the server parser and its
     parsed config rides to ``start_monitor`` with the trigger kwargs."""

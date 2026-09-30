@@ -116,6 +116,7 @@ Carry model and spin handling.
 | `--temperature-f` | float; default `59` | Air temperature in °F for the ballistic carry model |
 | `--humidity` | float; default `0` | Relative humidity in percent for the ballistic carry model |
 | `--calculated-spin` | flag | Replace radar-measured spin with the kinematic estimate (170*v*sin(LA)^1.2) when the launch angle was measured. The 24 GHz OPS return carries no usable spin line (see src/openflight/spin_estimate.py); the measured value is kept in spin_rpm_measured for offline scoring |
+| `--speed-correction-without-angle-radar` | flag | Apply the ball-speed cosine correction (`src/openflight/speed_correction.py`) on OPS-only builds using the table-estimated launch angle and the `--kld7-ball-distance` / `--kld7-radar-height-inches` geometry. Default off: the correction only runs with `--kld7` or `--iwr6843`. |
 
 ## Swing speed
 

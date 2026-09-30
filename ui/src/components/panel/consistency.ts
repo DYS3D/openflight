@@ -27,10 +27,7 @@ export function consistencyBand(value: number, history: number[]): ConsistencyBa
   return 'poor';
 }
 
-/**
- * Bands for the Live tiles, keyed by metric id, comparing `shot` with the same
- * profile's earlier shots with the same club in `shots`.
- */
+/** Bands keyed by Live metric id, against this profile's earlier same-club shots. */
 export function consistencyBands(shot: Shot, shots: Shot[], profileId: string): Record<string, ConsistencyBand> {
   if (isSwingSpeedShot(shot)) {
     return {};

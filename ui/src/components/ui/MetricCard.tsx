@@ -8,7 +8,6 @@ export interface MetricCardProps {
   unit?: string;
   label: string;
   subtext?: string;
-  /** Optional second caption line under `subtext`. */
   detail?: string;
   variant?: 'default' | 'emphasis';
   size?: 'standard' | 'hero';

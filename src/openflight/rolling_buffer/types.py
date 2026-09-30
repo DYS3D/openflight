@@ -30,6 +30,9 @@ class IQCapture:
             hardware-triggered capture arrived from the radar.
         trigger_timestamp: Host epoch timestamp when the hardware trigger fired,
             derived from first_byte_timestamp and the post-trigger buffer span.
+        standard_timeline: 128-sample-stride timeline the trigger computed
+            while validating this capture; reused by process_capture so the
+            same FFT windows are not transformed twice.
     """
 
     sample_time: float
@@ -41,6 +44,8 @@ class IQCapture:
     trigger_timestamp: Optional[float] = None
     trigger_timestamp_source: Optional[str] = None
     clock_sync_offset_s: Optional[float] = None
+    # Excluded from repr/eq: the timeline references this capture back.
+    standard_timeline: Optional["SpeedTimeline"] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         """Infer the hardware trigger epoch when first-byte timing is available."""

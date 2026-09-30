@@ -91,24 +91,39 @@ def test_process_capture_uses_multitaper_estimator(monkeypatch):
     assert processed.spin.spin_rpm > 0
 
 
+def _spy_fft_windows(monkeypatch, processor):
+    """Record the window start samples sent through the batched FFT."""
+    capture_window_readings = processor._capture_window_readings
+    window_magnitudes = processor._window_magnitudes
+    starts_seen = []
+    fft_rows = []
+
+    def spy_readings(capture, starts):
+        starts_seen.extend(starts)
+        return capture_window_readings(capture, starts)
+
+    def spy_magnitudes(i_blocks, q_blocks):
+        fft_rows.append(len(i_blocks))
+        return window_magnitudes(i_blocks, q_blocks)
+
+    monkeypatch.setattr(processor, "_capture_window_readings", spy_readings)
+    monkeypatch.setattr(processor, "_window_magnitudes", spy_magnitudes)
+    return starts_seen, fft_rows
+
+
+def _overlapping_window_count(processor, sample_count=4096):
+    return ((sample_count - processor.WINDOW_SIZE) // processor.STEP_SIZE_OVERLAP) + 1
+
+
 def test_process_capture_does_not_repeat_standard_fft_windows(monkeypatch):
     """Standard windows are a subset of the overlapping FFT timeline."""
     processor = RollingBufferProcessor()
-    process_block = processor._process_block
-    calls = 0
-
-    def count_process_block(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return process_block(*args, **kwargs)
-
-    monkeypatch.setattr(processor, "_process_block", count_process_block)
+    starts_seen, fft_rows = _spy_fft_windows(monkeypatch, processor)
 
     assert processor.process_capture(_modulated_capture()) is not None
-    expected_overlapping_windows = (
-        (4096 - processor.WINDOW_SIZE) // processor.STEP_SIZE_OVERLAP
-    ) + 1
-    assert calls == expected_overlapping_windows
+    expected_overlapping_windows = _overlapping_window_count(processor)
+    assert sum(fft_rows) == expected_overlapping_windows
+    assert len(set(starts_seen)) == len(starts_seen) == expected_overlapping_windows
 
 
 def test_multitaper_accepts_short_record_used_by_offline_scoring():
@@ -177,3 +192,45 @@ def test_shot_method_defaults_to_none():
     shot = Shot(ball_speed_mph=100.0, timestamp=datetime.now())
 
     assert shot.spin_method is None
+
+
+def _assert_untrusted_confidence(result):
+    from openflight.launch_monitor import SPIN_CONFIDENCE_HIGH, SPIN_CONFIDENCE_RELIABLE
+
+    assert result.method == "multitaper_ungated"
+    assert 0.0 <= result.confidence <= RollingBufferProcessor.MULTITAPER_MAX_CONFIDENCE
+    assert result.confidence < SPIN_CONFIDENCE_RELIABLE
+    assert result.confidence < SPIN_CONFIDENCE_HIGH
+    assert not result.is_reliable
+
+
+def test_multitaper_confidence_stays_low_for_a_clean_candidate():
+    """r ~ 0.19 vs TrackMan: even a clear candidate must not look trusted."""
+    result = RollingBufferProcessor().detect_spin_multitaper(
+        _modulated_capture(spin_depth=0.05, fade_depth=0.0),
+        ball_speed_mph=100.0,
+        ball_timestamp_ms=5.0,
+    )
+
+    assert result.spin_rpm > 0
+    _assert_untrusted_confidence(result)
+
+
+@pytest.mark.parametrize("peak_to_floor", [0.0, 5.0, 1e3, 1e12])
+def test_multitaper_confidence_is_bounded_for_any_evidence(monkeypatch, peak_to_floor):
+    from openflight.rolling_buffer import processor as processor_module
+    from openflight.rolling_buffer.multitaper import MultitaperEstimate
+
+    monkeypatch.setattr(
+        processor_module,
+        "estimate_multitaper_spin",
+        lambda *_args, **_kwargs: MultitaperEstimate(
+            spin_hz=100.0, spin_rpm=6000.0, peak_to_floor=peak_to_floor, fade_hz=40.0
+        ),
+    )
+
+    result = RollingBufferProcessor().detect_spin_multitaper(
+        _modulated_capture(), ball_speed_mph=100.0, ball_timestamp_ms=5.0
+    )
+
+    _assert_untrusted_confidence(result)

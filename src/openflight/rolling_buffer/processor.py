@@ -7,11 +7,11 @@ Based on OmniPreSense AN-027 Rolling Buffer application note.
 
 import json
 import logging
-from collections.abc import Iterator
-from typing import Callable, List, Optional, Tuple
+from collections import defaultdict
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
-from scipy.signal import butter, find_peaks, sosfiltfilt
+from numpy.lib.stride_tricks import sliding_window_view
 
 from ..clubs import ClubType
 from ..launch_monitor import SPIN_CONFIDENCE_HIGH
@@ -27,6 +27,9 @@ from .types import (
 )
 
 logger = logging.getLogger("openflight.rolling_buffer.processor")
+
+# scipy.signal is imported inside the spin functions that use it: it is slow to
+# import and the trigger/speed path never needs it.
 
 
 class RollingBufferProcessor:
@@ -156,6 +159,10 @@ class RollingBufferProcessor:
     MULTITAPER_SPIN_RPM_BAND = (1500.0, 11_000.0)
     MULTITAPER_RAIL_MARGIN_RPM = 250.0
     MULTITAPER_MIN_SAMPLES = 128
+    # The multitaper candidate correlates with TrackMan spin at only r ~ 0.19
+    # (see spin_estimate.py), so its evidence score is scaled into a band well
+    # below SPIN_CONFIDENCE_RELIABLE / SPIN_CONFIDENCE_HIGH: never trusted spin.
+    MULTITAPER_MAX_CONFIDENCE = 0.2
 
     BALL_SPEED_MATCH_TOLERANCE_MPH = 3.0
     IMPACT_TRANSITION_MIN_DELTA_MPH = 15.0
@@ -351,9 +358,21 @@ class RollingBufferProcessor:
             List of (speed_mph, magnitude, direction) tuples for each
             peak exceeding MAGNITUDE_THRESHOLD. May contain 0, 1, or 2 entries.
         """
+        magnitude = self._window_magnitudes(
+            np.asarray(i_block)[np.newaxis, :],
+            np.asarray(q_block)[np.newaxis, :],
+        )[0]
+        return self._peaks_from_magnitude(magnitude)
+
+    def _window_magnitudes(self, i_blocks: np.ndarray, q_blocks: np.ndarray) -> np.ndarray:
+        """FFT magnitude spectra for a batch of windows, one row per window.
+
+        Steps 1-5 of ``_process_block`` applied row-wise with a single
+        batched FFT.
+        """
         # Remove DC offset
-        i_centered = i_block - np.mean(i_block)
-        q_centered = q_block - np.mean(q_block)
+        i_centered = i_blocks - np.mean(i_blocks, axis=1, keepdims=True)
+        q_centered = q_blocks - np.mean(q_blocks, axis=1, keepdims=True)
 
         # Scale to voltage
         i_scaled = i_centered * (self.VOLTAGE_REF / self.ADC_RANGE)
@@ -367,9 +386,11 @@ class RollingBufferProcessor:
         complex_signal = i_windowed + 1j * q_windowed
 
         # FFT
-        fft_result = np.fft.fft(complex_signal, self.FFT_SIZE)
-        magnitude = np.abs(fft_result)
+        fft_result = np.fft.fft(complex_signal, self.FFT_SIZE, axis=1)
+        return np.abs(fft_result)
 
+    def _peaks_from_magnitude(self, magnitude: np.ndarray) -> List[Tuple[float, float, str]]:
+        """Outbound and inbound speed peaks from one window's FFT magnitude."""
         half = self.FFT_SIZE // 2
         dc_mask = self.DC_MASK_BINS
 
@@ -405,51 +426,53 @@ class RollingBufferProcessor:
 
         return results
 
-    def _iter_capture_windows(
+    def _window_starts(self, capture: IQCapture, step_size: int) -> List[int]:
+        """Start sample of every full FFT window at the given stride."""
+        return list(range(0, len(capture.i_samples) - self.WINDOW_SIZE + 1, step_size))
+
+    def _window_timestamp_ms(self, start: int) -> float:
+        return (start / self.SAMPLE_RATE) * 1000
+
+    def _capture_window_readings(
         self,
         capture: IQCapture,
-        step_size: int,
-    ) -> Iterator[tuple[int, list[SpeedReading]]]:
-        """Yield each FFT window once with its extracted readings.
+        starts: Sequence[int],
+    ) -> List[List[SpeedReading]]:
+        """Speed readings for each FFT window starting at ``starts``.
 
-        The production path needs both the 128-sample standard timeline and
-        the 32-sample overlapping timeline. Standard windows are an exact
-        subset of the overlapping windows, so exposing window boundaries lets
-        ``process_capture`` build both views without repeating FFT work.
-
-        Args:
-            capture: Raw I/Q capture from radar
-            step_size: Samples between FFT windows (128=standard, 32=overlapping)
+        All windows go through one batched FFT instead of a per-window loop.
         """
-        i_data = np.asarray(capture.i_samples)
-        q_data = np.asarray(capture.q_samples)
+        if not starts:
+            return []
+        start_idx = np.asarray(starts, dtype=np.intp)
+        i_windows = sliding_window_view(np.asarray(capture.i_samples), self.WINDOW_SIZE)
+        q_windows = sliding_window_view(np.asarray(capture.q_samples), self.WINDOW_SIZE)
+        magnitudes = self._window_magnitudes(i_windows[start_idx], q_windows[start_idx])
 
-        start = 0
-        while start + self.WINDOW_SIZE <= len(i_data):
-            i_block = i_data[start : start + self.WINDOW_SIZE]
-            q_block = q_data[start : start + self.WINDOW_SIZE]
-
-            peaks = self._process_block(i_block, q_block)
-            timestamp_ms = (start / self.SAMPLE_RATE) * 1000
-            yield (
-                start,
+        window_readings = []
+        for start, magnitude in zip(starts, magnitudes):
+            timestamp_ms = self._window_timestamp_ms(start)
+            window_readings.append(
                 [
                     SpeedReading(
                         speed_mph=speed_mph,
-                        magnitude=magnitude,
+                        magnitude=peak_magnitude,
                         timestamp_ms=timestamp_ms,
                         direction=direction,
                     )
-                    for speed_mph, magnitude, direction in peaks
-                ],
+                    for speed_mph, peak_magnitude, direction in self._peaks_from_magnitude(
+                        magnitude
+                    )
+                ]
             )
-            start += step_size
+        return window_readings
 
     def _process_capture(self, capture: IQCapture, step_size: int) -> SpeedTimeline:
         """Process a capture at one FFT window stride."""
+        starts = self._window_starts(capture, step_size)
         readings = [
             reading
-            for _start, window_readings in self._iter_capture_windows(capture, step_size)
+            for window_readings in self._capture_window_readings(capture, starts)
             for reading in window_readings
         ]
         return SpeedTimeline(
@@ -458,26 +481,59 @@ class RollingBufferProcessor:
             capture=capture,
         )
 
+    def _attached_standard_timeline(self, capture: IQCapture) -> Optional[SpeedTimeline]:
+        """Standard timeline the trigger already computed for this capture, if usable."""
+        standard = capture.standard_timeline
+        if (
+            standard is None
+            or standard.capture is not capture
+            or standard.sample_rate_hz != self.SAMPLE_RATE / self.STEP_SIZE_STANDARD
+        ):
+            return None
+        return standard
+
     def _process_overlapping_with_standard(
         self,
         capture: IQCapture,
     ) -> tuple[SpeedTimeline, SpeedTimeline]:
-        """Build standard and overlapping timelines from one FFT pass."""
-        standard_readings = []
-        overlapping_readings = []
-        for start, window_readings in self._iter_capture_windows(
-            capture,
-            self.STEP_SIZE_OVERLAP,
-        ):
-            overlapping_readings.extend(window_readings)
-            if start % self.STEP_SIZE_STANDARD == 0:
-                standard_readings.extend(window_readings)
+        """Build standard and overlapping timelines from one FFT pass.
 
-        standard = SpeedTimeline(
-            readings=standard_readings,
-            sample_rate_hz=self.SAMPLE_RATE / self.STEP_SIZE_STANDARD,
-            capture=capture,
-        )
+        Standard windows are an exact subset of the overlapping windows, so
+        each window is transformed at most once. When the trigger already
+        attached the standard timeline to the capture, its windows are
+        reused and only the remaining overlapping windows are transformed.
+        """
+        overlap_starts = self._window_starts(capture, self.STEP_SIZE_OVERLAP)
+        standard = self._attached_standard_timeline(capture)
+
+        if standard is None:
+            per_window = self._capture_window_readings(capture, overlap_starts)
+            standard = SpeedTimeline(
+                readings=[
+                    reading
+                    for start, window_readings in zip(overlap_starts, per_window)
+                    if start % self.STEP_SIZE_STANDARD == 0
+                    for reading in window_readings
+                ],
+                sample_rate_hz=self.SAMPLE_RATE / self.STEP_SIZE_STANDARD,
+                capture=capture,
+            )
+        else:
+            standard_by_timestamp = defaultdict(list)
+            for reading in standard.readings:
+                standard_by_timestamp[reading.timestamp_ms].append(reading)
+            new_starts = [start for start in overlap_starts if start % self.STEP_SIZE_STANDARD != 0]
+            computed = dict(zip(new_starts, self._capture_window_readings(capture, new_starts)))
+            per_window = [
+                computed[start]
+                if start in computed
+                else standard_by_timestamp.get(self._window_timestamp_ms(start), [])
+                for start in overlap_starts
+            ]
+
+        overlapping_readings = [
+            reading for window_readings in per_window for reading in window_readings
+        ]
         overlapping = SpeedTimeline(
             readings=overlapping_readings,
             sample_rate_hz=self.SAMPLE_RATE / self.STEP_SIZE_OVERLAP,
@@ -656,6 +712,8 @@ class RollingBufferProcessor:
                 method="multitaper_ungated",
             )
 
+        from scipy.signal import butter, sosfiltfilt  # pylint: disable=import-outside-toplevel
+
         try:
             sos = butter(self.SPIN_BANDPASS_ORDER, [low, high], btype="band", output="sos")
             envelope = np.abs(sosfiltfilt(sos, iq))
@@ -699,7 +757,8 @@ class RollingBufferProcessor:
         at_lower_rail = estimate.spin_rpm <= min_rpm + self.MULTITAPER_RAIL_MARGIN_RPM
         at_upper_rail = estimate.spin_rpm >= max_rpm - self.MULTITAPER_RAIL_MARGIN_RPM
         window_seconds = len(ball_envelope) / self.SAMPLE_RATE
-        confidence = min(0.59, estimate.peak_to_floor / (estimate.peak_to_floor + 5.0))
+        evidence = max(0.0, estimate.peak_to_floor)
+        confidence = self.MULTITAPER_MAX_CONFIDENCE * evidence / (evidence + 5.0)
         candidate = SpinCandidate(
             rank=1,
             rpm=estimate.spin_rpm,
@@ -775,6 +834,8 @@ class RollingBufferProcessor:
         high = min(high, 0.999)
         if low >= high:
             return SpinResult.no_spin_detected("Ball Doppler outside filter range")
+
+        from scipy.signal import butter, sosfiltfilt  # pylint: disable=import-outside-toplevel
 
         try:
             sos = butter(self.SPIN_BANDPASS_ORDER, [low, high], btype="band", output="sos")
@@ -1212,6 +1273,8 @@ class RollingBufferProcessor:
         if len(valid_mag) == 0 or not np.any(valid_mag > 0):
             return []
 
+        from scipy.signal import find_peaks  # pylint: disable=import-outside-toplevel
+
         strongest_idx = int(np.argmax(valid_mag))
         peak_indices = set(find_peaks(valid_mag, distance=2)[0])
         peak_indices.add(strongest_idx)
@@ -1400,6 +1463,8 @@ class RollingBufferProcessor:
             or valid_mag[strongest_idx] <= 0
         ):
             return strongest_idx
+
+        from scipy.signal import find_peaks  # pylint: disable=import-outside-toplevel
 
         peak_indices = set(find_peaks(valid_mag, distance=2)[0])
         peak_indices.add(strongest_idx)

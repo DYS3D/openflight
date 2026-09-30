@@ -87,8 +87,13 @@ class TriggerStrategy(ABC):
         processor: RollingBufferProcessor,
         capture: IQCapture,
     ) -> dict:
-        """Summarize movement in a capture before accepting a sound trigger."""
+        """Summarize movement in a capture before accepting a sound trigger.
+
+        The standard timeline is attached to ``capture`` so
+        ``RollingBufferProcessor.process_capture`` can reuse it.
+        """
         timeline = processor.process_standard(capture)
+        capture.standard_timeline = timeline
         all_readings = timeline.readings
         all_outbound = [r for r in all_readings if r.is_outbound]
         all_inbound = [r for r in all_readings if not r.is_outbound]
@@ -278,6 +283,7 @@ class SpeedTriggeredCapture(TriggerStrategy):
                 if capture:
                     # Validate capture has ball speed
                     timeline = processor.process_standard(capture)
+                    capture.standard_timeline = timeline
                     outbound = [
                         r
                         for r in timeline.readings

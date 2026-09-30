@@ -4951,7 +4951,12 @@ def main():
     # Initialize session logger (enabled for both real and mock modes)
     if not args.no_logging:
         log_dir = Path(args.log_dir) if args.log_dir else None
-        init_session_logger(log_dir=log_dir, location=args.session_location, enabled=True)
+        init_session_logger(
+            log_dir=log_dir,
+            location=args.session_location,
+            enabled=True,
+            raw_radar_log=args.radar_log,
+        )
         print(f"Session logging enabled (location: {args.session_location})")
         # Before any session starts, so the active session can never be pruned.
         _prune_session_logs(

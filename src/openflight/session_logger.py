@@ -5,10 +5,15 @@ Provides structured logging of all radar data, shots, and metrics
 for analysis and debugging.
 """
 
+import atexit
 import json
 import logging
+import logging.handlers
+import queue
 import threading
+import time
 import uuid
+import weakref
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +26,25 @@ from .launch_monitor import Shot
 # entry structure; additive changes (new fields, new entry types) do not
 # require a bump. Consumed by offline analysis and (eventually) cloud sync.
 SESSION_FORMAT_VERSION = 2
+
+# The background writer flushes the session file at least this often while
+# lines are pending, or sooner once this many lines have accumulated.
+WRITER_FLUSH_INTERVAL_S = 0.5
+WRITER_FLUSH_EVERY_LINES = 64
+
+_WRITER_STOP = object()
+
+logger = logging.getLogger(__name__)
+
+# Loggers with a running writer, flushed at interpreter exit so buffered
+# session lines are not lost if the process exits without end_session().
+_active_loggers: "weakref.WeakSet[SessionLogger]" = weakref.WeakSet()
+
+
+@atexit.register
+def _flush_active_loggers() -> None:
+    for active in list(_active_loggers):
+        active.flush()
 
 
 @dataclass
@@ -51,7 +75,7 @@ class SessionLogger:
 
     Creates structured log files with semantic naming:
     - session_YYYYMMDD_HHMMSS_<location>.jsonl - Main session log (JSON lines)
-    - radar_raw_YYYYMMDD_HHMMSS.log - Raw radar serial data
+    - radar_raw_YYYYMMDD_HHMMSS.log - Raw radar serial data (only with raw_radar_log)
 
     Log entry types:
     - session_start: Session metadata
@@ -64,7 +88,11 @@ class SessionLogger:
     DEFAULT_LOG_DIR = Path.home() / "openflight_sessions"
 
     def __init__(
-        self, log_dir: Optional[Path] = None, location: str = "range", enabled: bool = True
+        self,
+        log_dir: Optional[Path] = None,
+        location: str = "range",
+        enabled: bool = True,
+        raw_radar_log: bool = False,
     ):
         """
         Initialize session logger.
@@ -73,6 +101,8 @@ class SessionLogger:
             log_dir: Directory for log files (default: ~/openflight_sessions)
             location: Location identifier for file naming (e.g., "range", "course", "home")
             enabled: Whether logging is enabled
+            raw_radar_log: Also write DEBUG-level ``ops243`` radar logging to
+                radar_raw_<session>.log (opt-in; verbose)
         """
         self.log_dir = Path(log_dir) if log_dir else self.DEFAULT_LOG_DIR
         self.location = location
@@ -83,12 +113,20 @@ class SessionLogger:
         self._session_path: Optional[Path] = None
         self._raw_path: Optional[Path] = None
 
-        # Serializes all access to ``_session_file``. The log_* methods are
-        # called concurrently from the OPS243 capture thread, the K-LD7
-        # stream thread, and Flask-SocketIO handlers; without this lock,
-        # large entries' writes interleave (corrupting the JSONL replay
-        # corpus) and a write can race end_session() closing the file.
+        # Serializes all access to ``_session_file``. Lines are written by a
+        # single background writer thread, and end_session() closes the file
+        # under this lock, so a write can never race the close.
         self._write_lock = threading.Lock()
+
+        # The log_* methods are called concurrently from the OPS243 capture
+        # thread, the K-LD7 stream thread, and Flask-SocketIO handlers. They
+        # only serialize and enqueue; the writer thread does the disk I/O so
+        # radar threads never block on it. ``_enqueue_lock`` orders enqueues
+        # against end_session() so nothing is accepted after the stop marker.
+        self._queue: "queue.Queue[Any]" = queue.Queue()
+        self._enqueue_lock = threading.Lock()
+        self._accepting = False
+        self._writer_thread: Optional[threading.Thread] = None
 
         # Counters for session summary
         self._stats = {
@@ -97,8 +135,10 @@ class SessionLogger:
         }
 
         # Setup Python logger for raw radar data
+        self.raw_radar_log = raw_radar_log
         self._raw_logger = logging.getLogger("ops243.raw")
         self._radar_logger = logging.getLogger("ops243")
+        self._raw_listener: Optional[logging.handlers.QueueListener] = None
 
     def start_session(
         self,
@@ -140,10 +180,13 @@ class SessionLogger:
             timestamp.strftime("%Y%m%d_%H%M%S")
         )
         self._session_path = Path(self._session_file.name)
-        self._raw_path = self.log_dir / f"radar_raw_{self._session_id}.log"
+        raw_path = self.log_dir / f"radar_raw_{self._session_id}.log"
+        self._raw_path = raw_path if self.raw_radar_log else None
+        self._start_writer()
 
-        # Setup raw radar logging to file
-        self._setup_raw_logging()
+        # DEBUG-level radar logging is verbose, so it is opt-in (--radar-log).
+        if self.raw_radar_log:
+            self._setup_raw_logging()
 
         # Reset stats
         self._stats = {k: 0 for k in self._stats}
@@ -165,10 +208,12 @@ class SessionLogger:
         )
 
         self._write_entry("session_start", asdict(metadata))
+        self.flush()
 
         print(f"[SESSION] Started logging: {self._session_path}")
         print(f"[SESSION] Mode: {mode}" + (f" (trigger: {trigger_type})" if trigger_type else ""))
-        print(f"[SESSION] Raw radar log: {self._raw_path}")
+        if self._raw_path is not None:
+            print(f"[SESSION] Raw radar log: {self._raw_path}")
 
         return self._session_id
 
@@ -231,7 +276,12 @@ class SessionLogger:
         self._write_entry("ops_clock_sync", entry)
 
     def _setup_raw_logging(self):
-        """Configure Python logging for raw radar data."""
+        """Configure Python logging for raw radar data.
+
+        Radar threads only enqueue records through a QueueHandler; a
+        QueueListener thread owns the FileHandler, so serial/capture threads
+        never block on disk I/O.
+        """
         # Remove and close existing handlers; dropping them unclosed leaks
         # one file descriptor per session.
         for handler in self._raw_logger.handlers[:]:
@@ -248,11 +298,34 @@ class SessionLogger:
             logging.Formatter("%(asctime)s.%(msecs)03d - %(message)s", datefmt="%H:%M:%S")
         )
 
-        self._raw_logger.addHandler(file_handler)
+        record_queue: "queue.SimpleQueue[logging.LogRecord]" = queue.SimpleQueue()
+        queue_handler = logging.handlers.QueueHandler(record_queue)
+        queue_handler.setLevel(logging.DEBUG)
+        self._raw_listener = logging.handlers.QueueListener(
+            record_queue, file_handler, respect_handler_level=True
+        )
+        self._raw_listener.start()
+
+        self._raw_logger.addHandler(queue_handler)
         self._raw_logger.setLevel(logging.DEBUG)
 
-        self._radar_logger.addHandler(file_handler)
+        self._radar_logger.addHandler(queue_handler)
         self._radar_logger.setLevel(logging.DEBUG)
+
+    def _teardown_raw_logging(self):
+        """Detach the raw radar handlers and drain the listener to disk."""
+        if self._raw_listener is None:
+            return
+        for handler in self._raw_logger.handlers[:]:
+            handler.close()
+            self._raw_logger.removeHandler(handler)
+        for handler in self._radar_logger.handlers[:]:
+            handler.close()
+            self._radar_logger.removeHandler(handler)
+        self._raw_listener.stop()
+        for handler in self._raw_listener.handlers:
+            handler.close()
+        self._raw_listener = None
 
     def end_session(self):
         """End the current logging session and write summary."""
@@ -269,44 +342,121 @@ class SessionLogger:
         }
 
         self._write_entry("session_end", summary)
+        self._stop_writer()
 
         # Close the session file under the write lock so it cannot be
-        # closed out from under a concurrent _write_entry call.
+        # closed out from under an in-flight write.
         with self._write_lock:
             if self._session_file:
                 self._session_file.close()
                 self._session_file = None
 
-        # Remove logging handlers
-        for handler in self._raw_logger.handlers[:]:
-            handler.close()
-            self._raw_logger.removeHandler(handler)
-        for handler in self._radar_logger.handlers[:]:
-            handler.close()
-            self._radar_logger.removeHandler(handler)
+        self._teardown_raw_logging()
 
         print(f"[SESSION] Ended. Total shots: {self._stats['shots_detected']}")
         print(f"[SESSION] Logs saved to: {self._session_path}")
 
     def _write_entry(self, entry_type: str, data: Dict[str, Any]):
-        """Write a log entry to the session file.
+        """Queue a log entry for the background writer.
 
-        Serialized with ``_write_lock`` so concurrent log_* calls from
-        different threads cannot interleave a partial line into the JSONL
-        stream or write to a file that end_session() is closing. The entry
-        is serialized outside the lock to keep the critical section to the
-        write+flush.
+        The entry is serialized on the calling thread (so later mutation of
+        ``data`` cannot change what is logged) and written, in call order,
+        by the single writer thread. Entries queued after end_session() has
+        begun stopping the writer are dropped.
         """
         if not self._session_file:
             return
 
         line = json.dumps({"ts": datetime.now().isoformat(), "type": entry_type, **data}) + "\n"
 
+        with self._enqueue_lock:
+            if not self._accepting:
+                return
+            self._queue.put(line)
+
+    def flush(self, timeout: float = 5.0) -> None:
+        """Block until every entry queued so far is written and flushed."""
+        with self._enqueue_lock:
+            if not self._accepting:
+                return
+            done = threading.Event()
+            self._queue.put(done)
+        if not done.wait(timeout):
+            logger.warning("[SESSION] Timed out flushing session log")
+
+    def _start_writer(self) -> None:
+        if self._writer_thread is not None and self._writer_thread.is_alive():
+            return
+        with self._enqueue_lock:
+            self._accepting = True
+        self._writer_thread = threading.Thread(
+            target=self._writer_loop, name="session-log-writer", daemon=True
+        )
+        self._writer_thread.start()
+        _active_loggers.add(self)
+
+    def _stop_writer(self, timeout: float = 10.0) -> None:
+        """Drain every queued entry, then stop the writer thread."""
+        with self._enqueue_lock:
+            if not self._accepting:
+                return
+            self._accepting = False
+            self._queue.put(_WRITER_STOP)
+        if self._writer_thread is not None:
+            self._writer_thread.join(timeout)
+            if self._writer_thread.is_alive():
+                logger.warning("[SESSION] Session log writer did not stop in time")
+            self._writer_thread = None
+        _active_loggers.discard(self)
+
+    def _writer_loop(self) -> None:
+        pending = 0
+        last_flush = time.monotonic()
+        while True:
+            timeout = None
+            if pending:
+                timeout = max(0.0, WRITER_FLUSH_INTERVAL_S - (time.monotonic() - last_flush))
+            try:
+                item = self._queue.get(timeout=timeout)
+            except queue.Empty:
+                item = None
+
+            if isinstance(item, str):
+                self._write_line(item)
+                pending += 1
+                if (
+                    pending < WRITER_FLUSH_EVERY_LINES
+                    and time.monotonic() - last_flush < WRITER_FLUSH_INTERVAL_S
+                ):
+                    continue
+
+            if pending:
+                self._flush_file()
+            pending = 0
+            last_flush = time.monotonic()
+
+            if isinstance(item, threading.Event):
+                item.set()
+            elif item is _WRITER_STOP:
+                return
+
+    def _write_line(self, line: str) -> None:
         with self._write_lock:
             if not self._session_file:
                 return
-            self._session_file.write(line)
-            self._session_file.flush()
+            try:
+                self._session_file.write(line)
+            except Exception:  # pylint: disable=broad-exception-caught
+                logger.exception("[SESSION] Failed to write session log entry")
+
+    def _flush_file(self) -> None:
+        with self._write_lock:
+            if not self._session_file:
+                return
+            try:
+                self._session_file.flush()
+            except Exception:  # pylint: disable=broad-exception-caught
+                logger.exception("[SESSION] Failed to flush session log")
 
     def log_shot(
         self,
@@ -815,7 +965,10 @@ def log_session_error(
 
 
 def init_session_logger(
-    log_dir: Optional[Path] = None, location: str = "range", enabled: bool = True
+    log_dir: Optional[Path] = None,
+    location: str = "range",
+    enabled: bool = True,
+    raw_radar_log: bool = False,
 ) -> SessionLogger:
     """
     Initialize and return the global session logger.
@@ -824,10 +977,13 @@ def init_session_logger(
         log_dir: Directory for log files
         location: Location identifier
         enabled: Whether logging is enabled
+        raw_radar_log: Write DEBUG radar logging to a per-session raw log file
 
     Returns:
         SessionLogger instance
     """
     global _session_logger
-    _session_logger = SessionLogger(log_dir=log_dir, location=location, enabled=enabled)
+    _session_logger = SessionLogger(
+        log_dir=log_dir, location=location, enabled=enabled, raw_radar_log=raw_radar_log
+    )
     return _session_logger

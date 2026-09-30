@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
-from scipy.signal.windows import dpss
 
 
 @dataclass(frozen=True)
@@ -57,6 +56,9 @@ def _polynomial_design(length: int, order: int = 3) -> np.ndarray:
 @lru_cache(maxsize=16)
 def _dpss_tapers(length: int, time_bandwidth: float, taper_count: int) -> np.ndarray:
     """Cache immutable tapers reused by equal-length shot windows."""
+    # Lazy: keeps scipy out of the import path of the rolling-buffer processor.
+    from scipy.signal.windows import dpss  # pylint: disable=import-outside-toplevel
+
     tapers = dpss(length, time_bandwidth, Kmax=taper_count, sym=False)
     tapers.setflags(write=False)
     return tapers

@@ -159,6 +159,7 @@ def test_session_log_records_orientation_used_for_shot(tmp_path):
     )
     logger.log_shot(shot)
 
+    logger.flush()
     entry = json.loads(logger.session_path.read_text().strip().splitlines()[-1])
     assert entry["type"] == "shot_detected"
     assert entry["inclinometer"] == orientation

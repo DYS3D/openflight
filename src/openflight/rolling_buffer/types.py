@@ -66,6 +66,7 @@ class IQCapture:
     clock_sync_offset_s: Optional[float] = None
     # Excluded from repr/eq: the timeline references this capture back.
     standard_timeline: Optional["SpeedTimeline"] = field(default=None, repr=False, compare=False)
+    sample_rate_hz: float = 30000.0
 
     def __post_init__(self) -> None:
         """Infer the hardware trigger epoch when first-byte timing is available."""
@@ -79,8 +80,8 @@ class IQCapture:
 
     @property
     def duration_ms(self) -> float:
-        """Duration of capture in milliseconds (at 30ksps)."""
-        return (self.num_samples / 30000) * 1000
+        """Duration of capture in milliseconds at its sample rate."""
+        return (self.num_samples / self.sample_rate_hz) * 1000
 
     @property
     def trigger_offset_ms(self) -> float:

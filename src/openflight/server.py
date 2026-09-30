@@ -19,7 +19,7 @@ from collections import deque
 from dataclasses import dataclass, fields, replace
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from flask import (
     Flask,
@@ -72,6 +72,7 @@ from .ops243 import (
 )
 from .power import SUPPORTED_BATTERY_PROVIDERS, PowerMonitor, PowerStatus
 from .profiles import ProfileStore
+from .radar_profile import DEFAULT_RADAR_PROFILE, RADAR_PROFILES, resolve_radar_profile
 from .radar_reconnect import RADAR_STATE_CONNECTED
 from .radar_timing import RadarTimingConfig, add_radar_timing_args
 from .rolling_buffer.monitor import estimate_carry_with_spin, get_optimal_spin_for_ball_speed
@@ -342,6 +343,12 @@ shot_enrichment_queue: queue.Queue[tuple[Shot, str, float | None]] = queue.Queue
 )
 shot_enrichment_task = None
 shot_enrichment_task_lock = threading.Lock()
+# --gated-postprocessing: per-stage budgets for the optional enrichments so
+# the carry/final emit is never held by a slow IWR6843 dump or camera decode.
+gated_postprocessing = False
+_GATED_IWR6843_BUDGET_S = 0.4
+_GATED_CAMERA_BUDGET_S = 0.4
+_gated_stage_threads: dict[str, threading.Thread] = {}
 _shot_sequence_number = 0
 _shot_sequence_lock = threading.Lock()
 _shot_callback_lock = threading.Lock()
@@ -3212,7 +3219,9 @@ def _process_iwr6843_angle(shot: Shot) -> float | None:
             exc=error,
         )
         _emit_iwr6843_trigger_status(shot, state="error", reason=str(error))
-    return (time.time() - started) * 1000.0
+    finished = time.time()
+    shot.mark_stage("iwr6843", finished)
+    return (finished - started) * 1000.0
 
 
 def _emit_iwr6843_trigger_status(
@@ -3592,15 +3601,77 @@ def _attach_camera_replay(shot: Shot, camera_capture) -> None:
         )
 
 
+def _run_gated_stage(
+    stage: str,
+    shot: Shot,
+    run: Callable[[Shot], float | None],
+    *,
+    budget_s: float,
+) -> float | None:
+    """Run one optional enrichment on a copy of ``shot`` within ``budget_s``.
+
+    The stage's fields are copied back only when it finishes in time. A late
+    stage keeps running on its private copy so it can never mutate a shot
+    that has already been finalized; the next shot skips the stage while that
+    thread is still busy so the hardware is never driven from two threads.
+    """
+    status_field = f"{stage}_status"
+    previous = _gated_stage_threads.get(stage)
+    if previous is not None and previous.is_alive():
+        logger.warning(
+            "[SERVER] Shot #%s %s skipped: previous stage still running past its %.0f ms budget",
+            shot.shot_number,
+            stage,
+            budget_s * 1000.0,
+        )
+        setattr(shot, status_field, "skipped_budget")
+        return None
+
+    staged_shot = replace(shot)
+    staged_shot.pipeline_marks = dict(shot.pipeline_marks or {})
+    result: dict[str, float | None] = {}
+
+    def worker() -> None:
+        try:
+            result["ms"] = run(staged_shot)
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            logger.error("[SERVER] Gated %s stage failed: %s", stage, error, exc_info=True)
+
+    thread = threading.Thread(target=worker, name=f"gated-{stage}", daemon=True)
+    _gated_stage_threads[stage] = thread
+    thread.start()
+    thread.join(budget_s)
+    if thread.is_alive():
+        logger.warning(
+            "[SERVER] Shot #%s %s skipped: did not finish within %.0f ms budget",
+            shot.shot_number,
+            stage,
+            budget_s * 1000.0,
+        )
+        setattr(shot, status_field, "skipped_budget")
+        return None
+
+    for shot_field in fields(Shot):
+        setattr(shot, shot_field.name, getattr(staged_shot, shot_field.name))
+    return result.get("ms")
+
+
 def _enrich_shot_from_optional_hardware(shot: Shot) -> _ShotEnrichmentResult:
     """Mutate a shot with available radar/camera measurements and timings."""
 
     # Snapshot orientation before IWR capture can block, and select only data
     # timestamped before impact so impact vibration cannot bias the geometry.
     _snapshot_inclinometer_for_shot(shot)
-    iwr6843_ms = _process_iwr6843_angle(shot)
+    if gated_postprocessing and iwr6843_runtime is not None and shot.mode != "mock":
+        iwr6843_ms = _run_gated_stage(
+            "iwr6843",
+            shot,
+            _process_iwr6843_angle,
+            budget_s=_GATED_IWR6843_BUDGET_S,
+        )
+    else:
+        iwr6843_ms = _process_iwr6843_angle(shot)
     kld7_ms = None
-    camera_capture_ms = None
     # Process K-LD7 angle radars (vertical = launch angle, horizontal = club path)
     try:
         if shot.mode != "mock":
@@ -3798,7 +3869,29 @@ def _enrich_shot_from_optional_hardware(shot: Shot) -> _ShotEnrichmentResult:
             exc=e,
         )
 
+    if gated_postprocessing and camera_capture_runtime is not None and shot.mode != "mock":
+        camera_capture_ms = _run_gated_stage(
+            "camera",
+            shot,
+            _process_camera_for_shot,
+            budget_s=_GATED_CAMERA_BUDGET_S,
+        )
+        if shot.camera_status == "skipped_budget":
+            _fuse_camera_measurements(shot, None)
+    else:
+        camera_capture_ms = _process_camera_for_shot(shot)
+
+    return _ShotEnrichmentResult(
+        iwr6843_ms=iwr6843_ms,
+        kld7_ms=kld7_ms,
+        camera_capture_ms=camera_capture_ms,
+    )
+
+
+def _process_camera_for_shot(shot: Shot) -> float | None:
+    """Match, archive, and fuse the camera clip for one shot; returns capture ms."""
     camera_capture = None
+    camera_capture_ms = None
     try:
         if camera_capture_runtime is not None and shot.mode != "mock":
             camera_capture_start = time.time()
@@ -3854,10 +3947,41 @@ def _enrich_shot_from_optional_hardware(shot: Shot) -> _ShotEnrichmentResult:
     if shot.mode != "mock":
         _fuse_camera_measurements(shot, camera_capture)
 
-    return _ShotEnrichmentResult(
-        iwr6843_ms=iwr6843_ms,
-        kld7_ms=kld7_ms,
-        camera_capture_ms=camera_capture_ms,
+    if camera_capture_runtime is not None and shot.mode != "mock":
+        shot.mark_stage("camera", time.time())
+    return camera_capture_ms
+
+
+_LATENCY_STAGE_ORDER = (
+    "capture",
+    "processed",
+    "initial_ui",
+    "iwr6843",
+    "camera",
+    "carry",
+    "final",
+)
+
+
+def _log_shot_latency(shot: Shot, latency_ms: dict) -> None:
+    """One INFO line per shot with the trigger-relative stage latencies."""
+    if latency_ms.get("final") is None:
+        logger.info("[LATENCY] shot #%s: no trigger timestamp", shot.shot_number)
+        return
+    ui_ms = latency_ms.get("initial_ui")
+    if ui_ms is None:
+        ui_ms = latency_ms["final"]
+    stages = ", ".join(
+        f"→{stage} {latency_ms[stage]:.0f} ms"
+        for stage in _LATENCY_STAGE_ORDER
+        if stage not in ("initial_ui", "final") and latency_ms.get(stage) is not None
+    )
+    logger.info(
+        "[LATENCY] shot #%s: trigger→ui %.0f ms, →final %.0f ms (%s)",
+        shot.shot_number,
+        ui_ms,
+        latency_ms["final"],
+        stages,
     )
 
 
@@ -3952,6 +4076,7 @@ def _finalize_shot_detected(
     else:
         trajectory = _attach_mock_flight(shot)
     _attach_derived_metrics(shot, trajectory)
+    shot.mark_stage("carry", time.time())
     if shot.spin_rejection_reason:
         logger.info(
             "[SERVER] Spin unavailable: %s (snr=%s, candidate=%s rpm)",
@@ -3959,6 +4084,10 @@ def _finalize_shot_detected(
             "%.2f" % shot.spin_snr if shot.spin_snr is not None else "N/A",
             "%.0f" % (shot.spin_peak_freq_hz * 60) if shot.spin_peak_freq_hz is not None else "N/A",
         )
+
+    shot.mark_stage("final", time.time())
+    latency_ms = shot.latency_ms()
+    _log_shot_latency(shot, latency_ms)
 
     # Log shot with all data (radar + spin + camera) in one entry
     try:
@@ -3973,6 +4102,7 @@ def _finalize_shot_detected(
                     "camera_capture": (
                         round(camera_capture_ms, 1) if camera_capture_ms is not None else None
                     ),
+                    "latency": latency_ms,
                 },
             )
     except Exception as e:
@@ -3987,6 +4117,7 @@ def _finalize_shot_detected(
     # Emit shot with launch angle data included
     try:
         shot_data = shot_to_dict(shot)
+        shot_data["latency_ms"] = latency_ms
         stats = monitor.get_session_stats() if monitor else {}
         socketio.emit(emit_event, {"shot": shot_data, "stats": stats})
 
@@ -4267,8 +4398,12 @@ def _handle_shot_detected(shot: Shot) -> None:
 
     emitted = _emit_initial_ops_shot(shot)
     initial_ui_ms = None
+    if emitted:
+        shot.mark_stage("initial_ui", time.time())
     if emitted and shot.impact_timestamp is not None:
-        initial_ui_ms = max(0.0, (time.time() - shot.impact_timestamp) * 1000.0)
+        initial_ui_ms = max(
+            0.0, (shot.pipeline_marks["initial_ui"] - shot.impact_timestamp) * 1000.0
+        )
         logger.info(
             "[SERVER] Initial OPS metrics emitted %.0fms after impact; "
             "hardware enrichment continues in background",
@@ -4420,6 +4555,8 @@ def start_monitor(
     ball_marker: str = "none",
     spin_octave_check: bool = False,
     interference_check: bool = False,
+    radar_profile: str = DEFAULT_RADAR_PROFILE,
+    fast_dsp: bool = False,
 ):
     """
     Start the monitor in launch monitor or swing speed mode.
@@ -4434,6 +4571,9 @@ def start_monitor(
         ball_marker: Rolling-buffer spin ball marker mode (none, dot, rct)
         spin_octave_check: Correct rolling-buffer ~2x/~0.5x spin picks
         interference_check: Track the OPS243 noise floor and emit radar_health
+        radar_profile: OPS243 rolling-buffer profile (standard or low-latency);
+            low-latency overrides sample_rate_ksps and the pre-trigger split
+        fast_dsp: Pre-planned multi-threaded FFT path in the processor
     """
     global monitor, mock_mode, mock_swing_speed_mode, debug_mode, radar_config
 
@@ -4459,6 +4599,15 @@ def start_monitor(
     else:
         from .rolling_buffer import RollingBufferMonitor
 
+        trigger_kwargs = dict(trigger_kwargs or {})
+        profile = resolve_radar_profile(
+            radar_profile,
+            sample_rate_ksps=sample_rate_ksps,
+            pre_trigger_segments=trigger_kwargs.get("pre_trigger_segments", 16),
+        )
+        sample_rate_ksps = profile.sample_rate_ksps
+        if "pre_trigger_segments" in trigger_kwargs or profile.profile != "standard":
+            trigger_kwargs["pre_trigger_segments"] = profile.pre_trigger_segments
         new_monitor = RollingBufferMonitor(
             port=port,
             trigger_type=trigger_type,
@@ -4468,13 +4617,25 @@ def start_monitor(
             ball_marker=ball_marker,
             spin_octave_check=spin_octave_check,
             interference_check=interference_check,
-            **(trigger_kwargs or {}),
+            scale_speed_band=profile.scale_speed_band,
+            fast_dsp=fast_dsp,
+            **trigger_kwargs,
         )
         logger.info(
             "[MODE] Rolling buffer mode (trigger: %s, sample_rate: %dksps)",
             trigger_type,
             sample_rate_ksps,
         )
+        if profile.profile != "standard":
+            logger.info(
+                "[MODE] Radar profile %s: S=%d, S#%d (pre %.1f ms / post %.1f ms of %.1f ms)",
+                profile.profile,
+                profile.sample_rate_ksps,
+                profile.pre_trigger_segments,
+                profile.pre_trigger_ms,
+                profile.post_trigger_ms,
+                profile.buffer_ms,
+            )
 
     new_monitor.connect()
     _reset_shot_sequence()
@@ -5358,6 +5519,36 @@ def main():
         ),
     )
     parser.add_argument(
+        "--radar-profile",
+        choices=RADAR_PROFILES,
+        default=DEFAULT_RADAR_PROFILE,
+        help=(
+            "OPS243 rolling-buffer profile. standard (default) uses --sample-rate and "
+            "--sound-pre-trigger as given. low-latency samples at 50 ksps and re-splits "
+            "the 4096-sample buffer so the pre-trigger span keeps the same duration, "
+            "shortening the post-impact wait before the dump; the buffer then covers "
+            "82 ms instead of 137 ms"
+        ),
+    )
+    parser.add_argument(
+        "--fast-dsp",
+        action="store_true",
+        help=(
+            "Pre-planned multi-threaded FFT and vectorised peak picking in the "
+            "rolling-buffer processor. Numerically equivalent; off by default"
+        ),
+    )
+    parser.add_argument(
+        "--gated-postprocessing",
+        action="store_true",
+        help=(
+            "Run IWR6843 angle estimation and camera analysis only within a bounded "
+            "per-stage budget after the OPS shot (400 ms each); a stage that cannot "
+            "finish is skipped with *_status=skipped_budget so carry is never delayed. "
+            "Off by default"
+        ),
+    )
+    parser.add_argument(
         "--iwr6843",
         action="store_true",
         help="Enable TI IWR6843 L3 capture and LCMF-v1 vertical launch angle",
@@ -5847,6 +6038,15 @@ def main():
         set_show_raw_readings(True)
         logger.info("Raw radar readings display ENABLED - signed speed values will be shown")
 
+    global gated_postprocessing  # pylint: disable=global-statement
+    gated_postprocessing = args.gated_postprocessing
+    if gated_postprocessing:
+        logger.info(
+            "Gated post-processing ENABLED (IWR6843 %.0f ms, camera %.0f ms budgets)",
+            _GATED_IWR6843_BUDGET_S * 1000.0,
+            _GATED_CAMERA_BUDGET_S * 1000.0,
+        )
+
     # Start the monitor
     # Build trigger-specific kwargs (pre_trigger_segments always passed)
     trigger_kwargs = {
@@ -6034,6 +6234,8 @@ def main():
             ball_marker=args.ball_marker,
             spin_octave_check=args.spin_octave_check,
             interference_check=args.interference_check,
+            radar_profile=args.radar_profile,
+            fast_dsp=args.fast_dsp,
         )
     except Exception:
         monitor_recovery = (

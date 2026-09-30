@@ -54,6 +54,8 @@ class RollingBufferProcessor:
     STEP_SIZE_STANDARD = 128  # Non-overlapping step
     STEP_SIZE_OVERLAP = 32  # Overlapping step for high resolution
     SAMPLE_RATE = 30000  # 30 ksps
+    # Rate the bin-count constants below were tuned at (see scale_speed_band).
+    REFERENCE_SAMPLE_RATE = 30000
 
     # Speed conversion
     # Speed = bin_index * wavelength * sample_rate / (2 * fft_size)
@@ -180,6 +182,8 @@ class RollingBufferProcessor:
         sample_rate: int = 30000,
         ball_marker: str = "none",
         spin_octave_check: bool = False,
+        scale_speed_band: bool = False,
+        fast_dsp: bool = False,
     ):
         """Initialize processor with pre-computed window function.
 
@@ -194,6 +198,13 @@ class RollingBufferProcessor:
             spin_octave_check: Move a pick that is ~2x (or, without a marker,
                 ~0.5x) the club/ball-speed spin prior to a supported
                 half/double candidate.
+            scale_speed_band: Rescale DC_MASK_BINS and MIN_PEAK_SEPARATION_BINS
+                from their 30 ksps tuning so they keep the same mph meaning at
+                ``sample_rate``. Off by default so existing rates keep their
+                bin counts.
+            fast_dsp: Use the pre-planned, multi-threaded FFT path and the
+                vectorised peak picker. Numerically equivalent to the default
+                path; off by default.
         """
         if ball_marker not in BALL_MARKERS:
             raise ValueError(f"ball_marker must be one of {BALL_MARKERS}, got {ball_marker!r}")
@@ -203,6 +214,13 @@ class RollingBufferProcessor:
         self.spin_octave_check = spin_octave_check
         # Called with every successfully parsed capture (--interference-check).
         self.capture_observer: Optional[Callable[[IQCapture], None]] = None
+        if scale_speed_band:
+            bin_scale = self.REFERENCE_SAMPLE_RATE / sample_rate
+            self.DC_MASK_BINS = max(1, round(self.DC_MASK_BINS * bin_scale))
+            self.MIN_PEAK_SEPARATION_BINS = max(1, round(self.MIN_PEAK_SEPARATION_BINS * bin_scale))
+        self.fast_dsp = fast_dsp
+        # Voltage scaling folded into the window: one multiply per sample.
+        self._scaled_window = self.hanning_window * (self.VOLTAGE_REF / self.ADC_RANGE)
         if ball_marker != "none" or spin_octave_check:
             logger.info(
                 "[PROCESSOR] Spin options: ball_marker=%s, octave_check=%s",
@@ -281,6 +299,7 @@ class RollingBufferProcessor:
                     i_samples=i_samples,
                     q_samples=q_samples,
                     first_byte_timestamp=first_byte_timestamp,
+                    sample_rate_hz=float(self.SAMPLE_RATE),
                 )
                 if self.capture_observer is not None:
                     self.capture_observer(capture)
@@ -355,7 +374,83 @@ class RollingBufferProcessor:
         # Sort by magnitude descending
         candidates.sort(key=lambda x: x[1], reverse=True)
 
-        # Greedy selection with minimum separation
+        return self._select_separated_peaks(candidates)
+
+    def _candidate_peak_mask(self, magnitudes: np.ndarray) -> np.ndarray:
+        """Per-window mask of bins that are local maxima above the threshold.
+
+        Interior neighbours are the same bins whichever search region a bin
+        later falls in, so one batched comparison replaces the per-region
+        slicing in ``_find_peaks``.
+        """
+        mask = np.zeros(magnitudes.shape, dtype=bool)
+        centre = magnitudes[:, 1:-1]
+        mask[:, 1:-1] = (
+            (centre > magnitudes[:, :-2])
+            & (centre > magnitudes[:, 2:])
+            & (centre >= self.MAGNITUDE_THRESHOLD)
+        )
+        return mask
+
+    def _search_region_by_bin(self) -> np.ndarray:
+        """Which direction each bin is searched in: 1 outbound, 2 inbound, 0 masked.
+
+        Mirrors the two ``_find_peaks`` regions of ``_peaks_from_magnitude``,
+        including its exclusive end bins and its three-bin minimum width.
+        """
+        half = self.FFT_SIZE // 2
+        dc_mask = self.DC_MASK_BINS
+        region = np.zeros(self.FFT_SIZE, dtype=np.int8)
+        if dc_mask < half and half - dc_mask >= 3:
+            region[dc_mask + 1 : half - 1] = 1
+        neg_start, neg_end = half + 1, self.FFT_SIZE - dc_mask
+        if neg_start < neg_end and neg_end - neg_start >= 3:
+            region[neg_start + 1 : neg_end - 1] = 2
+        return region
+
+    def _window_peaks_fast(self, magnitudes: np.ndarray) -> List[List[Tuple[float, float, str]]]:
+        """``_peaks_from_magnitude`` for every row of ``magnitudes`` in one pass.
+
+        Candidate bins for all windows are found and ordered with a handful of
+        array operations; only the short greedy separation loop stays in
+        Python. The candidate set and its stable magnitude-descending order
+        are exactly those of the per-window path.
+        """
+        region_by_bin = self._search_region_by_bin()
+        mask = self._candidate_peak_mask(magnitudes) & (region_by_bin != 0)
+        rows, bins = np.nonzero(mask)
+        mags = magnitudes[rows, bins]
+        regions = region_by_bin[bins]
+        order = np.lexsort((-mags, regions, rows))
+        rows = rows[order].tolist()
+        bins = bins[order].tolist()
+        mags = mags[order].tolist()
+        regions = regions[order].tolist()
+
+        per_window: List[List[Tuple[float, float, str]]] = [[] for _ in range(len(magnitudes))]
+        index = 0
+        total = len(rows)
+        while index < total:
+            row, region = rows[index], regions[index]
+            stop = index
+            while stop < total and rows[stop] == row and regions[stop] == region:
+                stop += 1
+            selected = self._select_separated_peaks(list(zip(bins[index:stop], mags[index:stop])))
+            direction = "outbound" if region == 1 else "inbound"
+            for peak_bin, mag in selected:
+                if region != 1:
+                    peak_bin = self.FFT_SIZE - peak_bin
+                # Same operation order as _peaks_from_magnitude, bit for bit.
+                freq_hz = peak_bin * self.SAMPLE_RATE / self.FFT_SIZE
+                speed_mps = freq_hz * self.WAVELENGTH_M / 2
+                per_window[row].append((speed_mps * self.MPS_TO_MPH, mag, direction))
+            index = stop
+        return per_window
+
+    def _select_separated_peaks(
+        self, candidates: List[Tuple[int, float]]
+    ) -> List[Tuple[int, float]]:
+        """Greedy selection with minimum separation from magnitude-sorted candidates."""
         selected: List[Tuple[int, float]] = []
         for bin_idx, mag in candidates:
             if len(selected) >= self.MAX_PEAKS_PER_DIRECTION:
@@ -405,6 +500,9 @@ class RollingBufferProcessor:
         Steps 1-5 of ``_process_block`` applied row-wise with a single
         batched FFT.
         """
+        if self.fast_dsp:
+            return self._window_magnitudes_fast(i_blocks, q_blocks)
+
         # Remove DC offset
         i_centered = i_blocks - np.mean(i_blocks, axis=1, keepdims=True)
         q_centered = q_blocks - np.mean(q_blocks, axis=1, keepdims=True)
@@ -422,6 +520,26 @@ class RollingBufferProcessor:
 
         # FFT
         fft_result = np.fft.fft(complex_signal, self.FFT_SIZE, axis=1)
+        return np.abs(fft_result)
+
+    def _window_magnitudes_fast(self, i_blocks: np.ndarray, q_blocks: np.ndarray) -> np.ndarray:
+        """``_window_magnitudes`` with fused scaling and a multi-threaded FFT.
+
+        The zero-padded input is written once into a preallocated buffer and
+        transformed in place by pocketfft across all cores, so the only
+        per-call allocation is the magnitude output.
+        """
+        import scipy.fft  # noqa: PLC0415  pylint: disable=import-outside-toplevel
+
+        i_blocks = np.asarray(i_blocks, dtype=np.float64)
+        q_blocks = np.asarray(q_blocks, dtype=np.float64)
+        i_centered = i_blocks - i_blocks.mean(axis=1, keepdims=True)
+        q_centered = q_blocks - q_blocks.mean(axis=1, keepdims=True)
+
+        padded = np.zeros((i_blocks.shape[0], self.FFT_SIZE), dtype=np.complex128)
+        np.multiply(i_centered, self._scaled_window, out=padded[:, : self.WINDOW_SIZE].real)
+        np.multiply(q_centered, self._scaled_window, out=padded[:, : self.WINDOW_SIZE].imag)
+        fft_result = scipy.fft.fft(padded, axis=1, overwrite_x=True, workers=-1)
         return np.abs(fft_result)
 
     def _peaks_from_magnitude(self, magnitude: np.ndarray) -> List[Tuple[float, float, str]]:
@@ -483,9 +601,13 @@ class RollingBufferProcessor:
         i_windows = sliding_window_view(np.asarray(capture.i_samples), self.WINDOW_SIZE)
         q_windows = sliding_window_view(np.asarray(capture.q_samples), self.WINDOW_SIZE)
         magnitudes = self._window_magnitudes(i_windows[start_idx], q_windows[start_idx])
+        if self.fast_dsp:
+            window_peaks = self._window_peaks_fast(magnitudes)
+        else:
+            window_peaks = [self._peaks_from_magnitude(magnitude) for magnitude in magnitudes]
 
         window_readings = []
-        for start, magnitude in zip(starts, magnitudes):
+        for start, peaks in zip(starts, window_peaks):
             timestamp_ms = self._window_timestamp_ms(start)
             window_readings.append(
                 [
@@ -495,9 +617,7 @@ class RollingBufferProcessor:
                         timestamp_ms=timestamp_ms,
                         direction=direction,
                     )
-                    for speed_mph, peak_magnitude, direction in self._peaks_from_magnitude(
-                        magnitude
-                    )
+                    for speed_mph, peak_magnitude, direction in peaks
                 ]
             )
         return window_readings

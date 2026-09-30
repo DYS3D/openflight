@@ -21,7 +21,7 @@ export function DisplayPreferencesSection({ preferences, onChange }: DisplayPref
   const { t } = useI18n();
 
   return (
-    <section className="menu-sheet__section">
+    <section className="menu-sheet__section menu-sheet__section--display">
       <span className="menu-sheet__section-title">{t('menu.display')}</span>
       {DISPLAY_PREFERENCE_KEYS.map((key) => (
         <button

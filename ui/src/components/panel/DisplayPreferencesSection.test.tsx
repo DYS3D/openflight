@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setActiveLocale } from '../../i18n';
@@ -57,5 +59,17 @@ describe('DisplayPreferencesSection', () => {
     expect(html).toContain('menu-sheet__section-title">Display<');
     expect(switches(html)).toHaveLength(4);
     expect(html).not.toContain('aria-checked="true"');
+  });
+
+  it('sits after System and pairs its switches across the short-kiosk sheet', () => {
+    const html = renderToString(<MenuSheet onClose={() => {}} onShutdown={() => {}} />);
+    const css = readFileSync(fileURLToPath(new URL('./panel.css', import.meta.url)), 'utf8');
+    const shortKiosk = css.slice(css.indexOf('@media (max-height: 500px)'));
+
+    expect(html.indexOf('>System<')).toBeLessThan(html.indexOf('>Display<'));
+    expect(html.indexOf('>Display<')).toBeLessThan(html.indexOf('menu-sheet__shutdown'));
+    expect(shortKiosk).toMatch(
+      /\.menu-sheet__section--display \{[^}]*grid-column: 1 \/ -1;[^}]*grid-template-columns: 1fr 1fr/
+    );
   });
 });

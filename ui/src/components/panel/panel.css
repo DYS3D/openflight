@@ -1827,8 +1827,8 @@
 /* ------------------------------------------ short kiosks (800x400, 800x480) */
 
 @media (max-height: 500px) {
-  /* Stacked 44px controls no longer fit above the footer, and the sheet is
-   * not drag-scrollable, so pair the sections up to keep Shut down on screen. */
+  /* Stacked 44px controls no longer fit above the footer, so pair the
+   * sections up to keep Shut down on screen at 800×480. */
   .menu-sheet {
     width: 500px;
     max-width: calc(100% - 24px);
@@ -1839,6 +1839,17 @@
   }
 
   .menu-sheet__shutdown {
+    grid-column: 1 / -1;
+  }
+
+  .menu-sheet__section--display {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 14px;
+  }
+
+  .menu-sheet__section--display > .menu-sheet__section-title {
     grid-column: 1 / -1;
   }
 }

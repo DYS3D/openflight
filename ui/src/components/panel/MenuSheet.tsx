@@ -97,8 +97,6 @@ export function MenuSheet({ onClose, onShutdown, updateStatus = null, onOpenUpda
           </select>
         </section>
 
-        <DisplayPreferencesSection preferences={preferences} onChange={setPreference} />
-
         <section className="menu-sheet__section">
           <span className="menu-sheet__section-title">{t('menu.system')}</span>
           {Object.keys(simStatuses).length > 0 ? (
@@ -131,6 +129,8 @@ export function MenuSheet({ onClose, onShutdown, updateStatus = null, onOpenUpda
             </div>
           ) : null}
         </section>
+
+        <DisplayPreferencesSection preferences={preferences} onChange={setPreference} />
 
         <button type="button" className="menu-sheet__shutdown" onClick={onShutdown}>
           {t('menu.shutdown')}

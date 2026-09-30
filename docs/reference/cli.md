@@ -124,6 +124,8 @@ Where session logs go and what they capture.
 | `--log-dir` | — | Directory for session logs (default: ~/openflight_sessions) |
 | `--profiles-path` | path | Profile store (default: `OPENFLIGHT_PROFILES_PATH` or `~/.config/openflight/profiles.json`) |
 | `--no-logging` | flag | Disable session logging |
+| `--log-retention-days` | float; default `90` | At startup, delete session logs, raw radar logs, TI dumps, and camera captures older than this (0 = keep forever). Sessions still waiting for cloud upload are kept |
+| `--log-max-mb` | float; default `8192` | At startup, trim the oldest of those files until the log directory fits this size (0 = no limit) |
 
 ## Simulators & power
 

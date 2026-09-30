@@ -716,3 +716,61 @@ def test_power_status_writes_structured_session_entry(tmp_path):
     assert entry["state"] == "on_battery"
     assert entry["battery_percent"] == 42.5
     assert entry["external_power"] is False
+
+
+class _FrozenDatetime(datetime):
+    """datetime whose now() never advances, forcing same-second session starts."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 9, 30, 12, 0, 0)
+
+
+class TestSessionIdCollisions:
+    """Two sessions started within one second must not share (and truncate) a file."""
+
+    def test_same_second_sessions_get_distinct_files(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(session_logger_module, "datetime", _FrozenDatetime)
+        first = SessionLogger(log_dir=tmp_path, enabled=True)
+        first.start_session(mode="mock")
+        first.log_error("first session marker")
+        first.end_session()
+
+        second = SessionLogger(log_dir=tmp_path, enabled=True)
+        second.start_session(mode="mock")
+        second.end_session()
+
+        assert first.session_id == "20260930_120000"
+        assert second.session_id == "20260930_120000_2"
+        assert first.session_path != second.session_path
+        assert first.raw_path != second.raw_path
+        assert "first session marker" in first.session_path.read_text()
+
+    def test_existing_raw_log_also_reserves_the_id(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(session_logger_module, "datetime", _FrozenDatetime)
+        (tmp_path / "radar_raw_20260930_120000.log").write_text("old raw data")
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="mock")
+        logger.end_session()
+        assert logger.session_id == "20260930_120000_2"
+        assert (tmp_path / "radar_raw_20260930_120000.log").read_text() == "old raw data"
+
+
+class TestRawHandlerLifecycle:
+    def test_restarting_sessions_closes_previous_raw_handlers(self, tmp_path):
+        import logging
+
+        logger = SessionLogger(log_dir=tmp_path / "a", enabled=True)
+        logger.start_session(mode="mock")
+        old_handlers = list(logging.getLogger("ops243.raw").handlers)
+        old_session_file = logger._session_file
+
+        # A new session without end_session() (e.g. mode switch) must not leak.
+        logger.log_dir = tmp_path / "b"
+        logger.start_session(mode="mock")
+
+        assert old_handlers
+        for handler in old_handlers:
+            assert handler.stream is None or handler.stream.closed
+        assert old_session_file.closed
+        logger.end_session()

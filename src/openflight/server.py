@@ -60,7 +60,12 @@ from .ops243 import (
 from .power import SUPPORTED_BATTERY_PROVIDERS, PowerMonitor, PowerStatus
 from .profiles import ProfileStore
 from .rolling_buffer.monitor import estimate_carry_with_spin, get_optimal_spin_for_ball_speed
-from .session_logger import get_session_logger, init_session_logger, log_session_error
+from .session_logger import (
+    SessionLogger,
+    get_session_logger,
+    init_session_logger,
+    log_session_error,
+)
 from .sim import (
     IncompleteShotError,
     PlayerState as SimPlayerState,
@@ -111,6 +116,13 @@ debug_mode: bool = False
 mock_swing_speed_mode: bool = False
 debug_log_file = None
 debug_log_path: Optional[Path] = None
+_debug_raw_handler: Optional[logging.Handler] = None
+# Guards debug_log_file/_debug_raw_handler: readings are written from the radar
+# thread while a socket handler may be opening or closing the file.
+_debug_log_lock = threading.RLock()
+# Guards radar_config and camera_capture_config, which socket handler threads
+# read and update concurrently.
+_config_lock = threading.RLock()
 # Created lazily so importing the server (in tests, in tooling) never writes
 # to the real config directory.
 profile_store: Optional[ProfileStore] = None
@@ -1579,7 +1591,8 @@ def camera_replay_video(replay_id: str):  # pylint: disable=too-many-return-stat
 
 def _camera_capture_settings_payload() -> dict:
     """Return camera controls and capture state for the Camera tab."""
-    payload = dict(camera_capture_config)
+    with _config_lock:
+        payload = dict(camera_capture_config)
     payload["available"] = camera_capture_runtime is not None
     payload.setdefault("alignment_x_pct", 50.0)
     payload.setdefault("alignment_y_pct", 50.0)
@@ -1627,36 +1640,35 @@ def handle_set_camera_capture_settings(data):
     try:
         if "exposure_us" in data or "gain" in data:
             raise ValueError("Camera exposure and gain are managed automatically")
-        alignment_x_pct = float(
-            data.get("alignment_x_pct", camera_capture_config.get("alignment_x_pct", 50.0))
-        )
-        alignment_y_pct = float(
-            data.get("alignment_y_pct", camera_capture_config.get("alignment_y_pct", 50.0))
-        )
-        if not 0.0 <= alignment_x_pct <= 100.0:
-            raise ValueError("horizontal alignment must be between 0 and 100 percent")
-        if not 0.0 <= alignment_y_pct <= 100.0:
-            raise ValueError("vertical alignment must be between 0 and 100 percent")
-
-        crop_update = {}
-        if "vertical_offset_px" in data:
-            crop_update = camera_capture_runtime.update_vertical_crop(
-                int(data["vertical_offset_px"])
+        with _config_lock:
+            alignment_x_pct = float(
+                data.get("alignment_x_pct", camera_capture_config.get("alignment_x_pct", 50.0))
             )
+            alignment_y_pct = float(
+                data.get("alignment_y_pct", camera_capture_config.get("alignment_y_pct", 50.0))
+            )
+            if not 0.0 <= alignment_x_pct <= 100.0:
+                raise ValueError("horizontal alignment must be between 0 and 100 percent")
+            if not 0.0 <= alignment_y_pct <= 100.0:
+                raise ValueError("vertical alignment must be between 0 and 100 percent")
 
-        camera_capture_config.update(
-            {
-                **crop_update,
-                "alignment_x_pct": alignment_x_pct,
-                "alignment_y_pct": alignment_y_pct,
-            }
-        )
+            crop_update = {}
+            if "vertical_offset_px" in data:
+                crop_update = camera_capture_runtime.update_vertical_crop(
+                    int(data["vertical_offset_px"])
+                )
+
+            camera_capture_config.update(
+                {
+                    **crop_update,
+                    "alignment_x_pct": alignment_x_pct,
+                    "alignment_y_pct": alignment_y_pct,
+                }
+            )
+            snapshot = dict(camera_capture_config)
         session_log = get_session_logger()
         if session_log:
-            session_log.log_config_change(
-                {"camera_capture": dict(camera_capture_config)},
-                source="camera_ui",
-            )
+            session_log.log_config_change({"camera_capture": snapshot}, source="camera_ui")
         socketio.emit("camera_capture_settings", _camera_capture_settings_payload())
     except ValueError as error:
         logger.warning("[SERVER] Camera settings update rejected: %s", error)
@@ -1666,32 +1678,42 @@ def handle_set_camera_capture_settings(data):
         _reply("camera_capture_settings_error", {"error": "Camera settings could not be applied"})
 
 
+def _close_debug_logging_locked() -> None:
+    """Close the debug JSONL file and detach its radar log handler."""
+    global debug_log_file, _debug_raw_handler  # pylint: disable=global-statement
+    if _debug_raw_handler is not None:
+        for name in ("ops243", "ops243.raw"):
+            logging.getLogger(name).removeHandler(_debug_raw_handler)
+        _debug_raw_handler.close()
+        _debug_raw_handler = None
+    if debug_log_file is not None:
+        debug_log_file.close()
+        debug_log_file = None
+        print(f"Debug log saved: {debug_log_path}")
+
+
 def start_debug_logging():
     """Start logging raw readings to a file."""
-    global debug_log_file, debug_log_path  # pylint: disable=global-statement
+    global debug_log_file, debug_log_path, _debug_raw_handler  # pylint: disable=global-statement
 
-    # Create logs directory
     log_dir = Path.home() / "openflight_logs"
     log_dir.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
-    # Create timestamped log file
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    debug_log_path = log_dir / f"debug_{timestamp}.jsonl"
-    debug_log_file = open(debug_log_path, "w")  # pylint: disable=consider-using-with
+    with _debug_log_lock:
+        # A second start must not orphan the previous file and handler.
+        _close_debug_logging_locked()
+        debug_log_path = log_dir / f"debug_{timestamp}.jsonl"
+        debug_log_file = open(debug_log_path, "w", encoding="utf-8")  # pylint: disable=consider-using-with
 
-    # Enable radar raw logging
-    radar_logger = logging.getLogger("ops243")
-    radar_raw_logger = logging.getLogger("ops243.raw")
-    radar_logger.setLevel(logging.DEBUG)
-    radar_raw_logger.setLevel(logging.DEBUG)
-
-    # Add file handler for raw radar data
-    raw_log_path = log_dir / f"radar_raw_{timestamp}.log"
-    file_handler = logging.FileHandler(raw_log_path)
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
-    radar_raw_logger.addHandler(file_handler)
-    radar_logger.addHandler(file_handler)
+        raw_log_path = log_dir / f"radar_raw_{timestamp}.log"
+        _debug_raw_handler = logging.FileHandler(raw_log_path)
+        _debug_raw_handler.setLevel(logging.DEBUG)
+        _debug_raw_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
+        for name in ("ops243", "ops243.raw"):
+            radar_logger = logging.getLogger(name)
+            radar_logger.setLevel(logging.DEBUG)
+            radar_logger.addHandler(_debug_raw_handler)
 
     print(f"Debug logging to: {debug_log_path}")
     print(f"Raw radar logging to: {raw_log_path}")
@@ -1700,18 +1722,25 @@ def start_debug_logging():
 
 def stop_debug_logging():
     """Stop logging and close the file."""
-    global debug_log_file, debug_log_path  # pylint: disable=global-statement
+    with _debug_log_lock:
+        _close_debug_logging_locked()
 
-    if debug_log_file:
-        debug_log_file.close()
-        debug_log_file = None
-        print(f"Debug log saved: {debug_log_path}")
+
+def _write_debug_entry(entry: dict) -> bool:
+    """Append one JSON line to the debug log; False when logging is off."""
+    line = json.dumps(entry) + "\n"
+    with _debug_log_lock:
+        if debug_log_file is None:
+            return False
+        debug_log_file.write(line)
+        debug_log_file.flush()
+        return True
 
 
 def log_debug_reading(reading: SpeedReading):
     """Log a raw reading to the debug file."""
-    if debug_log_file:
-        entry = {
+    written = _write_debug_entry(
+        {
             "timestamp": datetime.now().isoformat(),
             "type": "reading",
             "speed": reading.speed,
@@ -1719,10 +1748,8 @@ def log_debug_reading(reading: SpeedReading):
             "magnitude": reading.magnitude,
             "unit": reading.unit,
         }
-        debug_log_file.write(json.dumps(entry) + "\n")
-        debug_log_file.flush()
-
-        # Also print to console for immediate feedback
+    )
+    if written:
         print(
             f"[RADAR] {reading.speed:.1f} mph {reading.direction.value} (mag={reading.magnitude})"
         )
@@ -2144,14 +2171,17 @@ def handle_toggle_debug():
     """Toggle debug mode on/off."""
     global debug_mode  # pylint: disable=global-statement
 
-    debug_mode = not debug_mode
+    with _debug_log_lock:
+        debug_mode = not debug_mode
+        enabled = debug_mode
+        log_path = start_debug_logging() if enabled else None
+        if not enabled:
+            stop_debug_logging()
 
-    if debug_mode:
-        log_path = start_debug_logging()
+    if enabled:
         socketio.emit("debug_toggled", {"enabled": True, "log_path": log_path})
         print("Debug mode ENABLED")
     else:
-        stop_debug_logging()
         socketio.emit("debug_toggled", {"enabled": False})
         print("Debug mode DISABLED")
 
@@ -2226,7 +2256,9 @@ def validate_radar_config_update(data, current: dict) -> dict:
 @socketio.on("get_radar_config")
 def handle_get_radar_config():
     """Get current radar configuration."""
-    _reply("radar_config", dict(radar_config))
+    with _config_lock:
+        snapshot = dict(radar_config)
+    _reply("radar_config", snapshot)
 
 
 @socketio.on("set_radar_config")
@@ -2243,75 +2275,78 @@ def handle_set_radar_config(data):
         return
 
     try:
-        update = validate_radar_config_update(data, radar_config)
+        with _config_lock:
+            update = validate_radar_config_update(data, radar_config)
+            snapshot = _apply_radar_config_update(update)
     except RadarConfigError as error:
         logger.warning("[SERVER] Radar config update rejected: %s", error)
         _reply("radar_config_error", {"error": str(error)})
         return
-
-    try:
-        from .swing_speed import SwingSpeedMonitor  # pylint: disable=import-outside-toplevel
-
-        is_swing_speed = isinstance(monitor, (SwingSpeedMonitor, MockSwingSpeedMonitor))
-
-        if "min_speed" in update:
-            new_min = update["min_speed"]
-            monitor.radar.set_min_speed_filter(new_min)
-            if is_swing_speed:
-                monitor.trigger_threshold_mph = float(new_min)
-            radar_config["min_speed"] = new_min
-            print(f"Set min speed filter: {new_min} mph")
-
-        # Update max speed filter. 0 must still be forwarded: AN-010-AD (p10)
-        # defines "R<0 resets to no limit", so it is how the UI clears a
-        # previously-set ceiling. Swallowing it would leave the old ceiling
-        # active on the radar while radar_config claimed no limit.
-        if "max_speed" in update:
-            new_max = update["max_speed"]
-            monitor.radar.set_max_speed_filter(new_max)
-            if is_swing_speed:
-                monitor.max_speed_mph = None if new_max <= 0 else float(new_max)
-            radar_config["max_speed"] = new_max
-            print(f"Set max speed filter: {new_max} mph")
-
-        if "min_magnitude" in update:
-            new_mag = update["min_magnitude"]
-            monitor.radar.set_magnitude_filter(min_mag=new_mag)
-            radar_config["min_magnitude"] = new_mag
-            print(f"Set min magnitude filter: {new_mag}")
-
-        # Transmit power: 0 = max, 7 = min.
-        if "transmit_power" in update:
-            new_power = update["transmit_power"]
-            monitor.radar.set_transmit_power(new_power)
-            radar_config["transmit_power"] = new_power
-            print(f"Set transmit power: {new_power}")
-
-        session_logger = get_session_logger()
-        if session_logger:
-            session_logger.log_config_change(radar_config.copy(), source="user")
-
-        # Legacy debug logging
-        if debug_mode and debug_log_file:
-            entry = {
-                "timestamp": datetime.now().isoformat(),
-                "type": "config_change",
-                "config": radar_config.copy(),
-            }
-            debug_log_file.write(json.dumps(entry) + "\n")
-            debug_log_file.flush()
-
-        socketio.emit("radar_config", dict(radar_config))
-
     except Exception as e:
         logger.warning("[SERVER] Error setting radar config: %s", e, exc_info=True)
         log_session_error(
             "Radar config update failed",
             component="server",
-            context={"stage": "set_radar_config", "requested": update},
+            context={"stage": "set_radar_config", "requested": data},
             exc=e,
         )
         _reply("radar_config_error", {"error": "The radar did not accept the configuration"})
+        return
+
+    session_logger = get_session_logger()
+    if session_logger:
+        session_logger.log_config_change(dict(snapshot), source="user")
+    if debug_mode:
+        _write_debug_entry(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "type": "config_change",
+                "config": snapshot,
+            }
+        )
+    socketio.emit("radar_config", snapshot)
+
+
+def _apply_radar_config_update(update: dict) -> dict:
+    """Send validated settings to the radar; caller holds _config_lock."""
+    from .swing_speed import SwingSpeedMonitor  # pylint: disable=import-outside-toplevel
+
+    is_swing_speed = isinstance(monitor, (SwingSpeedMonitor, MockSwingSpeedMonitor))
+
+    if "min_speed" in update:
+        new_min = update["min_speed"]
+        monitor.radar.set_min_speed_filter(new_min)
+        if is_swing_speed:
+            monitor.trigger_threshold_mph = float(new_min)
+        radar_config["min_speed"] = new_min
+        print(f"Set min speed filter: {new_min} mph")
+
+    # Update max speed filter. 0 must still be forwarded: AN-010-AD (p10)
+    # defines "R<0 resets to no limit", so it is how the UI clears a
+    # previously-set ceiling. Swallowing it would leave the old ceiling
+    # active on the radar while radar_config claimed no limit.
+    if "max_speed" in update:
+        new_max = update["max_speed"]
+        monitor.radar.set_max_speed_filter(new_max)
+        if is_swing_speed:
+            monitor.max_speed_mph = None if new_max <= 0 else float(new_max)
+        radar_config["max_speed"] = new_max
+        print(f"Set max speed filter: {new_max} mph")
+
+    if "min_magnitude" in update:
+        new_mag = update["min_magnitude"]
+        monitor.radar.set_magnitude_filter(min_mag=new_mag)
+        radar_config["min_magnitude"] = new_mag
+        print(f"Set min magnitude filter: {new_mag}")
+
+    # Transmit power: 0 = max, 7 = min.
+    if "transmit_power" in update:
+        new_power = update["transmit_power"]
+        monitor.radar.set_transmit_power(new_power)
+        radar_config["transmit_power"] = new_power
+        print(f"Set transmit power: {new_power}")
+
+    return dict(radar_config)
 
 
 @socketio.on("shutdown")
@@ -4056,6 +4091,37 @@ def _cloud_raw_uploads_enabled() -> bool:
         return False
 
 
+def _prune_session_logs(log_dir: Path, *, max_age_days: float, max_total_mb: float) -> None:
+    """Apply log retention at startup, keeping sessions still queued for cloud upload."""
+    from .cloud import spool
+    from .log_retention import prune_logs
+
+    cloud_active = False
+    try:
+        from .cloud.config import load_config
+
+        config = load_config()
+        cloud_active = bool(config and config.is_active())
+    except Exception:  # pylint: disable=broad-exception-caught
+        cloud_active = False
+
+    def awaiting_upload(session: Path) -> bool:
+        return cloud_active and not spool.is_pushed(session) and not spool.is_parked(session)
+
+    try:
+        removed = prune_logs(
+            log_dir,
+            max_age_days=max_age_days,
+            max_total_mb=max_total_mb,
+            protect=awaiting_upload,
+        )
+    except OSError as error:
+        logger.warning("[RETENTION] Log pruning failed: %s", error)
+        return
+    if removed:
+        print(f"Log retention: removed {len(removed)} old file(s) from {log_dir}")
+
+
 def _fire_cloud_push(session_logger):
     """Best-effort, non-blocking cloud push on session end.
 
@@ -4106,6 +4172,9 @@ def _run_cloud_push_for_ui(sid: Optional[str] = None):
         elif summary.get("skipped") == "inactive":
             state = "error"
             message = "Cloud uploader is not linked."
+        elif summary.get("skipped") == "busy":
+            state = "complete"
+            message = "An upload is already in progress."
         elif summary.get("offline"):
             state = "error"
             message = "Cloud unreachable."
@@ -4629,6 +4698,18 @@ def main():
         ),
     )
     parser.add_argument("--no-logging", action="store_true", help="Disable session logging")
+    parser.add_argument(
+        "--log-retention-days",
+        type=float,
+        default=90,
+        help="Delete session logs and captures older than this at startup (0 = keep forever)",
+    )
+    parser.add_argument(
+        "--log-max-mb",
+        type=float,
+        default=8192,
+        help="Trim oldest session logs and captures above this total size (0 = no limit)",
+    )
     _add_battery_arguments(parser)
     parser.add_argument(
         "--sim",
@@ -5029,6 +5110,12 @@ def main():
         log_dir = Path(args.log_dir) if args.log_dir else None
         init_session_logger(log_dir=log_dir, location=args.session_location, enabled=True)
         print(f"Session logging enabled (location: {args.session_location})")
+        # Before any session starts, so the active session can never be pruned.
+        _prune_session_logs(
+            log_dir or SessionLogger.DEFAULT_LOG_DIR,
+            max_age_days=args.log_retention_days,
+            max_total_mb=args.log_max_mb,
+        )
     else:
         init_session_logger(enabled=False)
         print("Session logging DISABLED")

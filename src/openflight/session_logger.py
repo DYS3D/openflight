@@ -128,22 +128,19 @@ class SessionLogger:
         if not self.enabled:
             return ""
 
+        if self._session_file:
+            # Starting over without end_session() must not leak the open file.
+            self.end_session()
+
         # Create log directory
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate session ID and filenames
         timestamp = datetime.now()
-        self._session_id = timestamp.strftime("%Y%m%d_%H%M%S")
-
-        # Semantic file naming: session_DATE_TIME_LOCATION.jsonl
-        session_filename = f"session_{self._session_id}_{self.location}.jsonl"
-        raw_filename = f"radar_raw_{self._session_id}.log"
-
-        self._session_path = self.log_dir / session_filename
-        self._raw_path = self.log_dir / raw_filename
-
-        # Open log files
-        self._session_file = open(self._session_path, "w")
+        self._session_id, self._session_file = self._open_unique_session(
+            timestamp.strftime("%Y%m%d_%H%M%S")
+        )
+        self._session_path = Path(self._session_file.name)
+        self._raw_path = self.log_dir / f"radar_raw_{self._session_id}.log"
 
         # Setup raw radar logging to file
         self._setup_raw_logging()
@@ -174,6 +171,25 @@ class SessionLogger:
         print(f"[SESSION] Raw radar log: {self._raw_path}")
 
         return self._session_id
+
+    def _open_unique_session(self, base_id: str):
+        """Create a new session file without clobbering one from the same second.
+
+        Session files are named session_DATE_TIME_LOCATION.jsonl; a restart or
+        mode switch within one second would otherwise truncate the previous
+        session. Later sessions in the same second get a _2, _3, ... suffix.
+        """
+        for attempt in range(1, 1000):
+            session_id = base_id if attempt == 1 else f"{base_id}_{attempt}"
+            if (self.log_dir / f"radar_raw_{session_id}.log").exists():
+                continue
+            path = self.log_dir / f"session_{session_id}_{self.location}.jsonl"
+            try:
+                # pylint: disable-next=consider-using-with
+                return session_id, open(path, "x", encoding="utf-8")
+            except FileExistsError:
+                continue
+        raise RuntimeError(f"No free session file name for {base_id}")
 
     def log_connection(
         self,
@@ -216,10 +232,13 @@ class SessionLogger:
 
     def _setup_raw_logging(self):
         """Configure Python logging for raw radar data."""
-        # Remove existing handlers
+        # Remove and close existing handlers; dropping them unclosed leaks
+        # one file descriptor per session.
         for handler in self._raw_logger.handlers[:]:
+            handler.close()
             self._raw_logger.removeHandler(handler)
         for handler in self._radar_logger.handlers[:]:
+            handler.close()
             self._radar_logger.removeHandler(handler)
 
         # Add file handler for raw data

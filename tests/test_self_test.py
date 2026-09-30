@@ -75,15 +75,6 @@ class TestFiles:
         assert self_test.check_disk_space(tmp_path, min_free=1).status == "pass"
         assert self_test.check_disk_space(tmp_path, min_free=10**18).status == "fail"
 
-    def test_token_file_permissions(self, tmp_path):
-        token = tmp_path / "auth_token"
-        assert self_test.check_token_file(token).status == "skip"
-        token.write_text("t")
-        token.chmod(0o644)
-        assert self_test.check_token_file(token).status == "fail"
-        token.chmod(0o600)
-        assert self_test.check_token_file(token).status == "pass"
-
 
 class TestIwr6843:
     def test_flashed_board_passes(self):

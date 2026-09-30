@@ -17,7 +17,6 @@
 #   --repo URL           Git repository to clone (default upstream)
 #   --branch NAME        Branch to clone or update (default main)
 #   --uart               OPS243-A is wired to the GPIO UART (/dev/ttyAMA0)
-#   --lan                Serve the read-only display to other devices on the LAN
 #   --altitude-ft N      Site elevation for the ballistic carry model
 #   --temperature-f N    Typical air temperature for the ballistic carry model
 #   --server-args "..."  Extra arguments for the OpenFlight server
@@ -42,7 +41,6 @@ INSTALL_DIR="${HOME}/openflight"
 REPO_URL="$DEFAULT_REPO"
 BRANCH="main"
 USE_UART=false
-LAN=false
 ALTITUDE_FT=""
 TEMPERATURE_F=""
 EXTRA_SERVER_ARGS=""
@@ -89,7 +87,6 @@ parse_args() {
             --repo) REPO_URL="${2:?--repo needs a value}"; shift 2 ;;
             --branch) BRANCH="${2:?--branch needs a value}"; shift 2 ;;
             --uart) USE_UART=true; shift ;;
-            --lan) LAN=true; shift ;;
             --altitude-ft) ALTITUDE_FT="${2:?--altitude-ft needs a value}"; shift 2 ;;
             --temperature-f) TEMPERATURE_F="${2:?--temperature-f needs a value}"; shift 2 ;;
             --server-args) EXTRA_SERVER_ARGS="${2?--server-args needs a value}"; shift 2 ;;
@@ -113,7 +110,6 @@ parse_args() {
 server_args() {
     local args=()
     if [ "$USE_UART" = true ]; then args+=(--radar-port /dev/ttyAMA0); fi
-    if [ "$LAN" = true ]; then args+=(--host 0.0.0.0); fi
     if [ -n "$ALTITUDE_FT" ]; then args+=(--altitude-ft "$ALTITUDE_FT"); fi
     if [ -n "$TEMPERATURE_F" ]; then args+=(--temperature-f "$TEMPERATURE_F"); fi
     printf '%s' "${args[*]:-}"

@@ -109,7 +109,7 @@ UI build, serial permissions, udev rules, the GPIO UART (`--uart`), and the
 boot-time kiosk, then runs a self-test:
 
 ```bash
-./scripts/setup/install-pi.sh --uart --lan --altitude-ft 850   # flags optional
+./scripts/setup/install-pi.sh --uart --altitude-ft 850         # flags optional
 uv run python scripts/hardware-test/self_test.py               # after rebooting
 ./scripts/setup/flash-iwr6843.sh                               # optional TI radar firmware
 ```
@@ -177,8 +177,7 @@ for details.
 
 OpenFlight also serves a fullscreen-friendly browser display for tablets, TV browsers, or a Chrome tab cast to Chromecast.
 
-1. Start OpenFlight listening on the LAN: `scripts/start-kiosk.sh --host 0.0.0.0`
-   (the default binds to the Pi only).
+1. Start OpenFlight as usual with `scripts/start-kiosk.sh`.
 2. Find the OpenFlight host on your LAN — its hostname (see below) or its IP address.
 3. Open `http://<openflight-host>:8080/display` from another laptop, tablet, or TV browser.
 4. For Chromecast, open the display page in Chrome and use Chrome's built-in **Cast** feature to cast the tab.
@@ -190,10 +189,6 @@ OpenFlight also serves a fullscreen-friendly browser display for tablets, TV bro
 > **Hostname** field when you flash the card; the default is `raspberrypi`, i.e.
 > `raspberrypi.local`. The viewing device has to support mDNS — macOS, iOS, Windows 10+
 > and most Linux desktops do, but some smart-TV browsers don't, so use the IP there.
-
-Other devices are read-only. To control OpenFlight from a phone or laptop, open
-`http://<openflight-host>:8080/?token=<token>` once, using the token in
-`~/.config/openflight/auth_token` on the Pi.
 
 This is browser/tab casting only. OpenFlight does not include native Cast SDK support yet.
 

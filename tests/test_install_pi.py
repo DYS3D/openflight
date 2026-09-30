@@ -99,7 +99,6 @@ class TestServiceConfig:
             INSTALLER,
             'parse_args "$@"; render_env_file',
             "--uart",
-            "--lan",
             "--altitude-ft",
             "5280",
             "--temperature-f",
@@ -109,7 +108,7 @@ class TestServiceConfig:
         )
         assert result.returncode == 0, result.stderr
         assert (
-            'OPENFLIGHT_ARGS="--radar-port /dev/ttyAMA0 --host 0.0.0.0 '
+            'OPENFLIGHT_ARGS="--radar-port /dev/ttyAMA0 '
             '--altitude-ft 5280 --temperature-f 70 --iwr6843"'
         ) in result.stdout
 
@@ -166,7 +165,7 @@ def test_dry_run_changes_nothing_and_lists_every_step(tmp_path):
     env["USER"] = "pi"
 
     result = subprocess.run(
-        [str(INSTALLER), "--dry-run", "--uart", "--lan", "--skip-self-test"],
+        [str(INSTALLER), "--dry-run", "--uart", "--skip-self-test"],
         env=env,
         capture_output=True,
         text=True,
@@ -178,7 +177,7 @@ def test_dry_run_changes_nothing_and_lists_every_step(tmp_path):
     assert "[dry-run] sudo apt-get install" in out
     assert "[dry-run] write /etc/udev/rules.d/99-openflight.rules" in out
     assert "[dry-run] write /etc/default/openflight" in out
-    assert '--radar-port /dev/ttyAMA0 --host 0.0.0.0' in out
+    assert 'OPENFLIGHT_ARGS="--radar-port /dev/ttyAMA0"' in out
     assert "[dry-run] sudo systemctl enable openflight.service" in out
     assert "serial-getty@ttyAMA0.service" in out
     assert not (tmp_path / "openflight").exists()

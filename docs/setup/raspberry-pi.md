@@ -39,7 +39,6 @@ cd openflight
 | Flag | Effect |
 | --- | --- |
 | `--uart` | OPS243-A is on the GPIO UART: enables UART0, removes the serial console, and passes `--radar-port /dev/ttyAMA0` |
-| `--lan` | Serve the read-only [TV display](../using/display.md) to other devices |
 | `--altitude-ft N`, `--temperature-f N` | Site conditions for the [ballistic model](../how-it-works/ballistics.md#site-conditions) |
 | `--server-args "..."` | Any other server flags (e.g. `--iwr6843`) |
 | `--no-service`, `--no-kiosk` | Skip the boot service or the autologin/screen-blanking changes |
@@ -55,8 +54,8 @@ uv run python scripts/hardware-test/self_test.py          # add --ops-port /dev/
 ```
 
 The self-test reuses the [diagnostic checks](#troubleshooting) for the radars and
-adds install checks (UI build, service, udev rules, permissions, disk space, LAN
-token permissions, IWR6843 firmware). To flash the IWR6843 with the validated
+adds install checks (UI build, service, udev rules, permissions, disk space,
+IWR6843 firmware). To flash the IWR6843 with the validated
 release image, run `./scripts/setup/flash-iwr6843.sh`; it stops OpenFlight,
 finds the CP2105 port, and runs the guided [flashing tool](../iwr6843/flashing.md).
 

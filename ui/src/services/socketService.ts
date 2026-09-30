@@ -13,7 +13,6 @@ import {
 import type { DebugReading, RadarConfig, DebugShotLog, SimShotInfo, SimStatus } from '../types/socket';
 import type { PowerStatus } from '../types/power';
 import { getServerOrigin } from '../utils/serverOrigin';
-import { getAccessToken } from '../utils/accessToken';
 import { handleShotMessage, handleShotUpdate, type ShotMessage, type ShotUpdateMessage } from './handleShotMessage';
 import { ingestSessionClub } from './sessionClubSync';
 import { remainingShotsAfterClear } from './sessionClear';
@@ -29,10 +28,8 @@ class SocketService {
   connect() {
     if (this.socket) return;
 
-    const token = getAccessToken();
     this.socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
-      auth: token ? { token } : undefined,
     });
 
     this.setupListeners();
@@ -101,10 +98,6 @@ class SocketService {
 
     this.socket.on('sim_send_failed', (data: { target: string; reason: string }) => {
       console.warn(`Sim send failed (${data.target}): ${data.reason}`);
-    });
-
-    this.socket.on('permission_denied', (data: { error: string }) => {
-      console.warn(`Action refused: ${data.error}`);
     });
 
     this.socket.on('sim_shot_dropped', (data: { reason: string }) => {

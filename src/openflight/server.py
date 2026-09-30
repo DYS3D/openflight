@@ -4,7 +4,6 @@ WebSocket server for OpenFlight UI.
 Provides real-time shot data to the web frontend via Flask-SocketIO.
 """
 
-import functools
 import json
 import logging
 import math
@@ -30,18 +29,9 @@ from flask import (
     send_file,
     send_from_directory,
 )
+from flask_cors import CORS
 from flask_socketio import SocketIO
 
-from .access import (
-    DEFAULT_TOKEN_PATH,
-    TOKEN_ENV,
-    TOKEN_HEADER,
-    host_is_allowed,
-    is_loopback_address,
-    load_or_create_token,
-    origin_is_allowed,
-    token_matches,
-)
 from .ballistics import AIR_DENSITY_STD, air_density_kg_m3, resolve_launch, simulate
 from .clubs import ClubType
 from .clubs.physics import (
@@ -90,22 +80,9 @@ FRONTEND_DIST_DIR = REPO_ROOT / "ui" / "dist"
 FRONTEND_SOURCE_DIR = REPO_ROOT / "ui"
 
 
-# Remote clients are read-only unless they present this token. None disables
-# token access entirely, leaving control to loopback (kiosk) clients only.
-access_token: Optional[str] = None
-allowed_extra_origins: List[str] = []
-allowed_extra_hosts: List[str] = []
-_controller_sids: set[str] = set()
-_controller_sids_lock = threading.Lock()
-
-
-def _socket_origin_allowed(origin, environ) -> bool:
-    """Socket.IO CORS policy: same-origin, loopback, or configured origins."""
-    return origin_is_allowed(origin, environ.get("HTTP_HOST"), allowed_extra_origins)
-
-
 app = Flask(__name__, static_folder=str(FRONTEND_DIST_DIR), static_url_path="")
-socketio = SocketIO(app, cors_allowed_origins=_socket_origin_allowed, async_mode="threading")
+CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # Global state
 monitor = None
@@ -136,19 +113,6 @@ def get_profile_store() -> ProfileStore:
     return profile_store
 
 
-def configure_access(
-    *,
-    token: Optional[str],
-    extra_origins: List[str] | tuple = (),
-    extra_hosts: List[str] | tuple = (),
-) -> None:
-    """Install the remote-control token and the extra trusted origins/hosts."""
-    global access_token  # pylint: disable=global-statement
-    access_token = token or None
-    allowed_extra_origins[:] = [o.rstrip("/") for o in extra_origins if o]
-    allowed_extra_hosts[:] = [h for h in extra_hosts if h]
-
-
 def _current_sid() -> Optional[str]:
     """Socket.IO session id of the client whose event is being handled."""
     if not has_request_context():
@@ -167,80 +131,6 @@ def _emit_to(event: str, payload, sid: Optional[str]) -> None:
 def _reply(event: str, payload=None) -> None:
     """Answer only the requesting socket; broadcast when called outside a request."""
     _emit_to(event, payload, _current_sid())
-
-
-def _request_token(auth=None) -> Optional[str]:
-    """Token from Socket.IO auth, a bearer/X-OpenFlight-Token header, or ?token=."""
-    if isinstance(auth, dict) and isinstance(auth.get("token"), str):
-        return auth["token"]
-    header = request.headers.get(TOKEN_HEADER)
-    if header:
-        return header
-    authorization = request.headers.get("Authorization", "")
-    if authorization.lower().startswith("bearer "):
-        return authorization[7:].strip()
-    return request.args.get("token")
-
-
-def _request_has_control(auth=None) -> bool:
-    """Loopback clients (the kiosk) and token holders may change device state."""
-    if is_loopback_address(request.remote_addr):
-        return True
-    return token_matches(_request_token(auth), access_token)
-
-
-def _client_has_control() -> bool:
-    """Whether the client behind the current request may change device state."""
-    if not has_request_context():
-        # Internal callers (sim inbound, timers, tests) are not remote clients.
-        return True
-    sid = getattr(request, "sid", None)
-    if sid is None:
-        return _request_has_control()
-    with _controller_sids_lock:
-        return sid in _controller_sids
-
-
-def _control_required(handler):
-    """Refuse a state-changing socket event from a read-only client."""
-
-    @functools.wraps(handler)
-    def wrapper(*args, **kwargs):
-        if not _client_has_control():
-            logger.warning("[SERVER] Refused %s from read-only client", handler.__name__)
-            _reply("permission_denied", {"error": "This display is read-only"})
-            return None
-        return handler(*args, **kwargs)
-
-    return wrapper
-
-
-@app.before_request
-def _reject_untrusted_host():
-    """Block DNS-rebinding requests that reach the server under a foreign name."""
-    if not host_is_allowed(request.host, allowed_extra_hosts):
-        return jsonify({"error": "Host not allowed"}), 421
-    # A cross-site page (even one open in the kiosk browser) can send a simple
-    # POST with no preflight; refuse state changes from foreign origins.
-    if request.method not in ("GET", "HEAD", "OPTIONS") and not origin_is_allowed(
-        request.headers.get("Origin"), request.host, allowed_extra_origins
-    ):
-        return jsonify({"error": "Origin not allowed"}), 403
-    return None
-
-
-@app.after_request
-def _apply_cors(response):
-    """Grant cross-origin HTTP access with the same policy as Socket.IO."""
-    origin = request.headers.get("Origin")
-    if origin and origin_is_allowed(origin, request.host, allowed_extra_origins):
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Headers"] = (
-            f"Content-Type, Authorization, {TOKEN_HEADER}"
-        )
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        response.vary.add("Origin")
-    return response
 
 
 TRAINING_IMPLEMENT_LABELS = {
@@ -1118,8 +1008,6 @@ def static_files(path):
 @app.route("/api/shutdown", methods=["POST"])
 def api_shutdown():
     """Cleanly shut down the server via REST API."""
-    if not _request_has_control():
-        return jsonify({"error": "Not authorized"}), 403
     logger.info("[SERVER] Shutdown requested via REST API")
     threading.Thread(target=_shutdown_process_after_delay, daemon=True).start()
     return {"status": "shutting_down"}, 200
@@ -1520,8 +1408,6 @@ def prepare_camera_replay(replay_id: str):
 
     if request.method != "POST":
         return jsonify({"error": "Use POST to prepare a camera replay"}), 405
-    if not _request_has_control():
-        return jsonify({"error": "Not authorized"}), 403
     if camera_replay_manager is None:
         return jsonify({"error": "Camera replay was not found"}), 404
     try:
@@ -1629,7 +1515,6 @@ def handle_get_camera_capture_settings():
 
 
 @socketio.on("set_camera_capture_settings")
-@_control_required
 def handle_set_camera_capture_settings(data):
     """Apply live-safe camera controls and alignment-guide position."""
     if camera_capture_runtime is None:
@@ -1950,18 +1835,8 @@ def start_power_monitor(provider: str) -> None:
 
 
 @socketio.on("connect")
-def handle_connect(auth=None):
-    """Admit a client, decide whether it may control the device, send it state."""
-    sid = _current_sid()
-    if sid is not None:
-        if not host_is_allowed(request.host, allowed_extra_hosts):
-            logger.warning("[SERVER] Rejected socket from untrusted Host %r", request.host)
-            return False
-        if _request_has_control(auth):
-            with _controller_sids_lock:
-                _controller_sids.add(sid)
-        else:
-            logger.info("[SERVER] Read-only client connected from %s", request.remote_addr)
+def handle_connect():
+    """Send the connecting client the current state."""
     print("Client connected")
     _emit_sim_snapshot()
     _reply("profiles", get_profile_store().snapshot())
@@ -1970,16 +1845,11 @@ def handle_connect(auth=None):
     if monitor:
         _reply("session_state", _session_state_payload(include_runtime_meta=True))
         _reply("trigger_status", _get_trigger_status())
-    return None
 
 
 @socketio.on("disconnect")
 def handle_disconnect(*_args):
     """Handle client disconnection."""
-    sid = _current_sid()
-    if sid is not None:
-        with _controller_sids_lock:
-            _controller_sids.discard(sid)
     print("Client disconnected")
 
 
@@ -1990,7 +1860,6 @@ def handle_get_trigger_status():
 
 
 @socketio.on("set_club")
-@_control_required
 def handle_set_club(data):
     """Handle club selection change."""
     club_name = data.get("club", "driver") if isinstance(data, dict) else "driver"
@@ -2024,7 +1893,6 @@ def handle_get_profiles():
 
 
 @socketio.on("set_active_profile")
-@_control_required
 def handle_set_active_profile(data=None):
     """Change which profile shots are attributed to."""
     get_profile_store().set_active(_payload_dict(data).get("profile_id"))
@@ -2032,7 +1900,6 @@ def handle_set_active_profile(data=None):
 
 
 @socketio.on("add_profile")
-@_control_required
 def handle_add_profile(data=None):
     """Add a profile and make it active."""
     get_profile_store().add(_payload_dict(data).get("name"))
@@ -2040,7 +1907,6 @@ def handle_add_profile(data=None):
 
 
 @socketio.on("rename_profile")
-@_control_required
 def handle_rename_profile(data=None):
     """Rename a profile. Its shots keep their id and stay attached."""
     payload = _payload_dict(data)
@@ -2049,7 +1915,6 @@ def handle_rename_profile(data=None):
 
 
 @socketio.on("remove_profile")
-@_control_required
 def handle_remove_profile(data=None):
     """Delete a profile. Refused for the active, the last, or one with session rows."""
     profile_id = str(_payload_dict(data).get("profile_id") or "").strip()
@@ -2061,7 +1926,6 @@ def handle_remove_profile(data=None):
 
 
 @socketio.on("set_training_implement")
-@_control_required
 def handle_set_training_implement(data):
     """Handle swing speed training implement selection."""
     implement = data.get("implement", "driver") if isinstance(data, dict) else "driver"
@@ -2125,7 +1989,6 @@ def _clear_profile_rows(profile_id: str) -> None:
 
 
 @socketio.on("clear_session")
-@_control_required
 def handle_clear_session(data=None):
     """Clear recorded rows for one profile only."""
     raw_id = _payload_dict(data).get("profile_id")
@@ -2138,7 +2001,6 @@ def handle_clear_session(data=None):
 
 
 @socketio.on("upload_cloud")
-@_control_required
 def handle_upload_cloud():
     """Manually trigger upload of completed session logs."""
     threading.Thread(target=_run_cloud_push_for_ui, args=(_current_sid(),), daemon=True).start()
@@ -2152,7 +2014,6 @@ def handle_get_session():
 
 
 @socketio.on("delete_shot")
-@_control_required
 def handle_delete_shot(data):
     """Delete one recorded shot or swing-speed rep from the current session."""
     timestamp = data.get("timestamp") if isinstance(data, dict) else None
@@ -2166,7 +2027,6 @@ def handle_delete_shot(data):
 
 
 @socketio.on("simulate_shot")
-@_control_required
 def handle_simulate_shot():
     """Simulate a shot (only works in mock mode)."""
     if monitor and isinstance(monitor, (MockLaunchMonitor, MockSwingSpeedMonitor)):
@@ -2174,7 +2034,6 @@ def handle_simulate_shot():
 
 
 @socketio.on("toggle_debug")
-@_control_required
 def handle_toggle_debug():
     """Toggle debug mode on/off."""
     global debug_mode  # pylint: disable=global-statement
@@ -2270,7 +2129,6 @@ def handle_get_radar_config():
 
 
 @socketio.on("set_radar_config")
-@_control_required
 def handle_set_radar_config(data):
     """Update radar configuration."""
     if not monitor or (mock_mode and not mock_swing_speed_mode):
@@ -2358,7 +2216,6 @@ def _apply_radar_config_update(update: dict) -> dict:
 
 
 @socketio.on("shutdown")
-@_control_required
 def handle_shutdown():
     """Cleanly shut down the server and all hardware."""
     logger.info("[SERVER] Shutdown requested from UI (WebSocket)")
@@ -4556,39 +4413,7 @@ def main():
         action="store_true",
         help="Run swing speed training mode with simulated reps and no OPS radar",
     )
-    parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help=(
-            "Address to bind to (default: 127.0.0.1, kiosk only). Use 0.0.0.0 to "
-            "serve the read-only display to other devices on the LAN."
-        ),
-    )
-    parser.add_argument(
-        "--auth-token-file",
-        default=str(DEFAULT_TOKEN_PATH),
-        help=(
-            "File holding the token that lets non-kiosk clients control the device "
-            f"(created on first LAN start; ${TOKEN_ENV} overrides it)"
-        ),
-    )
-    parser.add_argument(
-        "--no-remote-control",
-        action="store_true",
-        help="Keep every non-kiosk client read-only, even with a token",
-    )
-    parser.add_argument(
-        "--cors-origin",
-        action="append",
-        default=[],
-        help="Extra browser origin allowed to connect (repeatable), e.g. http://laptop:5173",
-    )
-    parser.add_argument(
-        "--allowed-host",
-        action="append",
-        default=[],
-        help="Extra Host name accepted besides IPs, localhost, *.local, and this hostname",
-    )
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
     parser.add_argument(
         "--web-port", type=int, default=8080, help="Web server port (default: 8080)"
     )
@@ -5093,14 +4918,6 @@ def main():
     ballistics_enabled = args.ballistics
     battery_provider = args.battery
     profile_store = ProfileStore(args.profiles_path)
-    remote_token = None
-    if not args.no_remote_control and not is_loopback_address(args.host):
-        remote_token = load_or_create_token(Path(args.auth_token_file).expanduser())
-    configure_access(
-        token=remote_token,
-        extra_origins=args.cors_origin,
-        extra_hosts=args.allowed_host,
-    )
     startup_status = StartupStatusReporter(
         args.startup_status_file,
         configured_startup_components(
@@ -5390,24 +5207,12 @@ def main():
         print("Running in SWING SPEED mode - no ball impact trigger required")
 
     print(f"Server starting at http://{args.host}:{args.web_port}")
-    if not is_loopback_address(args.host) and args.host != "localhost":
-        print("LAN clients are read-only.", end=" ")
-        if remote_token:
-            print(
-                f"To control from another device, append ?token=<token in {args.auth_token_file}>"
-            )
-        else:
-            print("Remote control is disabled.")
     print()
     startup_status.start("server", "Starting OpenFlight server")
 
     try:
         # Note: Flask debug mode (reloader) is disabled to prevent duplicate processes
         # fighting over the serial port. OpenFlight --debug enables verbose logging only.
-        # Werkzeug stays: threading mode needs an in-process server that hands
-        # WebSockets the raw socket, and forking servers (gunicorn) would split
-        # the hardware threads from the request workers. Exposure is limited by
-        # the loopback default bind, Host/Origin checks, and read-only LAN clients.
         socketio.run(
             app, host=args.host, port=args.web_port, debug=False, allow_unsafe_werkzeug=True
         )

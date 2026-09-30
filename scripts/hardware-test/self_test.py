@@ -35,7 +35,6 @@ import diagnose  # noqa: E402  pylint: disable=wrong-import-position
 from diagnose import CheckResult, DiagnosticState  # noqa: E402
 
 UDEV_RULES = Path("/etc/udev/rules.d/99-openflight.rules")
-TOKEN_FILE = Path.home() / ".config" / "openflight" / "auth_token"
 LOG_DIR = Path.home() / "openflight_sessions"
 MIN_FREE_BYTES = 1024**3
 
@@ -132,20 +131,6 @@ def check_disk_space(log_dir: Path = LOG_DIR, min_free: int = MIN_FREE_BYTES) ->
     return _timed("Disk space", run)
 
 
-def check_token_file(path: Path = TOKEN_FILE) -> CheckResult:
-    """The LAN control token must not be readable by other users."""
-
-    def run():
-        if not path.exists():
-            return "skip", "no LAN token yet (created on first --host 0.0.0.0 start)", ""
-        mode = stat.S_IMODE(path.stat().st_mode)
-        if mode & 0o077:
-            return "fail", f"{path} mode {mode:o}", f"chmod 600 {path}"
-        return "pass", f"{path} mode {mode:o}", ""
-
-    return _timed("LAN access token", run)
-
-
 def check_iwr6843_firmware(
     detect_port: Optional[Callable[[], Optional[str]]] = None,
     list_bridges: Optional[Callable[[], list[str]]] = None,
@@ -184,7 +169,6 @@ def software_checks() -> list[Callable[[DiagnosticState], CheckResult]]:
         lambda _s: check_udev_rules(),
         lambda _s: check_serial_permissions(),
         lambda _s: check_disk_space(),
-        lambda _s: check_token_file(),
     ]
 
 

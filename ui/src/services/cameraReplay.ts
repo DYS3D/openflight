@@ -1,5 +1,4 @@
 import type { CameraReplay } from '../types/shot';
-import { accessHeaders } from '../utils/accessToken';
 import { getServerOrigin } from '../utils/serverOrigin';
 
 export interface PreparedCameraReplay extends CameraReplay {
@@ -33,7 +32,6 @@ export async function prepareCameraReplay(replayId: string, signal?: AbortSignal
   try {
     response = await fetch(`${origin}/api/camera/replays/${encodeURIComponent(replayId)}/prepare`, {
       method: 'POST',
-      headers: accessHeaders(),
       signal,
     });
   } catch (error) {

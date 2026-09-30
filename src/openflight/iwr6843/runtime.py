@@ -144,10 +144,14 @@ class IWR6843Runtime:
     # independent experimental club search, never to publish vertical launch.
     recovery_observations: list[tuple[float, float, float]] = field(default_factory=list)
     # Run LCMF and club path in one long-lived child process so their
-    # GIL-holding loops cannot stall the OPS serial reader. When disabled, or
-    # after any worker failure, they run inline in this process instead.
-    estimator_process: bool = True
+    # GIL-holding loops cannot stall the OPS serial reader. Off by default
+    # (inline, as before) until validated on the Pi; see --iwr6843-estimator-process.
+    # After any worker failure they run inline for the rest of the session.
+    estimator_process: bool = False
     estimator_timeout_s: float = 30.0
+    # Launch-angle search grid. 0.5 is the exhaustive production sweep; None
+    # selects the coarse-to-fine search (--iwr6843-fast-angle-search).
+    angle_grid_step_deg: float | None = 0.5
     _estimator_worker: EstimatorWorker | None = field(default=None, init=False, repr=False)
     _estimator_worker_lock: threading.Lock = field(
         default_factory=threading.Lock, init=False, repr=False
@@ -298,6 +302,7 @@ class IWR6843Runtime:
                 track_override=candidate.track,
                 track_override_scope=candidate.scope,
                 prepared=prepared,
+                grid_step_deg=self.angle_grid_step_deg,
             )
             if (
                 result.accepted
@@ -352,6 +357,7 @@ class IWR6843Runtime:
             tdm_sign_policy=self.tdm_sign_policy,
             horizontal_phase_reference_rad=self.horizontal_phase_reference_rad,
             prepared=prepared,
+            grid_step_deg=self.angle_grid_step_deg,
         )
         if isinstance(measurement, LCMFResult):
             measurement = self._ops_guided_measurement(

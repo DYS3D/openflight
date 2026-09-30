@@ -186,7 +186,7 @@ def _summary(result):
 )
 def test_worker_process_results_equal_inline_results(ball_speed_mph):
     raw = _three_tx_snapshot()
-    pooled = _runtime(raw)
+    pooled = _runtime(raw, estimator_process=True)
     inline = _runtime(raw, estimator_process=False)
     try:
         pooled_result = _shot(pooled, ball_speed_mph)
@@ -206,7 +206,7 @@ def test_worker_process_results_equal_inline_results(ball_speed_mph):
 
 def test_worker_timeout_falls_back_inline_for_this_and_later_shots(caplog):
     raw = synth_shot(speed_ms=45.0, launch_deg=18.0, image_gain=0.35, noise=4.0)
-    runtime = _runtime(raw, estimator_timeout_s=0.001)
+    runtime = _runtime(raw, estimator_process=True, estimator_timeout_s=0.001)
     inline = _runtime(raw, estimator_process=False)
 
     with caplog.at_level(logging.WARNING, logger="openflight.iwr6843.runtime"):
@@ -230,7 +230,7 @@ def test_worker_failure_falls_back_to_the_inline_estimators():
             BrokenWorker.closed = True
 
     baseline = LCMFResult(status="accepted", angle_deg=20.0, track_speed_mph=100.0)
-    runtime = _runtime(b"x" * 32)
+    runtime = _runtime(b"x" * 32, estimator_process=True)
     with (
         patch("openflight.iwr6843.runtime.EstimatorWorker", BrokenWorker),
         patch("openflight.iwr6843.runtime.prepare_lcmf_capture"),
@@ -246,7 +246,7 @@ def test_worker_failure_falls_back_to_the_inline_estimators():
 
 def test_stop_releases_the_worker_process_and_the_capture_monitor():
     raw = synth_shot(speed_ms=45.0, launch_deg=18.0, noise=4.0)
-    runtime = _runtime(raw)
+    runtime = _runtime(raw, estimator_process=True)
     worker = runtime._worker()  # pylint: disable=protected-access
     worker.call(os.getpid, timeout_s=30.0)
     process = worker._process  # pylint: disable=protected-access
@@ -266,3 +266,11 @@ def test_stop_without_any_shot_never_starts_a_worker():
 
     worker_class.assert_not_called()
     assert runtime.capture_monitor.stopped
+
+
+def test_estimator_process_and_fast_search_are_off_by_default():
+    runtime = _runtime(b"x" * 32)
+    assert runtime.estimator_process is False
+    assert runtime.angle_grid_step_deg == 0.5
+    runtime.stop()
+    assert runtime._estimator_worker is None  # pylint: disable=protected-access

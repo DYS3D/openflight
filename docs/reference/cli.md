@@ -96,6 +96,8 @@ The supported angle radar.
 | `--iwr6843-radar-height-m` | float | Override antenna-center height from the TI calibration JSON |
 | `--iwr6843-ball-height-m` | float; default `0.04` | Ball-center height above the floor/mat (default: 0.040) |
 | `--iwr6843-tx-order` | choices: `auto`, `normal`, `reversed`; default `auto` | TI TDM chirp order; auto reads the chirp masks from the cfg |
+| `--iwr6843-estimator-process` | flag; default off | Run the LCMF launch-angle and club-path estimators in a long-lived worker process so their numpy loops cannot stall the OPS serial reader. Off = inline, as before. Any worker failure falls back to inline for the session |
+| `--iwr6843-fast-angle-search` | flag; default off | Coarse-to-fine launch-angle search (2° sweep, then 0.25° within ±1°) instead of the exhaustive 0.5° sweep. Off = exhaustive sweep, as before |
 | `--iwr6843-capture-timeout` | float; default `16.0` | Maximum seconds an OPS shot waits for its TI UART dump |
 | `--iwr6843-output-dir` | — | Raw TI dump directory when --debug is enabled (default: <session-log-dir>/iwr6843) |
 | `--iwr6843-azimuth-offset-deg` | float | Azimuth of the radar boresight relative to the target line, in degrees. Positive means boresight points right of the target line. Added to the measured club path; 0 reports club path relative to boresight. |

@@ -399,3 +399,45 @@ class TestReplayAvailability:
 
         assert calls == [(capture.path, capture.metadata)]
         assert shot.camera_replay == {"id": "replay-1"}
+
+
+class TestIwr6843EstimatorFlags:
+    """--iwr6843-estimator-process / --iwr6843-fast-angle-search default to today's path."""
+
+    def test_defaults(self, monkeypatch):
+        import inspect
+
+        signature = inspect.signature(server_module.init_iwr6843)
+        assert signature.parameters["estimator_process"].default is False
+        assert signature.parameters["fast_angle_search"].default is False
+
+    @pytest.mark.parametrize(
+        ("argv", "expected"),
+        [
+            ([], (False, False)),
+            (["--iwr6843-estimator-process"], (True, False)),
+            (["--iwr6843-fast-angle-search"], (False, True)),
+        ],
+    )
+    def test_cli_flags_reach_init_iwr6843(self, monkeypatch, tmp_path, argv, expected):
+        import sys
+
+        seen = {}
+
+        def fake_init(**kwargs):
+            seen.update(kwargs)
+            return False
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["openflight-server", "--no-logging", "--iwr6843", *argv],
+        )
+        monkeypatch.setattr(server_module, "init_session_logger", lambda **_kw: None)
+        monkeypatch.setattr(server_module, "init_iwr6843", fake_init)
+        monkeypatch.setattr(server_module, "start_monitor", lambda **_kw: None)
+        monkeypatch.setattr(server_module, "_cleanup_hardware_for_shutdown", lambda: None)
+        monkeypatch.setattr(server_module, "air_density", server_module.air_density)
+        with pytest.raises(SystemExit):
+            server_module.main()
+        assert (seen["estimator_process"], seen["fast_angle_search"]) == expected

@@ -1224,6 +1224,8 @@ def init_iwr6843(
     horizontal_phase_reference_rad: float | None = None,
     save_dumps: bool = False,
     radar_auto_reconnect: bool = False,
+    estimator_process: bool = False,
+    fast_angle_search: bool = False,
 ) -> bool:
     """Initialize GPIO-triggered TI capture and the frozen LCMF-v1 estimator."""
     global iwr6843_runtime, iwr6843_runtime_config  # pylint: disable=global-statement
@@ -1277,10 +1279,14 @@ def init_iwr6843(
             # registration. Auto sign selection can choose the mirror solution
             # in multipath and collapse the eight-element vertical channel.
             tdm_sign_policy="positive",
+            estimator_process=estimator_process,
+            angle_grid_step_deg=None if fast_angle_search else 0.5,
         )
         iwr6843_runtime_config = {
             "enabled": True,
             "estimator": "lcmf_v1",
+            "estimator_process": estimator_process,
+            "fast_angle_search": fast_angle_search,
             "port": capture_monitor.port,
             "config": str(config_path),
             "calibration": str(calibration_path),
@@ -4904,6 +4910,25 @@ def main():
         help="TI TDM chirp order; auto reads the chirp masks from the cfg",
     )
     parser.add_argument(
+        "--iwr6843-estimator-process",
+        action="store_true",
+        default=False,
+        help=(
+            "Run the LCMF launch-angle and club-path estimators in a separate worker "
+            "process so they cannot stall the OPS serial reader. Default off: run inline. "
+            "Falls back to inline for the session after any worker failure."
+        ),
+    )
+    parser.add_argument(
+        "--iwr6843-fast-angle-search",
+        action="store_true",
+        default=False,
+        help=(
+            "Coarse-to-fine launch-angle search (2 deg sweep, then 0.25 deg within +/-1 deg) "
+            "instead of the exhaustive 0.5 deg sweep. Default off: exhaustive sweep."
+        ),
+    )
+    parser.add_argument(
         "--iwr6843-capture-timeout",
         type=float,
         default=16.0,
@@ -5308,6 +5333,8 @@ def main():
             # Raw cloud uploads need the dumps on disk to send them.
             save_dumps=args.debug or _cloud_raw_uploads_enabled(),
             radar_auto_reconnect=args.radar_auto_reconnect,
+            estimator_process=args.iwr6843_estimator_process,
+            fast_angle_search=args.iwr6843_fast_angle_search,
         ):
             calibration = iwr6843_runtime.calibration
             ball_speed_correction_distance_ft = args.iwr6843_tee_m * 3.28084

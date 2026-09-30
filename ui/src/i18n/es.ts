@@ -157,6 +157,13 @@ export const es: Messages = {
   'app.selectClub': 'Elegir palo',
   'app.simulateSwing': 'Simular swing',
   'app.simulateShot': 'Simular golpe',
+  'banner.simSendFailed': 'No se pudo enviar el golpe a {target}: {reason}',
+  'banner.simShotDropped': 'Golpe no enviado al simulador: {reason}',
+  'banner.reconnecting': 'Reconectando ({n})…',
+  'banner.dismissNotice': 'Cerrar aviso',
+  'app.errorTitle': 'Algo salió mal',
+  'app.errorDetail': 'La pantalla encontró un error inesperado. Recarga para continuar.',
+  'app.reload': 'Recargar',
   'picker.groups': 'Grupos',
   'picker.close': 'Cerrar {title}',
 

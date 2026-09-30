@@ -157,6 +157,13 @@ export const fr: Messages = {
   'app.selectClub': 'Choisir un club',
   'app.simulateSwing': 'Simuler un swing',
   'app.simulateShot': 'Simuler un coup',
+  'banner.simSendFailed': "Impossible d'envoyer le coup à {target} : {reason}",
+  'banner.simShotDropped': 'Coup non envoyé au simulateur : {reason}',
+  'banner.reconnecting': 'Reconnexion ({n})…',
+  'banner.dismissNotice': "Fermer l'avis",
+  'app.errorTitle': 'Une erreur est survenue',
+  'app.errorDetail': "L'affichage a rencontré une erreur inattendue. Rechargez pour continuer.",
+  'app.reload': 'Recharger',
   'picker.groups': 'Groupes',
   'picker.close': 'Fermer {title}',
 

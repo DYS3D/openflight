@@ -350,6 +350,7 @@ start_alloy() {
 
 cd "$PROJECT_DIR"
 acquire_instance_lock
+export VITE_SERVER_PORT="$WEB_PORT"
 # shellcheck source=ensure-kiosk-ui.sh
 source "$SCRIPT_DIR/ensure-kiosk-ui.sh"
 ensure_kiosk_ui

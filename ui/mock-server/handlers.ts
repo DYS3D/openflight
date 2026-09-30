@@ -127,8 +127,8 @@ export function registerHandlers(io: Server, session: MockSession): void {
       }, 400);
     });
 
-    socket.on('toggle_debug', () => {
-      const enabled = session.toggleDebug();
+    socket.on('toggle_debug', (data?: { enabled?: boolean }) => {
+      const enabled = session.toggleDebug(data?.enabled);
       io.emit('debug_toggled', {
         enabled,
         log_path: enabled ? '/tmp/openflight-mock-debug.jsonl' : undefined,

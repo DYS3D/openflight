@@ -27,7 +27,11 @@ Binding, ports, and debug output.
 | --- | --- | --- |
 | `--mock`, `-m` | flag | Run in mock mode without radar |
 | `--mock-swing-speed` | flag | Run swing speed training mode with simulated reps and no OPS radar |
-| `--host` | default `0.0.0.0` | Host to bind to (default: 0.0.0.0) |
+| `--host` | default `127.0.0.1` | Address to bind to. Use `0.0.0.0` to serve the read-only display to other devices on the LAN |
+| `--auth-token-file` | path; default `~/.config/openflight/auth_token` | Token that lets non-kiosk clients control the device (created on first LAN start; `$OPENFLIGHT_AUTH_TOKEN` overrides it) |
+| `--no-remote-control` | flag | Keep every non-kiosk client read-only, even with a token |
+| `--cors-origin` | repeatable | Extra browser origin allowed to connect, e.g. `http://laptop:5173` |
+| `--allowed-host` | repeatable | Extra Host name accepted besides IPs, `localhost`, `*.local`, and this hostname |
 | `--web-port` | int; default `8080` | Web server port (default: 8080) |
 | `--startup-status-file` | path | Write structured initialization progress for the optional kiosk splash |
 | `--debug`, `-d` | flag | Enable verbose FFT/CFAR debug output |

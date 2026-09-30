@@ -9,10 +9,11 @@ browsers, or a Chrome tab cast to a Chromecast.
 
 ## Setup
 
-1. Start OpenFlight as usual:
+1. Start OpenFlight listening on the LAN. By default the server only accepts
+   connections from the Pi itself:
 
     ```bash
-    scripts/start-kiosk.sh
+    scripts/start-kiosk.sh --host 0.0.0.0
     ```
 
 2. Find the OpenFlight host on your LAN — its hostname or its IP address.
@@ -25,6 +26,20 @@ browsers, or a Chrome tab cast to a Chromecast.
 
 4. For Chromecast, open that page in Chrome and use Chrome's built-in **Cast**
    feature to cast the tab.
+
+!!! note "Other devices are read-only"
+
+    Only the Pi's own kiosk can change clubs, delete shots, retune the radar, or
+    shut down. To control OpenFlight from a phone or laptop, open it once with
+    the device token:
+
+    ```
+    http://<openflight-host>:8080/?token=<token>
+    ```
+
+    The token lives in `~/.config/openflight/auth_token` on the Pi (created the
+    first time the server starts with `--host 0.0.0.0`). The browser remembers
+    it. Delete the file and restart to revoke every remembered token.
 
 !!! tip "Prefer the hostname over the IP"
 

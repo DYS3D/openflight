@@ -4,6 +4,7 @@ WebSocket server for OpenFlight UI.
 Provides real-time shot data to the web frontend via Flask-SocketIO.
 """
 
+import functools
 import json
 import logging
 import math
@@ -20,10 +21,27 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from flask import Flask, Response, jsonify, request, send_file, send_from_directory
-from flask_cors import CORS
+from flask import (
+    Flask,
+    Response,
+    has_request_context,
+    jsonify,
+    request,
+    send_file,
+    send_from_directory,
+)
 from flask_socketio import SocketIO
 
+from .access import (
+    DEFAULT_TOKEN_PATH,
+    TOKEN_ENV,
+    TOKEN_HEADER,
+    host_is_allowed,
+    is_loopback_address,
+    load_or_create_token,
+    origin_is_allowed,
+    token_matches,
+)
 from .ballistics import resolve_launch, simulate
 from .clubs import ClubType
 from .clubs.physics import (
@@ -67,9 +85,22 @@ FRONTEND_DIST_DIR = REPO_ROOT / "ui" / "dist"
 FRONTEND_SOURCE_DIR = REPO_ROOT / "ui"
 
 
+# Remote clients are read-only unless they present this token. None disables
+# token access entirely, leaving control to loopback (kiosk) clients only.
+access_token: Optional[str] = None
+allowed_extra_origins: List[str] = []
+allowed_extra_hosts: List[str] = []
+_controller_sids: set[str] = set()
+_controller_sids_lock = threading.Lock()
+
+
+def _socket_origin_allowed(origin, environ) -> bool:
+    """Socket.IO CORS policy: same-origin, loopback, or configured origins."""
+    return origin_is_allowed(origin, environ.get("HTTP_HOST"), allowed_extra_origins)
+
+
 app = Flask(__name__, static_folder=str(FRONTEND_DIST_DIR), static_url_path="")
-CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+socketio = SocketIO(app, cors_allowed_origins=_socket_origin_allowed, async_mode="threading")
 
 # Global state
 monitor = None
@@ -91,6 +122,107 @@ def get_profile_store() -> ProfileStore:
     if profile_store is None:
         profile_store = ProfileStore()
     return profile_store
+
+
+def configure_access(
+    *,
+    token: Optional[str],
+    extra_origins: List[str] | tuple = (),
+    extra_hosts: List[str] | tuple = (),
+) -> None:
+    """Install the remote-control token and the extra trusted origins/hosts."""
+    global access_token  # pylint: disable=global-statement
+    access_token = token or None
+    allowed_extra_origins[:] = [o.rstrip("/") for o in extra_origins if o]
+    allowed_extra_hosts[:] = [h for h in extra_hosts if h]
+
+
+def _current_sid() -> Optional[str]:
+    """Socket.IO session id of the client whose event is being handled."""
+    if not has_request_context():
+        return None
+    return getattr(request, "sid", None)
+
+
+def _emit_to(event: str, payload, sid: Optional[str]) -> None:
+    """Emit to one socket when its id is known, otherwise broadcast."""
+    if sid is None:
+        socketio.emit(event, payload)
+    else:
+        socketio.emit(event, payload, to=sid)
+
+
+def _reply(event: str, payload=None) -> None:
+    """Answer only the requesting socket; broadcast when called outside a request."""
+    _emit_to(event, payload, _current_sid())
+
+
+def _request_token(auth=None) -> Optional[str]:
+    """Token from Socket.IO auth, a bearer/X-OpenFlight-Token header, or ?token=."""
+    if isinstance(auth, dict) and isinstance(auth.get("token"), str):
+        return auth["token"]
+    header = request.headers.get(TOKEN_HEADER)
+    if header:
+        return header
+    authorization = request.headers.get("Authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return request.args.get("token")
+
+
+def _request_has_control(auth=None) -> bool:
+    """Loopback clients (the kiosk) and token holders may change device state."""
+    if is_loopback_address(request.remote_addr):
+        return True
+    return token_matches(_request_token(auth), access_token)
+
+
+def _client_has_control() -> bool:
+    """Whether the client behind the current request may change device state."""
+    if not has_request_context():
+        # Internal callers (sim inbound, timers, tests) are not remote clients.
+        return True
+    sid = getattr(request, "sid", None)
+    if sid is None:
+        return _request_has_control()
+    with _controller_sids_lock:
+        return sid in _controller_sids
+
+
+def _control_required(handler):
+    """Refuse a state-changing socket event from a read-only client."""
+
+    @functools.wraps(handler)
+    def wrapper(*args, **kwargs):
+        if not _client_has_control():
+            logger.warning("[SERVER] Refused %s from read-only client", handler.__name__)
+            _reply("permission_denied", {"error": "This display is read-only"})
+            return None
+        return handler(*args, **kwargs)
+
+    return wrapper
+
+
+@app.before_request
+def _reject_untrusted_host():
+    """Block DNS-rebinding requests that reach the server under a foreign name."""
+    if not host_is_allowed(request.host, allowed_extra_hosts):
+        return jsonify({"error": "Host not allowed"}), 421
+    return None
+
+
+@app.after_request
+def _apply_cors(response):
+    """Grant cross-origin HTTP access with the same policy as Socket.IO."""
+    origin = request.headers.get("Origin")
+    if origin and origin_is_allowed(origin, request.host, allowed_extra_origins):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Headers"] = (
+            f"Content-Type, Authorization, {TOKEN_HEADER}"
+        )
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.vary.add("Origin")
+    return response
 
 
 TRAINING_IMPLEMENT_LABELS = {
@@ -966,6 +1098,8 @@ def static_files(path):
 @app.route("/api/shutdown", methods=["POST"])
 def api_shutdown():
     """Cleanly shut down the server via REST API."""
+    if not _request_has_control():
+        return jsonify({"error": "Not authorized"}), 403
     logger.info("[SERVER] Shutdown requested via REST API")
     threading.Thread(target=_shutdown_process_after_delay, daemon=True).start()
     return {"status": "shutting_down"}, 200
@@ -1366,6 +1500,8 @@ def prepare_camera_replay(replay_id: str):
 
     if request.method != "POST":
         return jsonify({"error": "Use POST to prepare a camera replay"}), 405
+    if not _request_has_control():
+        return jsonify({"error": "Not authorized"}), 403
     if camera_replay_manager is None:
         return jsonify({"error": "Camera replay was not found"}), 404
     try:
@@ -1468,20 +1604,21 @@ def _camera_capture_settings_payload() -> dict:
 @socketio.on("get_camera_capture_settings")
 def handle_get_camera_capture_settings():
     """Send current high-speed capture settings to the requesting UI."""
-    socketio.emit("camera_capture_settings", _camera_capture_settings_payload())
+    _reply("camera_capture_settings", _camera_capture_settings_payload())
 
 
 @socketio.on("set_camera_capture_settings")
+@_control_required
 def handle_set_camera_capture_settings(data):
     """Apply live-safe camera controls and alignment-guide position."""
     if camera_capture_runtime is None:
-        socketio.emit(
+        _reply(
             "camera_capture_settings_error",
             {"error": "High-speed camera capture is not running"},
         )
         return
     if not isinstance(data, dict):
-        socketio.emit(
+        _reply(
             "camera_capture_settings_error",
             {"error": "Camera settings must be an object"},
         )
@@ -1521,9 +1658,12 @@ def handle_set_camera_capture_settings(data):
                 source="camera_ui",
             )
         socketio.emit("camera_capture_settings", _camera_capture_settings_payload())
-    except (KeyError, TypeError, ValueError, RuntimeError) as error:
+    except ValueError as error:
         logger.warning("[SERVER] Camera settings update rejected: %s", error)
-        socketio.emit("camera_capture_settings_error", {"error": str(error)})
+        _reply("camera_capture_settings_error", {"error": str(error)})
+    except (KeyError, TypeError, RuntimeError) as error:
+        logger.warning("[SERVER] Camera settings update failed: %s", error, exc_info=True)
+        _reply("camera_capture_settings_error", {"error": "Camera settings could not be applied"})
 
 
 def start_debug_logging():
@@ -1739,7 +1879,7 @@ def _emit_sim_snapshot() -> None:
     holds only the enabled ones) carrying its live state.
     """
     for connector in sim_connectors:
-        socketio.emit(
+        _reply(
             "sim_status",
             {
                 "target": connector.name,
@@ -1775,34 +1915,50 @@ def start_power_monitor(provider: str) -> None:
 
 
 @socketio.on("connect")
-def handle_connect():
-    """Handle client connection."""
+def handle_connect(auth=None):
+    """Admit a client, decide whether it may control the device, send it state."""
+    sid = _current_sid()
+    if sid is not None:
+        if not host_is_allowed(request.host, allowed_extra_hosts):
+            logger.warning("[SERVER] Rejected socket from untrusted Host %r", request.host)
+            return False
+        if _request_has_control(auth):
+            with _controller_sids_lock:
+                _controller_sids.add(sid)
+        else:
+            logger.info("[SERVER] Read-only client connected from %s", request.remote_addr)
     print("Client connected")
     _emit_sim_snapshot()
-    _emit_profiles()
+    _reply("profiles", get_profile_store().snapshot())
     if power_monitor and power_monitor.status:
-        socketio.emit("power_status", power_monitor.status.to_dict())
+        _reply("power_status", power_monitor.status.to_dict())
     if monitor:
-        socketio.emit("session_state", _session_state_payload(include_runtime_meta=True))
-        socketio.emit("trigger_status", _get_trigger_status())
+        _reply("session_state", _session_state_payload(include_runtime_meta=True))
+        _reply("trigger_status", _get_trigger_status())
+    return None
 
 
 @socketio.on("disconnect")
-def handle_disconnect():
+def handle_disconnect(*_args):
     """Handle client disconnection."""
+    sid = _current_sid()
+    if sid is not None:
+        with _controller_sids_lock:
+            _controller_sids.discard(sid)
     print("Client disconnected")
 
 
 @socketio.on("get_trigger_status")
 def handle_get_trigger_status():
     """Get current trigger/mode status for debug UI."""
-    socketio.emit("trigger_status", _get_trigger_status())
+    _reply("trigger_status", _get_trigger_status())
 
 
 @socketio.on("set_club")
+@_control_required
 def handle_set_club(data):
     """Handle club selection change."""
-    club_name = data.get("club", "driver")
+    club_name = data.get("club", "driver") if isinstance(data, dict) else "driver"
     try:
         club = ClubType(club_name)
         if monitor:
@@ -1829,10 +1985,11 @@ def _emit_profiles() -> None:
 @socketio.on("get_profiles")
 def handle_get_profiles():
     """Send the roster to a client that asked for it."""
-    _emit_profiles()
+    _reply("profiles", get_profile_store().snapshot())
 
 
 @socketio.on("set_active_profile")
+@_control_required
 def handle_set_active_profile(data=None):
     """Change which profile shots are attributed to."""
     get_profile_store().set_active(_payload_dict(data).get("profile_id"))
@@ -1840,6 +1997,7 @@ def handle_set_active_profile(data=None):
 
 
 @socketio.on("add_profile")
+@_control_required
 def handle_add_profile(data=None):
     """Add a profile and make it active."""
     get_profile_store().add(_payload_dict(data).get("name"))
@@ -1847,6 +2005,7 @@ def handle_add_profile(data=None):
 
 
 @socketio.on("rename_profile")
+@_control_required
 def handle_rename_profile(data=None):
     """Rename a profile. Its shots keep their id and stay attached."""
     payload = _payload_dict(data)
@@ -1855,6 +2014,7 @@ def handle_rename_profile(data=None):
 
 
 @socketio.on("remove_profile")
+@_control_required
 def handle_remove_profile(data=None):
     """Delete a profile. Refused for the active, the last, or one with session rows."""
     profile_id = str(_payload_dict(data).get("profile_id") or "").strip()
@@ -1866,12 +2026,13 @@ def handle_remove_profile(data=None):
 
 
 @socketio.on("set_training_implement")
+@_control_required
 def handle_set_training_implement(data):
     """Handle swing speed training implement selection."""
     implement = data.get("implement", "driver") if isinstance(data, dict) else "driver"
     label = TRAINING_IMPLEMENT_LABELS.get(implement)
     if not label:
-        socketio.emit("training_implement_error", {"error": "Unknown training implement"})
+        _reply("training_implement_error", {"error": "Unknown training implement"})
         return
 
     if monitor and hasattr(monitor, "set_training_implement"):
@@ -1929,6 +2090,7 @@ def _clear_profile_rows(profile_id: str) -> None:
 
 
 @socketio.on("clear_session")
+@_control_required
 def handle_clear_session(data=None):
     """Clear recorded rows for one profile only."""
     raw_id = _payload_dict(data).get("profile_id")
@@ -1941,32 +2103,35 @@ def handle_clear_session(data=None):
 
 
 @socketio.on("upload_cloud")
+@_control_required
 def handle_upload_cloud():
     """Manually trigger upload of completed session logs."""
-    threading.Thread(target=_run_cloud_push_for_ui, daemon=True).start()
+    threading.Thread(target=_run_cloud_push_for_ui, args=(_current_sid(),), daemon=True).start()
 
 
 @socketio.on("get_session")
 def handle_get_session():
     """Get current session data."""
     if monitor:
-        socketio.emit("session_state", _session_state_payload())
+        _reply("session_state", _session_state_payload())
 
 
 @socketio.on("delete_shot")
+@_control_required
 def handle_delete_shot(data):
     """Delete one recorded shot or swing-speed rep from the current session."""
     timestamp = data.get("timestamp") if isinstance(data, dict) else None
     deleted = _delete_session_row(timestamp)
 
     if not deleted:
-        socketio.emit("delete_shot_error", {"error": "Shot not found"})
+        _reply("delete_shot_error", {"error": "Shot not found"})
         return
 
     socketio.emit("session_state", _session_state_payload())
 
 
 @socketio.on("simulate_shot")
+@_control_required
 def handle_simulate_shot():
     """Simulate a shot (only works in mock mode)."""
     if monitor and isinstance(monitor, (MockLaunchMonitor, MockSwingSpeedMonitor)):
@@ -1974,6 +2139,7 @@ def handle_simulate_shot():
 
 
 @socketio.on("toggle_debug")
+@_control_required
 def handle_toggle_debug():
     """Toggle debug mode on/off."""
     global debug_mode  # pylint: disable=global-statement
@@ -1993,7 +2159,7 @@ def handle_toggle_debug():
 @socketio.on("get_debug_status")
 def handle_get_debug_status():
     """Get current debug mode status."""
-    socketio.emit(
+    _reply(
         "debug_status",
         {
             "enabled": debug_mode,
@@ -2010,25 +2176,77 @@ radar_config = {
     "transmit_power": 0,
 }
 
+# Inclusive bounds for UI-tunable radar settings. The OPS243-A only needs
+# golf-plausible speeds; anything outside these is a client bug or abuse and
+# must not reach the radar's command parser.
+RADAR_CONFIG_LIMITS = {
+    "min_speed": (0, 250),
+    "max_speed": (0, 300),
+    "min_magnitude": (0, 10_000),
+    "transmit_power": (0, 7),
+}
+
+
+class RadarConfigError(ValueError):
+    """A radar configuration request that fails validation."""
+
+
+def _bounded_int(name: str, value) -> int:
+    low, high = RADAR_CONFIG_LIMITS[name]
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise RadarConfigError(f"{name} must be a whole number")
+    try:
+        number = float(value)
+    except ValueError as error:
+        raise RadarConfigError(f"{name} must be a whole number") from error
+    if not math.isfinite(number) or not number.is_integer():
+        raise RadarConfigError(f"{name} must be a whole number")
+    parsed = int(number)
+    if not low <= parsed <= high:
+        raise RadarConfigError(f"{name} must be between {low} and {high}")
+    return parsed
+
+
+def validate_radar_config_update(data, current: dict) -> dict:
+    """Parse a set_radar_config payload into bounded ints, or raise RadarConfigError.
+
+    Everything is validated before any command reaches the radar so a bad
+    field cannot leave the device half-configured.
+    """
+    if not isinstance(data, dict):
+        raise RadarConfigError("Radar config must be an object")
+    update = {name: _bounded_int(name, data[name]) for name in RADAR_CONFIG_LIMITS if name in data}
+    min_speed = update.get("min_speed", current.get("min_speed", 0))
+    max_speed = update.get("max_speed", current.get("max_speed", 0))
+    if max_speed > 0 and min_speed >= max_speed:
+        raise RadarConfigError("min_speed must be below max_speed")
+    return update
+
 
 @socketio.on("get_radar_config")
 def handle_get_radar_config():
     """Get current radar configuration."""
-    socketio.emit("radar_config", radar_config)
+    _reply("radar_config", dict(radar_config))
 
 
 @socketio.on("set_radar_config")
+@_control_required
 def handle_set_radar_config(data):
     """Update radar configuration."""
-    global radar_config  # pylint: disable=global-statement
-
     if not monitor or (mock_mode and not mock_swing_speed_mode):
         log_session_error(
             "Radar config update rejected: radar not connected",
             component="server",
             context={"stage": "set_radar_config", "mock_mode": mock_mode},
         )
-        socketio.emit("radar_config_error", {"error": "Radar not connected"})
+        _reply("radar_config_error", {"error": "Radar not connected"})
+        return
+
+    try:
+        update = validate_radar_config_update(data, radar_config)
+    except RadarConfigError as error:
+        logger.warning("[SERVER] Radar config update rejected: %s", error)
+        _reply("radar_config_error", {"error": str(error)})
         return
 
     try:
@@ -2036,9 +2254,8 @@ def handle_set_radar_config(data):
 
         is_swing_speed = isinstance(monitor, (SwingSpeedMonitor, MockSwingSpeedMonitor))
 
-        # Update min speed filter
-        if "min_speed" in data:
-            new_min = int(data["min_speed"])
+        if "min_speed" in update:
+            new_min = update["min_speed"]
             monitor.radar.set_min_speed_filter(new_min)
             if is_swing_speed:
                 monitor.trigger_threshold_mph = float(new_min)
@@ -2049,30 +2266,27 @@ def handle_set_radar_config(data):
         # defines "R<0 resets to no limit", so it is how the UI clears a
         # previously-set ceiling. Swallowing it would leave the old ceiling
         # active on the radar while radar_config claimed no limit.
-        if "max_speed" in data:
-            new_max = int(data["max_speed"])
+        if "max_speed" in update:
+            new_max = update["max_speed"]
             monitor.radar.set_max_speed_filter(new_max)
             if is_swing_speed:
                 monitor.max_speed_mph = None if new_max <= 0 else float(new_max)
             radar_config["max_speed"] = new_max
             print(f"Set max speed filter: {new_max} mph")
 
-        # Update magnitude filter
-        if "min_magnitude" in data:
-            new_mag = int(data["min_magnitude"])
+        if "min_magnitude" in update:
+            new_mag = update["min_magnitude"]
             monitor.radar.set_magnitude_filter(min_mag=new_mag)
             radar_config["min_magnitude"] = new_mag
             print(f"Set min magnitude filter: {new_mag}")
 
-        # Update transmit power (0=max, 7=min)
-        if "transmit_power" in data:
-            new_power = int(data["transmit_power"])
-            if 0 <= new_power <= 7:
-                monitor.radar.set_transmit_power(new_power)
-                radar_config["transmit_power"] = new_power
-                print(f"Set transmit power: {new_power}")
+        # Transmit power: 0 = max, 7 = min.
+        if "transmit_power" in update:
+            new_power = update["transmit_power"]
+            monitor.radar.set_transmit_power(new_power)
+            radar_config["transmit_power"] = new_power
+            print(f"Set transmit power: {new_power}")
 
-        # Log config change
         session_logger = get_session_logger()
         if session_logger:
             session_logger.log_config_change(radar_config.copy(), source="user")
@@ -2087,20 +2301,21 @@ def handle_set_radar_config(data):
             debug_log_file.write(json.dumps(entry) + "\n")
             debug_log_file.flush()
 
-        socketio.emit("radar_config", radar_config)
+        socketio.emit("radar_config", dict(radar_config))
 
     except Exception as e:
         logger.warning("[SERVER] Error setting radar config: %s", e, exc_info=True)
         log_session_error(
             "Radar config update failed",
             component="server",
-            context={"stage": "set_radar_config", "requested": data},
+            context={"stage": "set_radar_config", "requested": update},
             exc=e,
         )
-        socketio.emit("radar_config_error", {"error": str(e)})
+        _reply("radar_config_error", {"error": "The radar did not accept the configuration"})
 
 
 @socketio.on("shutdown")
+@_control_required
 def handle_shutdown():
     """Cleanly shut down the server and all hardware."""
     logger.info("[SERVER] Shutdown requested from UI (WebSocket)")
@@ -2141,7 +2356,7 @@ def _forward_shot_to_simulators(shot: Shot) -> None:
             connector.send_shot(resolved)
         except OSError as e:
             logger.warning("[sim] %s send failed: %s", connector.name, e)
-            socketio.emit("sim_send_failed", {"target": connector.name, "reason": str(e)})
+            socketio.emit("sim_send_failed", {"target": connector.name, "reason": type(e).__name__})
             continue
         sl = get_session_logger()
         if sl:
@@ -3861,9 +4076,9 @@ def _fire_cloud_push(session_logger):
         pass
 
 
-def _run_cloud_push_for_ui():
-    """Run a manual cloud push and report the result to connected UI clients."""
-    socketio.emit("cloud_upload_status", {"state": "running", "message": "Uploading..."})
+def _run_cloud_push_for_ui(sid: Optional[str] = None):
+    """Run a manual cloud push and report the result to the requesting client."""
+    _emit_to("cloud_upload_status", {"state": "running", "message": "Uploading..."}, sid)
     try:
         from .cloud import commands
         from .cloud.client import CloudClient
@@ -3904,15 +4119,17 @@ def _run_cloud_push_for_ui():
             state = "complete"
             message = "Nothing to upload."
 
-        socketio.emit(
+        _emit_to(
             "cloud_upload_status",
             {"state": state, "message": message, "summary": summary},
+            sid,
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning("[SERVER] Manual cloud upload failed: %s", exc, exc_info=True)
-        socketio.emit(
+        _emit_to(
             "cloud_upload_status",
-            {"state": "error", "message": str(exc)},
+            {"state": "error", "message": "Upload failed. Check the server log for details."},
+            sid,
         )
 
 
@@ -4271,7 +4488,39 @@ def main():
         action="store_true",
         help="Run swing speed training mode with simulated reps and no OPS radar",
     )
-    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help=(
+            "Address to bind to (default: 127.0.0.1, kiosk only). Use 0.0.0.0 to "
+            "serve the read-only display to other devices on the LAN."
+        ),
+    )
+    parser.add_argument(
+        "--auth-token-file",
+        default=str(DEFAULT_TOKEN_PATH),
+        help=(
+            "File holding the token that lets non-kiosk clients control the device "
+            f"(created on first LAN start; ${TOKEN_ENV} overrides it)"
+        ),
+    )
+    parser.add_argument(
+        "--no-remote-control",
+        action="store_true",
+        help="Keep every non-kiosk client read-only, even with a token",
+    )
+    parser.add_argument(
+        "--cors-origin",
+        action="append",
+        default=[],
+        help="Extra browser origin allowed to connect (repeatable), e.g. http://laptop:5173",
+    )
+    parser.add_argument(
+        "--allowed-host",
+        action="append",
+        default=[],
+        help="Extra Host name accepted besides IPs, localhost, *.local, and this hostname",
+    )
     parser.add_argument(
         "--web-port", type=int, default=8080, help="Web server port (default: 8080)"
     )
@@ -4737,6 +4986,14 @@ def main():
     ballistics_enabled = args.ballistics
     battery_provider = args.battery
     profile_store = ProfileStore(args.profiles_path)
+    remote_token = None
+    if not args.no_remote_control and not is_loopback_address(args.host):
+        remote_token = load_or_create_token(Path(args.auth_token_file).expanduser())
+    configure_access(
+        token=remote_token,
+        extra_origins=args.cors_origin,
+        extra_hosts=args.allowed_host,
+    )
     startup_status = StartupStatusReporter(
         args.startup_status_file,
         configured_startup_components(
@@ -5016,12 +5273,24 @@ def main():
         print("Running in SWING SPEED mode - no ball impact trigger required")
 
     print(f"Server starting at http://{args.host}:{args.web_port}")
+    if not is_loopback_address(args.host) and args.host != "localhost":
+        print("LAN clients are read-only.", end=" ")
+        if remote_token:
+            print(
+                f"To control from another device, append ?token=<token in {args.auth_token_file}>"
+            )
+        else:
+            print("Remote control is disabled.")
     print()
     startup_status.start("server", "Starting OpenFlight server")
 
     try:
         # Note: Flask debug mode (reloader) is disabled to prevent duplicate processes
         # fighting over the serial port. OpenFlight --debug enables verbose logging only.
+        # Werkzeug stays: threading mode needs an in-process server that hands
+        # WebSockets the raw socket, and forking servers (gunicorn) would split
+        # the hardware threads from the request workers. Exposure is limited by
+        # the loopback default bind, Host/Origin checks, and read-only LAN clients.
         socketio.run(
             app, host=args.host, port=args.web_port, debug=False, allow_unsafe_werkzeug=True
         )

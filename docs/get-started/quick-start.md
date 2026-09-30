@@ -20,8 +20,10 @@ scripts/start-kiosk.sh
 That is the supported entry point. It activates the virtualenv, builds the UI if
 needed, and launches the server with the rolling buffer and sound trigger.
 
-The UI is at **`http://localhost:8080`** on the Pi, or
-`http://<hostname>.local:8080` from another device on the LAN.
+The UI is at **`http://localhost:8080`** on the Pi. To also reach it at
+`http://<hostname>.local:8080` from another device on the LAN, add
+`--host 0.0.0.0`; see [TV display mode](../using/display.md) for how other
+devices get control.
 
 ## Common variants
 

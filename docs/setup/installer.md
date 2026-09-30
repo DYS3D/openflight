@@ -10,7 +10,7 @@ it checks each step and changes only what is missing, so it is also the way to
 repair a half-finished install.
 
 ```bash
-git clone https://github.com/open-flight/openflight.git
+git clone https://github.com/DYS3D/openflight.git
 cd openflight
 ./scripts/install.sh
 ```
@@ -18,8 +18,8 @@ cd openflight
 On a Pi with no checkout yet, the installer can clone one first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DYS3D/openflight/improvements/scripts/install.sh \
-  | bash -s -- --yes --repo https://github.com/DYS3D/openflight.git --branch improvements
+curl -fsSL https://raw.githubusercontent.com/DYS3D/openflight/main/scripts/install.sh \
+  | bash -s -- --yes
 ```
 
 Everything the installer prints is also appended to `~/openflight-install.log`.
@@ -57,7 +57,7 @@ no new backup is made.
 | `--server-args "..."` | Other server flags for the service, e.g. `"--radar-port /dev/ttyAMA0 --altitude-ft 850"` |
 | `--dry-run` | Print every step and every change without making any (nothing is logged either) |
 | `--force` | Continue on hardware or an OS other than a Pi 5 with Bookworm |
-| `--dir`, `--repo`, `--branch` | Where a piped install clones from and to (default upstream `main` into `~/openflight`) |
+| `--dir`, `--repo`, `--branch` | Where a piped install clones from and to (default `DYS3D/openflight` `main` into `~/openflight`) |
 
 An IWR6843 build normally moves the OPS243 to the GPIO header, because USB
 cannot power both radars ([OPS243 UART migration](../build/ops243-uart.md)).

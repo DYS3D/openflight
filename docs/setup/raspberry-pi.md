@@ -29,7 +29,7 @@ does the dependency, UART, udev and service setup without prompts, then
 `scripts/openflight-doctor.sh` checks the result after a reboot:
 
 ```bash
-git clone https://github.com/open-flight/openflight.git
+git clone https://github.com/DYS3D/openflight.git
 cd openflight
 ./scripts/install.sh      # --dry-run shows every change first
 sudo reboot

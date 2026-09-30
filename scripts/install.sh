@@ -13,7 +13,7 @@
 # From a clone:
 #   ./scripts/install.sh [options]
 # From a fresh Pi (clones into --dir, then runs the clone's installer):
-#   curl -fsSL https://raw.githubusercontent.com/DYS3D/openflight/improvements/scripts/install.sh | bash -s -- --yes --repo https://github.com/DYS3D/openflight.git --branch improvements
+#   curl -fsSL https://raw.githubusercontent.com/DYS3D/openflight/main/scripts/install.sh | bash -s -- --yes
 #
 # Options:
 #   --yes                Do not ask for confirmation
@@ -24,13 +24,13 @@
 #   --dry-run            Print every step and change without making any
 #   --force              Skip the Raspberry Pi 5 + Bookworm check
 #   --dir DIR            Checkout for piped installs (default ~/openflight)
-#   --repo URL           Repository for piped installs (default upstream)
+#   --repo URL           Repository for piped installs (default DYS3D/openflight)
 #   --branch NAME        Branch for piped installs (default main)
 #   -h, --help           Show this help
 
 set -euo pipefail
 
-DEFAULT_REPO="https://github.com/open-flight/openflight.git"
+DEFAULT_REPO="https://github.com/DYS3D/openflight.git"
 
 # Piped installs have no checkout yet: clone one and run its installer.
 bootstrap_from_clone() {

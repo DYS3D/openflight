@@ -1533,13 +1533,13 @@ def _camera_capture_settings_payload() -> dict:
 
 
 @socketio.on("get_camera_capture_settings")
-def handle_get_camera_capture_settings():
+def handle_get_camera_capture_settings(*_args):
     """Send current high-speed capture settings to the requesting UI."""
     _reply("camera_capture_settings", _camera_capture_settings_payload())
 
 
 @socketio.on("set_camera_capture_settings")
-def handle_set_camera_capture_settings(data):
+def handle_set_camera_capture_settings(data=None):
     """Apply live-safe camera controls and alignment-guide position."""
     if camera_capture_runtime is None:
         _reply(
@@ -1879,7 +1879,7 @@ def start_power_monitor(provider: str) -> None:
 
 
 @socketio.on("connect")
-def handle_connect():
+def handle_connect(*_args):
     """Send the connecting client the current state."""
     logger.info("Client connected")
     _emit_sim_snapshot()
@@ -1898,13 +1898,13 @@ def handle_disconnect(*_args):
 
 
 @socketio.on("get_trigger_status")
-def handle_get_trigger_status():
+def handle_get_trigger_status(*_args):
     """Get current trigger/mode status for debug UI."""
     _reply("trigger_status", _get_trigger_status())
 
 
 @socketio.on("set_club")
-def handle_set_club(data):
+def handle_set_club(data=None):
     """Handle club selection change."""
     club_name = _payload_dict(data).get("club", "driver")
     try:
@@ -1931,7 +1931,7 @@ def _emit_profiles() -> None:
 
 
 @socketio.on("get_profiles")
-def handle_get_profiles():
+def handle_get_profiles(*_args):
     """Send the roster to a client that asked for it."""
     _reply("profiles", get_profile_store().snapshot())
 
@@ -1970,7 +1970,7 @@ def handle_remove_profile(data=None):
 
 
 @socketio.on("set_training_implement")
-def handle_set_training_implement(data):
+def handle_set_training_implement(data=None):
     """Handle swing speed training implement selection."""
     implement = data.get("implement", "driver") if isinstance(data, dict) else "driver"
     label = TRAINING_IMPLEMENT_LABELS.get(implement)
@@ -2045,20 +2045,20 @@ def handle_clear_session(data=None):
 
 
 @socketio.on("upload_cloud")
-def handle_upload_cloud():
+def handle_upload_cloud(*_args):
     """Manually trigger upload of completed session logs."""
     threading.Thread(target=_run_cloud_push_for_ui, args=(_current_sid(),), daemon=True).start()
 
 
 @socketio.on("get_session")
-def handle_get_session():
+def handle_get_session(*_args):
     """Get current session data."""
     if monitor:
         _reply("session_state", _session_state_payload())
 
 
 @socketio.on("delete_shot")
-def handle_delete_shot(data):
+def handle_delete_shot(data=None):
     """Delete one recorded shot or swing-speed rep from the current session."""
     timestamp = data.get("timestamp") if isinstance(data, dict) else None
     deleted = _delete_session_row(timestamp)
@@ -2071,7 +2071,7 @@ def handle_delete_shot(data):
 
 
 @socketio.on("simulate_shot")
-def handle_simulate_shot():
+def handle_simulate_shot(*_args):
     """Simulate a shot (only works in mock mode)."""
     if monitor and isinstance(monitor, (MockLaunchMonitor, MockSwingSpeedMonitor)):
         monitor.simulate_shot()
@@ -2116,7 +2116,7 @@ def handle_toggle_debug(data=None):
 
 
 @socketio.on("get_debug_status")
-def handle_get_debug_status():
+def handle_get_debug_status(*_args):
     """Get current debug mode status."""
     _reply(
         "debug_status",
@@ -2185,7 +2185,7 @@ def validate_radar_config_update(data, current: dict) -> dict:
 
 
 @socketio.on("get_radar_config")
-def handle_get_radar_config():
+def handle_get_radar_config(*_args):
     """Get current radar configuration."""
     with _config_lock:
         snapshot = dict(radar_config)
@@ -2193,7 +2193,7 @@ def handle_get_radar_config():
 
 
 @socketio.on("set_radar_config")
-def handle_set_radar_config(data):
+def handle_set_radar_config(data=None):
     """Update radar configuration."""
     if not monitor or (mock_mode and not mock_swing_speed_mode):
         log_session_error(
@@ -2280,7 +2280,7 @@ def _apply_radar_config_update(update: dict) -> dict:
 
 
 @socketio.on("shutdown")
-def handle_shutdown():
+def handle_shutdown(*_args):
     """Cleanly shut down the server and all hardware."""
     logger.info("[SERVER] Shutdown requested from UI (WebSocket)")
     socketio.emit("shutdown_ack", {"message": "Shutting down..."})

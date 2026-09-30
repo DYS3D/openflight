@@ -1,9 +1,9 @@
-import type { Shot, SpinQuality, SwingSpeedStats } from '../../types/shot';
+import type { DerivedValue, Shot, SpinQuality, SwingSpeedStats } from '../../types/shot';
 import { getSwingSpeedMph, isSwingSpeedShot } from '../../types/shot';
 import type { UnitSystem } from '../../utils/units';
 import { formatDistance, formatSpeed, getDistanceUnit, getSpeedUnit } from '../../utils/units';
 import { isHorizontalLaunchEstimated, isSpinEstimated, isVerticalLaunchEstimated } from '../../utils/provenance';
-import { getHtmlLang, t } from '../../i18n';
+import { getHtmlLang, t, type MessageKey } from '../../i18n';
 
 /** Placeholder for a metric the current shot has no value for. */
 export const NO_VALUE = '—';
@@ -278,4 +278,148 @@ export function pinSelectedMetric(metrics: LiveMetric[], selectedId: string | nu
   const index = selectedIndex === -1 ? 0 : selectedIndex;
 
   return [metrics[index], ...metrics.filter((_, i) => i !== index)];
+}
+
+/** Prefix shared by every derived-metric id so they never collide with the base ten. */
+const DERIVED_ID_PREFIX = 'derived_';
+
+/** Derived metrics that may be promoted to the hero slot (only with "More metrics" on). */
+export const DERIVED_HERO_IDS: readonly string[] = ['derived_total', 'derived_shot_shape'];
+
+const SHOT_SHAPE_LABELS: Record<string, MessageKey> = {
+  straight: 'shape.straight',
+  fade: 'shape.fade',
+  draw: 'shape.draw',
+  slice: 'shape.slice',
+  hook: 'shape.hook',
+  push: 'shape.push',
+  pull: 'shape.pull',
+  'push-fade': 'shape.pushFade',
+  'push-draw': 'shape.pushDraw',
+  'pull-fade': 'shape.pullFade',
+  'pull-draw': 'shape.pullDraw',
+};
+
+/** Localized word for a server shot-shape id; unknown ids show as sent. */
+export function shotShapeLabel(shape: string): string {
+  const key = SHOT_SHAPE_LABELS[shape];
+  return key ? t(key) : shape;
+}
+
+type DerivedKind = 'distance' | 'signedDistance' | 'seconds' | 'angle' | 'signedAngle';
+
+interface DerivedSpec {
+  id: string;
+  key: string;
+  label: MessageKey;
+  kind: DerivedKind;
+}
+
+/** Card order for the derived strip. Every card is optional: absent keys render nothing. */
+const DERIVED_SPECS: readonly DerivedSpec[] = [
+  { id: 'derived_total', key: 'total_yards', label: 'metric.total', kind: 'distance' },
+  { id: 'derived_roll', key: 'roll_yards', label: 'metric.roll', kind: 'distance' },
+  { id: 'derived_apex', key: 'apex_yards', label: 'flight.apex', kind: 'distance' },
+  { id: 'derived_hang_time', key: 'hang_time_s', label: 'flight.hangTime', kind: 'seconds' },
+  { id: 'derived_landing_angle', key: 'landing_angle_deg', label: 'flight.landingAngle', kind: 'angle' },
+  { id: 'derived_curve', key: 'curve_yards', label: 'metric.curve', kind: 'signedDistance' },
+  { id: 'derived_side', key: 'side_yards', label: 'metric.side', kind: 'signedDistance' },
+  { id: 'derived_face_to_path', key: 'face_to_path_deg', label: 'metric.faceToPath', kind: 'signedAngle' },
+  { id: 'derived_spin_loft', key: 'spin_loft_deg', label: 'metric.spinLoft', kind: 'angle' },
+];
+
+function formatSignedDistance(yards: number, unitSystem: UnitSystem): string {
+  const text = formatDistance(Math.abs(yards), unitSystem, 0);
+  if (yards === 0) return text;
+  return `${yards > 0 ? '+' : '-'}${text}`;
+}
+
+function numericDerivedMetric(
+  spec: DerivedSpec,
+  entry: DerivedValue,
+  value: number,
+  unitSystem: UnitSystem
+): LiveMetric {
+  const estimated = markEstimated(entry.source === 'estimated');
+  switch (spec.kind) {
+    case 'distance':
+      return {
+        id: spec.id,
+        label: t(spec.label),
+        value: formatDistance(value, unitSystem, 0),
+        unit: getDistanceUnit(unitSystem),
+        estimated,
+      };
+    case 'signedDistance':
+      return {
+        id: spec.id,
+        label: t(spec.label),
+        value: formatSignedDistance(value, unitSystem),
+        unit: getDistanceUnit(unitSystem),
+        estimated,
+      };
+    case 'seconds':
+      return { id: spec.id, label: t(spec.label), value: value.toFixed(1), unit: 's', estimated };
+    case 'angle':
+      return { id: spec.id, label: t(spec.label), value: formatOptionalAngle(value), unit: '°', estimated };
+    case 'signedAngle':
+      return { id: spec.id, label: t(spec.label), value: formatOptionalAngle(value, true), unit: '°', estimated };
+  }
+}
+
+/**
+ * Compact cards for the server's `derived` block, in a fixed order, skipping any
+ * key the shot lacks. Units follow the unit preference like the base metrics.
+ * Returns an empty list for a shot without `derived` so the strip stays hidden.
+ */
+export function buildDerivedMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[] {
+  const derived = shot.derived;
+  if (!derived || isSwingSpeedShot(shot)) {
+    return [];
+  }
+
+  const metrics: LiveMetric[] = [];
+  for (const spec of DERIVED_SPECS) {
+    const entry = derived[spec.key];
+    if (entry && typeof entry.value === 'number' && Number.isFinite(entry.value)) {
+      metrics.push(numericDerivedMetric(spec, entry, entry.value, unitSystem));
+    }
+  }
+
+  const shape = derived.shot_shape;
+  if (shape && typeof shape.value === 'string' && shape.value !== '') {
+    metrics.push({
+      id: 'derived_shot_shape',
+      label: t('metric.shotShape'),
+      value: shotShapeLabel(shape.value),
+      estimated: markEstimated(shape.source === 'estimated'),
+    });
+  }
+
+  return metrics;
+}
+
+export function isDerivedMetricId(id: string | null): boolean {
+  return id !== null && id.startsWith(DERIVED_ID_PREFIX);
+}
+
+/**
+ * The metric the post-shot cue (big number, voice) speaks about. A derived hero
+ * choice counts only while "More metrics" is on and the shot carries that value;
+ * otherwise the base table's pinned metric wins, exactly as before.
+ */
+export function heroMetric(
+  shot: Shot,
+  unitSystem: UnitSystem,
+  swingStats: SwingSpeedStats,
+  heroMetricId: string | null,
+  moreMetrics: boolean
+): LiveMetric | null {
+  if (moreMetrics && heroMetricId !== null && DERIVED_HERO_IDS.includes(heroMetricId)) {
+    const derived = buildDerivedMetrics(shot, unitSystem).find((metric) => metric.id === heroMetricId);
+    if (derived) {
+      return derived;
+    }
+  }
+  return pinSelectedMetric(buildLiveMetrics(shot, unitSystem, swingStats), heroMetricId)[0] ?? null;
 }

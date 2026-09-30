@@ -19,6 +19,40 @@ export interface ShotFlight {
   flight_time_s: number;
 }
 
+/** Server-computed extras (`derived`): every value carries its own provenance. */
+export interface DerivedValue {
+  value: number | string;
+  source: 'measured' | 'estimated';
+}
+
+export type ShotDerived = Partial<
+  Record<
+    | 'smash_factor'
+    | 'face_to_path_deg'
+    | 'face_angle_deg'
+    | 'spin_loft_deg'
+    | 'dynamic_loft_deg'
+    | 'curve_yards'
+    | 'side_yards'
+    | 'apex_yards'
+    | 'hang_time_s'
+    | 'landing_angle_deg'
+    | 'descent_speed_mph'
+    | 'roll_yards'
+    | 'total_yards'
+    | 'shot_shape',
+    DerivedValue
+  >
+> &
+  Record<string, DerivedValue | undefined>;
+
+/** Pipeline timings in milliseconds; keys beyond the two named ones are server-defined. */
+export interface ShotLatency {
+  trigger_to_ui?: number;
+  trigger_to_final?: number;
+  [key: string]: number | undefined;
+}
+
 export interface Shot {
   mode?: 'rolling-buffer' | 'mock' | 'swing-speed';
   shot_number?: number | null;
@@ -79,6 +113,8 @@ export interface Shot {
   training_implement_label?: string;
   camera_replay?: CameraReplay | null;
   flight?: ShotFlight | null;
+  derived?: ShotDerived;
+  latency_ms?: ShotLatency;
 }
 
 export interface SessionStats {

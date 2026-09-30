@@ -6,7 +6,7 @@ import { computeSwingSpeedStats, filterShotsByProfile } from '../types/shot';
 import { useUnitPreference } from '../state/useUnitPreference';
 import { useDisplayPreferencesStore } from '../stores/useDisplayPreferencesStore';
 import { applySharedFitFontSize } from '../hooks/useFitFontSize';
-import { buildLiveMetrics, pinSelectedMetric, type LiveMetric } from './panel/liveMetrics';
+import { heroMetric, type LiveMetric } from './panel/liveMetrics';
 import { EstimatedMark } from './ui/MetricCard';
 import { speakCallout } from '../utils/voiceCallout';
 import { initialShotCue, nextShotCue, TAKEOVER_DURATION_MS, type ShotCue } from './postShot';
@@ -52,6 +52,7 @@ interface PostShotFeedbackProps {
   /** Omit these to read the display preferences store; pass them in tests. */
   bigNumberAfterShot?: boolean;
   voiceCallout?: boolean;
+  moreMetrics?: boolean;
 }
 
 export function PostShotFeedback({
@@ -65,10 +66,12 @@ export function PostShotFeedback({
   liveView,
   bigNumberAfterShot: bigNumberAfterShotProp,
   voiceCallout: voiceCalloutProp,
+  moreMetrics: moreMetricsProp,
 }: PostShotFeedbackProps) {
   const storePreferences = useDisplayPreferencesStore((state) => state.preferences);
   const bigNumberAfterShot = bigNumberAfterShotProp ?? storePreferences.bigNumberAfterShot;
   const voiceCallout = voiceCalloutProp ?? storePreferences.voiceCallout;
+  const moreMetrics = moreMetricsProp ?? storePreferences.moreMetrics;
   const { unitSystem } = useUnitPreference();
   const { locale } = useI18n();
   const lang = getHtmlLang(locale);
@@ -79,7 +82,7 @@ export function PostShotFeedback({
       profileId,
       trainingImplement: activeTrainingImplement,
     });
-    metric = pinSelectedMetric(buildLiveMetrics(shot, unitSystem, swingStats), heroMetricId)[0] ?? null;
+    metric = heroMetric(shot, unitSystem, swingStats, heroMetricId, moreMetrics);
   }
 
   const [cue, setCue] = useState<ShotCue>(() => initialShotCue(shotVersion));

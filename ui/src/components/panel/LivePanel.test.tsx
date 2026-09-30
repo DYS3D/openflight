@@ -159,6 +159,94 @@ describe('LivePanel', () => {
     expect(html).toContain('aria-pressed="true"');
   });
 
+  describe('more metrics', () => {
+    const derivedShot = makeShot({
+      derived: {
+        total_yards: { value: 233.4, source: 'estimated' },
+        roll_yards: { value: 19.6, source: 'estimated' },
+        shot_shape: { value: 'fade', source: 'estimated' },
+      },
+    });
+
+    function renderMore(selectedMetricId: string | null = null, moreMetrics = true) {
+      return text(
+        renderToString(
+          <LivePanel
+            shot={derivedShot}
+            shots={[derivedShot]}
+            profileId="james"
+            profileName="James"
+            clubLabel="DR"
+            selectedMetricId={selectedMetricId}
+            onSelectMetric={() => {}}
+            moreMetrics={moreMetrics}
+          />
+        )
+      );
+    }
+
+    it('hides the strip while the preference is off, even when the shot has derived data', () => {
+      const html = renderMore(null, false);
+
+      expect(html).not.toContain('live-panel__derived');
+      expect(html).not.toContain('live-panel__body--with-derived');
+      expect(html).not.toContain('>Total<');
+      expect(html.match(/<button[^>]*metric-card--interactive/g)).toHaveLength(10);
+    });
+
+    it('hides the strip when the preference is on but the shot has no derived data', () => {
+      const html = render(makeShot());
+      expect(html).not.toContain('live-panel__derived');
+      const forced = text(
+        renderToString(
+          <LivePanel
+            shot={makeShot()}
+            shots={[makeShot()]}
+            profileId="james"
+            profileName="James"
+            clubLabel="DR"
+            moreMetrics
+          />
+        )
+      );
+      expect(forced).not.toContain('live-panel__derived');
+    });
+
+    it('adds a compact strip under the untouched ten-tile table', () => {
+      const html = renderMore();
+
+      expect(html).toContain('live-panel__body--with-derived');
+      expect(html).toContain('live-panel__grid live-panel__grid--of-10');
+      expect(html).toContain('aria-label="More metrics"');
+      expect(html.indexOf('live-panel__grid')).toBeLessThan(html.indexOf('live-panel__derived'));
+      const strip = html.slice(html.indexOf('live-panel__derived'));
+      expect(strip).toContain('>Total<');
+      expect(strip).toContain('>233<');
+      expect(strip).toContain('>Roll<');
+      expect(strip).toContain('>Shot shape<');
+      expect(strip).toContain('>Fade<');
+      expect(strip).toContain('metric-card__estimated');
+    });
+
+    it('lets only Total and Shot shape become the hero metric', () => {
+      const html = renderMore();
+      const strip = html.slice(html.indexOf('live-panel__derived'));
+
+      expect(strip.match(/<button[^>]*metric-card--interactive/g)).toHaveLength(2);
+      expect(html.match(/<button[^>]*metric-card--interactive/g)).toHaveLength(12);
+    });
+
+    it('highlights a derived hero in the strip and clears the table highlight', () => {
+      const html = renderMore('derived_total');
+      const table = html.slice(html.indexOf('live-panel__grid'), html.indexOf('live-panel__derived'));
+      const strip = html.slice(html.indexOf('live-panel__derived'));
+
+      expect(table).not.toContain('aria-pressed="true"');
+      expect(strip.match(/aria-pressed="true"/g)).toHaveLength(1);
+      expect(strip).toMatch(/metric-card--selected[^>]*>[\s\S]*?>Total</);
+    });
+  });
+
   it('shows the profile and club in the header', () => {
     const html = render(makeShot(), [makeShot(), makeShot(), makeShot()]);
 

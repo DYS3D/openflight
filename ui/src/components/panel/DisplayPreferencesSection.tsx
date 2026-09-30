@@ -10,6 +10,7 @@ const LABELS: Record<DisplayPreferenceKey, MessageKey> = {
   consistencyColors: 'menu.consistencyColors',
   voiceCallout: 'menu.voiceCallout',
   showNormalizedCarry: 'menu.showNormalizedCarry',
+  moreMetrics: 'menu.moreMetrics',
 };
 
 interface DisplayPreferencesSectionProps {

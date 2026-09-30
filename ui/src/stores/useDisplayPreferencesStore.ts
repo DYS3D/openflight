@@ -7,6 +7,7 @@ export interface DisplayPreferences {
   consistencyColors: boolean;
   voiceCallout: boolean;
   showNormalizedCarry: boolean;
+  moreMetrics: boolean;
 }
 
 export type DisplayPreferenceKey = keyof DisplayPreferences;
@@ -16,6 +17,7 @@ export const DISPLAY_PREFERENCE_KEYS: readonly DisplayPreferenceKey[] = [
   'consistencyColors',
   'voiceCallout',
   'showNormalizedCarry',
+  'moreMetrics',
 ];
 
 export const DEFAULT_DISPLAY_PREFERENCES: DisplayPreferences = {
@@ -23,6 +25,7 @@ export const DEFAULT_DISPLAY_PREFERENCES: DisplayPreferences = {
   consistencyColors: false,
   voiceCallout: false,
   showNormalizedCarry: false,
+  moreMetrics: false,
 };
 
 function readStoredPreferences(): DisplayPreferences {

@@ -7,6 +7,7 @@ const ALL_OFF = {
   consistencyColors: false,
   voiceCallout: false,
   showNormalizedCarry: false,
+  moreMetrics: false,
 };
 
 function installBrowser(

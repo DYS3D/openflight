@@ -1,14 +1,15 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import type { Shot } from '../../types/shot';
 import { computeSwingSpeedStats, filterShotsByProfile } from '../../types/shot';
 import { useUnitPreference } from '../../state/useUnitPreference';
 import { formatDistance, getDistanceUnit } from '../../utils/units';
 import { useI18n } from '../../i18n/useI18n';
 import { useSharedFitFontSize } from '../../hooks/useFitFontSize';
+import { useDragScroll } from '../../hooks/useDragScroll';
 import { useDisplayPreferencesStore } from '../../stores/useDisplayPreferencesStore';
 import { MetricCard } from '../ui/MetricCard';
 import { PanelHeader } from './PanelHeader';
-import { buildLiveMetrics, pinSelectedMetric } from './liveMetrics';
+import { buildDerivedMetrics, buildLiveMetrics, DERIVED_HERO_IDS, pinSelectedMetric } from './liveMetrics';
 import { consistencyBands } from './consistency';
 
 interface LivePanelProps {
@@ -29,6 +30,7 @@ interface LivePanelProps {
   /** Omit these to read the display preferences store; pass them in tests. */
   consistencyColors?: boolean;
   showNormalizedCarry?: boolean;
+  moreMetrics?: boolean;
   /** Makes the profile name a button that opens the golfer picker. */
   onSwitchProfile?: () => void;
 }
@@ -50,6 +52,7 @@ export function LivePanel({
   headerAction,
   consistencyColors: consistencyColorsProp,
   showNormalizedCarry: showNormalizedCarryProp,
+  moreMetrics: moreMetricsProp,
   onSwitchProfile,
 }: LivePanelProps) {
   const { locale, t } = useI18n();
@@ -57,6 +60,9 @@ export function LivePanel({
   const storePreferences = useDisplayPreferencesStore((state) => state.preferences);
   const consistencyColors = consistencyColorsProp ?? storePreferences.consistencyColors;
   const showNormalizedCarry = showNormalizedCarryProp ?? storePreferences.showNormalizedCarry;
+  const moreMetrics = moreMetricsProp ?? storePreferences.moreMetrics;
+  const stripRef = useRef<HTMLDivElement>(null);
+  const stripScroll = useDragScroll(stripRef, 'x');
   const profileShots = useMemo(() => filterShotsByProfile(shots, profileId), [shots, profileId]);
   const displayedShot = profileShots[profileShots.length - 1] ?? null;
   const isProfileNewShot = Boolean(isNewShot && shot && displayedShot && shot.timestamp === displayedShot.timestamp);
@@ -73,6 +79,11 @@ export function LivePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
     [displayedShot, unitSystem, swingStats, selectedMetricId, locale]
   );
+  const derivedMetrics = useMemo(
+    () => (moreMetrics && displayedShot ? buildDerivedMetrics(displayedShot, unitSystem) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- locale: see above
+    [moreMetrics, displayedShot, unitSystem, locale]
+  );
   const bands = useMemo(
     () => (consistencyColors && displayedShot ? consistencyBands(displayedShot, profileShots, profileId) : {}),
     [consistencyColors, displayedShot, profileShots, profileId]
@@ -86,6 +97,14 @@ export function LivePanel({
         })
       : undefined;
   const selected = metrics[0] ?? null;
+  // A derived hero (Total, Shot shape) lives in the strip; the base table then has no highlight.
+  const derivedHeroId =
+    selectedMetricId !== null &&
+    DERIVED_HERO_IDS.includes(selectedMetricId) &&
+    derivedMetrics.some((metric) => metric.id === selectedMetricId)
+      ? selectedMetricId
+      : null;
+  const selectedId = derivedHeroId ?? selected?.id ?? null;
   const gridRef = useSharedFitFontSize(
     metrics.length > 0,
     metrics.map((metric) => `${metric.value}:${metric.unit ?? ''}`).join('|')
@@ -121,7 +140,9 @@ export function LivePanel({
   return (
     <div className="panel">
       {header}
-      <div className="panel__body live-panel__body">
+      <div
+        className={`panel__body live-panel__body${derivedMetrics.length > 0 ? ' live-panel__body--with-derived' : ''}`}
+      >
         {isProfileNewShot ? <div className="shot-flash" /> : null}
         <div ref={gridRef} className={`live-panel__grid live-panel__grid--of-${metrics.length}`}>
           {metrics.map((metric) => (
@@ -137,11 +158,40 @@ export function LivePanel({
               confidenceLabel={metric.confidenceLabel}
               consistency={bands[metric.id]}
               labelPosition="above"
-              selected={metric.id === selected.id}
+              selected={metric.id === selectedId}
               onClick={onSelectMetric ? () => onSelectMetric(metric.id) : undefined}
             />
           ))}
         </div>
+        {derivedMetrics.length > 0 ? (
+          <div
+            ref={stripRef}
+            className="live-panel__derived"
+            role="group"
+            aria-label={t('menu.moreMetrics')}
+            onPointerDown={stripScroll.onPointerDown}
+            onPointerMove={stripScroll.onPointerMove}
+            onPointerUp={stripScroll.onPointerUp}
+            onPointerCancel={stripScroll.onPointerCancel}
+            onClickCapture={stripScroll.onClickCapture}
+          >
+            {derivedMetrics.map((metric) => {
+              const promotable = onSelectMetric !== undefined && DERIVED_HERO_IDS.includes(metric.id);
+              return (
+                <MetricCard
+                  key={metric.id}
+                  label={metric.label}
+                  value={metric.value}
+                  unit={metric.unit}
+                  estimated={metric.estimated}
+                  labelPosition="above"
+                  selected={promotable ? metric.id === selectedId : undefined}
+                  onClick={promotable ? () => onSelectMetric(metric.id) : undefined}
+                />
+              );
+            })}
+          </div>
+        ) : null}
       </div>
     </div>
   );

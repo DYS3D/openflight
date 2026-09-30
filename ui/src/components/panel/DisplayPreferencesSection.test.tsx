@@ -29,6 +29,7 @@ describe('DisplayPreferencesSection', () => {
       { label: 'Consistency colours', checked: 'false' },
       { label: 'Voice callout', checked: 'false' },
       { label: 'Show normalized carry', checked: 'false' },
+      { label: 'More metrics', checked: 'false' },
     ]);
   });
 
@@ -40,7 +41,7 @@ describe('DisplayPreferencesSection', () => {
       />
     );
 
-    expect(switches(html).map((item) => item.checked)).toEqual(['false', 'false', 'true', 'true']);
+    expect(switches(html).map((item) => item.checked)).toEqual(['false', 'false', 'true', 'true', 'false']);
   });
 
   it('translates the labels', () => {
@@ -57,7 +58,7 @@ describe('DisplayPreferencesSection', () => {
     const html = renderToString(<MenuSheet onClose={() => {}} onShutdown={() => {}} />);
 
     expect(html).toContain('menu-sheet__section-title">Display<');
-    expect(switches(html)).toHaveLength(4);
+    expect(switches(html)).toHaveLength(5);
     expect(html).not.toContain('aria-checked="true"');
   });
 

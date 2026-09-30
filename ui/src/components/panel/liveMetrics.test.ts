@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import type { Shot, SwingSpeedStats } from '../../types/shot';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setActiveLocale } from '../../i18n';
+import type { Shot, ShotDerived, SwingSpeedStats } from '../../types/shot';
 import {
+  buildDerivedMetrics,
   buildLiveMetrics,
+  DERIVED_HERO_IDS,
+  heroMetric,
+  isDerivedMetricId,
   LIVE_METRIC_COUNT,
   NO_VALUE,
   pinSelectedMetric,
@@ -301,5 +306,151 @@ describe('pinSelectedMetric', () => {
 
   it('handles an empty metric list', () => {
     expect(pinSelectedMetric([], 'ball_speed')).toEqual([]);
+  });
+});
+
+const derived: ShotDerived = {
+  smash_factor: { value: 1.35, source: 'measured' },
+  total_yards: { value: 233.4, source: 'estimated' },
+  roll_yards: { value: 19.6, source: 'estimated' },
+  apex_yards: { value: 31.2, source: 'estimated' },
+  hang_time_s: { value: 6.24, source: 'estimated' },
+  landing_angle_deg: { value: 41.7, source: 'estimated' },
+  curve_yards: { value: -8.2, source: 'estimated' },
+  side_yards: { value: 4.4, source: 'estimated' },
+  face_to_path_deg: { value: 1.8, source: 'estimated' },
+  spin_loft_deg: { value: 12.9, source: 'estimated' },
+  shot_shape: { value: 'push-draw', source: 'estimated' },
+};
+
+describe('buildDerivedMetrics', () => {
+  afterEach(() => {
+    setActiveLocale('en');
+  });
+
+  it('returns nothing for a shot without derived data', () => {
+    expect(buildDerivedMetrics(makeShot(), 'imperial')).toEqual([]);
+    expect(buildDerivedMetrics(makeShot({ derived: {} }), 'imperial')).toEqual([]);
+  });
+
+  it('builds the ten derived cards in a fixed order with distance and angle units', () => {
+    const metrics = buildDerivedMetrics(makeShot({ derived }), 'imperial');
+
+    expect(metrics.map((m) => m.id)).toEqual([
+      'derived_total',
+      'derived_roll',
+      'derived_apex',
+      'derived_hang_time',
+      'derived_landing_angle',
+      'derived_curve',
+      'derived_side',
+      'derived_face_to_path',
+      'derived_spin_loft',
+      'derived_shot_shape',
+    ]);
+    expect(byId(metrics, 'derived_total')).toMatchObject({
+      label: 'Total',
+      value: '233',
+      unit: 'yds',
+      estimated: true,
+    });
+    expect(byId(metrics, 'derived_roll')).toMatchObject({ value: '20', unit: 'yds' });
+    expect(byId(metrics, 'derived_hang_time')).toMatchObject({ label: 'Hang time', value: '6.2', unit: 's' });
+    expect(byId(metrics, 'derived_landing_angle')).toMatchObject({ label: 'Land angle', value: '41.7', unit: '°' });
+    expect(byId(metrics, 'derived_curve')).toMatchObject({ value: '-8', unit: 'yds' });
+    expect(byId(metrics, 'derived_side')).toMatchObject({ value: '+4', unit: 'yds' });
+    expect(byId(metrics, 'derived_face_to_path')).toMatchObject({ label: 'Face-to-path', value: '+1.8', unit: '°' });
+    expect(byId(metrics, 'derived_spin_loft')).toMatchObject({ label: 'Spin loft', value: '12.9', unit: '°' });
+    expect(byId(metrics, 'derived_shot_shape')).toMatchObject({ label: 'Shot shape', value: 'Push draw' });
+    expect(byId(metrics, 'derived_shot_shape').unit).toBeUndefined();
+  });
+
+  it('follows the metric unit preference', () => {
+    const metrics = buildDerivedMetrics(makeShot({ derived }), 'metric');
+
+    expect(byId(metrics, 'derived_total')).toMatchObject({ value: '213', unit: 'm' });
+    expect(byId(metrics, 'derived_apex')).toMatchObject({ value: '29', unit: 'm' });
+    expect(byId(metrics, 'derived_curve')).toMatchObject({ value: '-7', unit: 'm' });
+  });
+
+  it('marks only estimated values with the ≈ convention', () => {
+    const metrics = buildDerivedMetrics(
+      makeShot({
+        derived: {
+          total_yards: { value: 240, source: 'measured' },
+          apex_yards: { value: 30, source: 'estimated' },
+        },
+      }),
+      'imperial'
+    );
+
+    expect(byId(metrics, 'derived_total').estimated).toBeUndefined();
+    expect(byId(metrics, 'derived_apex').estimated).toBe(true);
+  });
+
+  it('skips absent keys and values of the wrong type instead of rendering placeholders', () => {
+    const metrics = buildDerivedMetrics(
+      makeShot({
+        derived: {
+          total_yards: { value: 'n/a', source: 'estimated' },
+          roll_yards: { value: 12, source: 'estimated' },
+          shot_shape: { value: 7, source: 'estimated' },
+        },
+      }),
+      'imperial'
+    );
+
+    expect(metrics.map((m) => m.id)).toEqual(['derived_roll']);
+  });
+
+  it('localizes the shot shape and passes unknown shapes through', () => {
+    setActiveLocale('es');
+    const spanish = buildDerivedMetrics(makeShot({ derived }), 'imperial');
+    expect(byId(spanish, 'derived_shot_shape').label).toBe('Forma del golpe');
+
+    const straight = buildDerivedMetrics(
+      makeShot({ derived: { shot_shape: { value: 'straight', source: 'estimated' } } }),
+      'imperial'
+    );
+    expect(byId(straight, 'derived_shot_shape').value).toBe('Recto');
+
+    const unknown = buildDerivedMetrics(
+      makeShot({ derived: { shot_shape: { value: 'banana', source: 'estimated' } } }),
+      'imperial'
+    );
+    expect(byId(unknown, 'derived_shot_shape').value).toBe('banana');
+  });
+
+  it('never adds derived cards to a swing-speed session', () => {
+    expect(buildDerivedMetrics(makeShot({ mode: 'swing-speed', derived }), 'imperial')).toEqual([]);
+  });
+
+  it('only offers Total and Shot shape as hero choices', () => {
+    expect(DERIVED_HERO_IDS).toEqual(['derived_total', 'derived_shot_shape']);
+    expect(isDerivedMetricId('derived_total')).toBe(true);
+    expect(isDerivedMetricId('carry')).toBe(false);
+    expect(isDerivedMetricId(null)).toBe(false);
+  });
+});
+
+describe('heroMetric', () => {
+  const shot = makeShot({ derived });
+
+  it('returns the pinned base metric by default', () => {
+    expect(heroMetric(shot, 'imperial', emptySwingStats, 'club_speed', false)?.id).toBe('club_speed');
+    expect(heroMetric(shot, 'imperial', emptySwingStats, null, true)?.id).toBe('ball_speed');
+  });
+
+  it('returns a derived hero only while More metrics is on', () => {
+    expect(heroMetric(shot, 'imperial', emptySwingStats, 'derived_total', true)).toMatchObject({
+      id: 'derived_total',
+      value: '233',
+    });
+    expect(heroMetric(shot, 'imperial', emptySwingStats, 'derived_shot_shape', true)?.value).toBe('Push draw');
+    expect(heroMetric(shot, 'imperial', emptySwingStats, 'derived_total', false)?.id).toBe('ball_speed');
+  });
+
+  it('falls back to the base table when the shot lacks the chosen derived value', () => {
+    expect(heroMetric(makeShot(), 'imperial', emptySwingStats, 'derived_total', true)?.id).toBe('ball_speed');
   });
 });

@@ -1211,6 +1211,69 @@ class TestRollingBufferShotIdentity:
         ]
 
 
+class TestRollingBufferShotDeliveryOrder:
+    """The shot must reach the UI before the large session-log writes."""
+
+    @staticmethod
+    def _run_one_capture(monkeypatch, shot_callback):
+        from openflight.rolling_buffer import RollingBufferMonitor, monitor as monitor_module
+
+        processed = TestRollingBufferShotIdentity._processed(1000.0)
+        events = []
+        session_log = MagicMock()
+        session_log.log_rolling_buffer_capture.side_effect = lambda **_row: events.append(
+            "rolling_buffer_capture"
+        )
+        session_log.log_trigger_event.side_effect = lambda **_row: events.append("trigger_event")
+        monkeypatch.setattr(monitor_module, "get_session_logger", lambda: session_log)
+        monkeypatch.setattr(monitor_module.time, "sleep", lambda _s: None)
+
+        monitor = RollingBufferMonitor(port=None, trigger_type="sound")
+        monitor._diagnostic_callback = None
+        monitor._shot_callback = lambda shot: shot_callback(shot, events)
+
+        class OneCaptureTrigger:
+            calls = 0
+
+            def wait_for_trigger(self, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return processed.capture
+                monitor._running = False
+                return None
+
+            @staticmethod
+            def drain_diagnostics():
+                return []
+
+            @staticmethod
+            def reset():
+                return None
+
+        monitor.trigger = OneCaptureTrigger()
+        monitor.processor = MagicMock(process_capture=MagicMock(return_value=processed))
+        monitor._running = True
+        monitor._capture_loop()
+        return events, session_log
+
+    def test_shot_callback_runs_before_session_logging(self, monkeypatch):
+        events, _ = self._run_one_capture(
+            monkeypatch, lambda _shot, events: events.append("shot_callback")
+        )
+
+        assert events == ["shot_callback", "rolling_buffer_capture", "trigger_event"]
+
+    def test_capture_is_still_logged_when_shot_callback_fails(self, monkeypatch):
+        def failing_callback(_shot, events):
+            events.append("shot_callback")
+            raise RuntimeError("socket closed")
+
+        events, session_log = self._run_one_capture(monkeypatch, failing_callback)
+
+        assert events == ["shot_callback", "rolling_buffer_capture", "trigger_event"]
+        assert session_log.log_trigger_event.call_args.kwargs["accepted"] is True
+
+
 # =============================================================================
 # Integration Tests
 # =============================================================================

@@ -18,7 +18,7 @@ from ..ops243 import OPS243Radar, SpeedReading
 from ..session_logger import get_session_logger, log_session_error
 from .processor import RollingBufferProcessor
 from .trigger import create_trigger
-from .types import ProcessedCapture, SpeedTimeline
+from .types import IQCapture, ProcessedCapture, SpeedTimeline
 
 logger = logging.getLogger("openflight.rolling_buffer.monitor")
 
@@ -533,153 +533,33 @@ class RollingBufferMonitor:
                             else "N/A",
                         )
 
-                    # Log raw I/Q data and trigger events to session logger
-                    session_logger = get_session_logger()
-                    if session_logger:
-                        # Log raw I/Q data for offline analysis
-                        session_logger.log_rolling_buffer_capture(
-                            shot_number=shot.shot_number,
-                            sample_time=capture.sample_time,
-                            trigger_time=capture.trigger_time,
-                            i_samples=capture.i_samples,
-                            q_samples=capture.q_samples,
-                            ball_speed_mph=shot.ball_speed_mph,
-                            club_speed_mph=shot.club_speed_mph,
-                            ball_timestamp_ms=processed.ball_timestamp_ms,
-                            club_timestamp_ms=processed.club_timestamp_ms,
-                            impact_timestamp_ms=processed.impact_timestamp_ms,
-                            impact_source=processed.impact_source,
-                            impact_reason=(processed.impact.reason if processed.impact else None),
-                            impact_speed_delta_mph=(
-                                processed.impact.speed_delta_mph if processed.impact else None
-                            ),
-                            impact_transition_gap_ms=(
-                                processed.impact.transition_gap_ms if processed.impact else None
-                            ),
-                            impact_last_club_speed_mph=(
-                                processed.impact.last_club_speed_mph if processed.impact else None
-                            ),
-                            impact_last_club_timestamp_ms=(
-                                processed.impact.last_club_timestamp_ms
-                                if processed.impact
-                                else None
-                            ),
-                            impact_last_club_center_ms=(
-                                processed.impact.last_club_center_ms if processed.impact else None
-                            ),
-                            impact_first_ball_speed_mph=(
-                                processed.impact.first_ball_speed_mph if processed.impact else None
-                            ),
-                            impact_first_ball_timestamp_ms=(
-                                processed.impact.first_ball_timestamp_ms
-                                if processed.impact
-                                else None
-                            ),
-                            impact_first_ball_center_ms=(
-                                processed.impact.first_ball_center_ms if processed.impact else None
-                            ),
-                            impact_min_transition_delta_mph=(
-                                processed.impact.min_transition_delta_mph
-                                if processed.impact
-                                else None
-                            ),
-                            trigger_latency_ms=trigger_latency_ms,
-                            first_byte_timestamp=capture.first_byte_timestamp,
-                            trigger_timestamp=capture.trigger_timestamp,
-                            trigger_timestamp_source=capture.trigger_timestamp_source,
-                            clock_sync_offset_s=capture.clock_sync_offset_s,
-                            post_trigger_duration_ms=capture.post_trigger_duration_ms,
-                            smash_factor=processed.smash_factor,
-                            spin_rpm=processed.spin.spin_rpm if processed.spin else None,
-                            spin_confidence=processed.spin.confidence if processed.spin else None,
-                            spin_method=processed.spin.method if processed.spin else None,
-                            spin_quality=processed.spin.quality if processed.spin else None,
-                            spin_multipath_fade_hz=(
-                                processed.spin.multipath_fade_hz if processed.spin else None
-                            ),
-                            spin_snr=processed.spin.snr if processed.spin else None,
-                            spin_modulation_depth=(
-                                processed.spin.modulation_depth if processed.spin else None
-                            ),
-                            spin_peak_freq_hz=(
-                                processed.spin.peak_freq_hz if processed.spin else None
-                            ),
-                            spin_seam_cycles=(
-                                processed.spin.seam_cycles if processed.spin else None
-                            ),
-                            spin_at_lower_rail=(
-                                processed.spin.at_lower_rail if processed.spin else None
-                            ),
-                            spin_at_upper_rail=(
-                                processed.spin.at_upper_rail if processed.spin else None
-                            ),
-                            spin_candidates=(
-                                [candidate.to_dict() for candidate in processed.spin.candidates]
-                                if processed.spin
-                                else None
-                            ),
-                            spin_phase_method=(
-                                processed.spin.phase_method if processed.spin else None
-                            ),
-                            spin_phase_rpm=(processed.spin.phase_rpm if processed.spin else None),
-                            spin_phase_snr=(processed.spin.phase_snr if processed.spin else None),
-                            spin_phase_agreement_pct=(
-                                processed.spin.phase_agreement_pct if processed.spin else None
-                            ),
-                            spin_phase_confirmed=(
-                                processed.spin.phase_confirmed if processed.spin else False
-                            ),
-                            spin_rejection_reason=shot.spin_rejection_reason,
+                    # Deliver the shot to the UI before the (large) raw-capture
+                    # and trigger-event session writes.
+                    try:
+                        if self._shot_callback:
+                            callback_start = time.time()
+                            self._shot_callback(shot)
+                            callback_ms = (time.time() - callback_start) * 1000
+                            total_ms = (time.time() - trigger_start) * 1000
+                            logger.info(
+                                "[SHOT] #%d: ball=%.1f mph, club=%s, carry=%s yds | "
+                                "trigger=%.0fms, process=%.0fms, callback=%.0fms, total=%.0fms",
+                                shot.shot_number,
+                                shot.ball_speed_mph,
+                                "%.1f" % shot.club_speed_mph if shot.club_speed_mph else "N/A",
+                                "%.0f" % shot.estimated_carry_yards
+                                if shot.estimated_carry_yards
+                                else "N/A",
+                                trigger_latency_ms,
+                                process_ms,
+                                callback_ms,
+                                total_ms,
+                            )
+                    finally:
+                        self._persist_accepted_shot(
+                            capture, processed, shot, trigger_diagnostic, trigger_latency_ms
                         )
-
-                    self._record_trigger_event(
-                        trigger_diagnostic,
-                        accepted=True,
-                        reason="accepted",
-                        # Correlation key used when the slower IWR6843 result
-                        # enriches this same UI history row.
-                        timestamp=shot.timestamp.isoformat(),
-                        latency_ms=trigger_latency_ms,
-                        **self._timeline_diagnostic(processed.timeline),
-                        ball_speed_mph=shot.ball_speed_mph,
-                        club_speed_mph=shot.club_speed_mph,
-                        spin_rpm=shot.spin_rpm,
-                        spin_snr=shot.spin_snr,
-                        spin_candidate_rpm=(
-                            round(shot.spin_peak_freq_hz * 60)
-                            if shot.spin_peak_freq_hz is not None
-                            else None
-                        ),
-                        spin_rejection_reason=shot.spin_rejection_reason,
-                        spin_candidates=shot.spin_candidates,
-                        spin_phase_method=shot.spin_phase_method,
-                        spin_phase_rpm=shot.spin_phase_rpm,
-                        spin_phase_snr=shot.spin_phase_snr,
-                        spin_phase_agreement_pct=shot.spin_phase_agreement_pct,
-                        spin_phase_confirmed=shot.spin_phase_confirmed,
-                        carry_yards=shot.estimated_carry_yards,
-                    )
-                    trigger_event_recorded = True
-
-                    if self._shot_callback:
-                        callback_start = time.time()
-                        self._shot_callback(shot)
-                        callback_ms = (time.time() - callback_start) * 1000
-                        total_ms = (time.time() - trigger_start) * 1000
-                        logger.info(
-                            "[SHOT] #%d: ball=%.1f mph, club=%s, carry=%s yds | "
-                            "trigger=%.0fms, process=%.0fms, callback=%.0fms, total=%.0fms",
-                            shot.shot_number,
-                            shot.ball_speed_mph,
-                            "%.1f" % shot.club_speed_mph if shot.club_speed_mph else "N/A",
-                            "%.0f" % shot.estimated_carry_yards
-                            if shot.estimated_carry_yards
-                            else "N/A",
-                            trigger_latency_ms,
-                            process_ms,
-                            callback_ms,
-                            total_ms,
-                        )
+                        trigger_event_recorded = True
                 else:
                     self._notify_processing("failed")
                     logger.info(
@@ -718,6 +598,119 @@ class RollingBufferMonitor:
                     exc=e,
                 )
                 time.sleep(1.0)
+
+    def _persist_accepted_shot(
+        self,
+        capture: IQCapture,
+        processed: ProcessedCapture,
+        shot: Shot,
+        trigger_diagnostic: dict,
+        trigger_latency_ms: float,
+    ) -> None:
+        """Log raw I/Q data and the accepted trigger event to the session logger."""
+        session_logger = get_session_logger()
+        if session_logger:
+            # Log raw I/Q data for offline analysis
+            session_logger.log_rolling_buffer_capture(
+                shot_number=shot.shot_number,
+                sample_time=capture.sample_time,
+                trigger_time=capture.trigger_time,
+                i_samples=capture.i_samples,
+                q_samples=capture.q_samples,
+                ball_speed_mph=shot.ball_speed_mph,
+                club_speed_mph=shot.club_speed_mph,
+                ball_timestamp_ms=processed.ball_timestamp_ms,
+                club_timestamp_ms=processed.club_timestamp_ms,
+                impact_timestamp_ms=processed.impact_timestamp_ms,
+                impact_source=processed.impact_source,
+                impact_reason=(processed.impact.reason if processed.impact else None),
+                impact_speed_delta_mph=(
+                    processed.impact.speed_delta_mph if processed.impact else None
+                ),
+                impact_transition_gap_ms=(
+                    processed.impact.transition_gap_ms if processed.impact else None
+                ),
+                impact_last_club_speed_mph=(
+                    processed.impact.last_club_speed_mph if processed.impact else None
+                ),
+                impact_last_club_timestamp_ms=(
+                    processed.impact.last_club_timestamp_ms if processed.impact else None
+                ),
+                impact_last_club_center_ms=(
+                    processed.impact.last_club_center_ms if processed.impact else None
+                ),
+                impact_first_ball_speed_mph=(
+                    processed.impact.first_ball_speed_mph if processed.impact else None
+                ),
+                impact_first_ball_timestamp_ms=(
+                    processed.impact.first_ball_timestamp_ms if processed.impact else None
+                ),
+                impact_first_ball_center_ms=(
+                    processed.impact.first_ball_center_ms if processed.impact else None
+                ),
+                impact_min_transition_delta_mph=(
+                    processed.impact.min_transition_delta_mph if processed.impact else None
+                ),
+                trigger_latency_ms=trigger_latency_ms,
+                first_byte_timestamp=capture.first_byte_timestamp,
+                trigger_timestamp=capture.trigger_timestamp,
+                trigger_timestamp_source=capture.trigger_timestamp_source,
+                clock_sync_offset_s=capture.clock_sync_offset_s,
+                post_trigger_duration_ms=capture.post_trigger_duration_ms,
+                smash_factor=processed.smash_factor,
+                spin_rpm=processed.spin.spin_rpm if processed.spin else None,
+                spin_confidence=processed.spin.confidence if processed.spin else None,
+                spin_method=processed.spin.method if processed.spin else None,
+                spin_quality=processed.spin.quality if processed.spin else None,
+                spin_multipath_fade_hz=(
+                    processed.spin.multipath_fade_hz if processed.spin else None
+                ),
+                spin_snr=processed.spin.snr if processed.spin else None,
+                spin_modulation_depth=(processed.spin.modulation_depth if processed.spin else None),
+                spin_peak_freq_hz=(processed.spin.peak_freq_hz if processed.spin else None),
+                spin_seam_cycles=(processed.spin.seam_cycles if processed.spin else None),
+                spin_at_lower_rail=(processed.spin.at_lower_rail if processed.spin else None),
+                spin_at_upper_rail=(processed.spin.at_upper_rail if processed.spin else None),
+                spin_candidates=(
+                    [candidate.to_dict() for candidate in processed.spin.candidates]
+                    if processed.spin
+                    else None
+                ),
+                spin_phase_method=(processed.spin.phase_method if processed.spin else None),
+                spin_phase_rpm=(processed.spin.phase_rpm if processed.spin else None),
+                spin_phase_snr=(processed.spin.phase_snr if processed.spin else None),
+                spin_phase_agreement_pct=(
+                    processed.spin.phase_agreement_pct if processed.spin else None
+                ),
+                spin_phase_confirmed=(processed.spin.phase_confirmed if processed.spin else False),
+                spin_rejection_reason=shot.spin_rejection_reason,
+            )
+
+        self._record_trigger_event(
+            trigger_diagnostic,
+            accepted=True,
+            reason="accepted",
+            # Correlation key used when the slower IWR6843 result
+            # enriches this same UI history row.
+            timestamp=shot.timestamp.isoformat(),
+            latency_ms=trigger_latency_ms,
+            **self._timeline_diagnostic(processed.timeline),
+            ball_speed_mph=shot.ball_speed_mph,
+            club_speed_mph=shot.club_speed_mph,
+            spin_rpm=shot.spin_rpm,
+            spin_snr=shot.spin_snr,
+            spin_candidate_rpm=(
+                round(shot.spin_peak_freq_hz * 60) if shot.spin_peak_freq_hz is not None else None
+            ),
+            spin_rejection_reason=shot.spin_rejection_reason,
+            spin_candidates=shot.spin_candidates,
+            spin_phase_method=shot.spin_phase_method,
+            spin_phase_rpm=shot.spin_phase_rpm,
+            spin_phase_snr=shot.spin_phase_snr,
+            spin_phase_agreement_pct=shot.spin_phase_agreement_pct,
+            spin_phase_confirmed=shot.spin_phase_confirmed,
+            carry_yards=shot.estimated_carry_yards,
+        )
 
     def _create_shot(self, processed: ProcessedCapture) -> Optional[Shot]:
         """

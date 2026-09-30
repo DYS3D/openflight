@@ -19,6 +19,7 @@
 #   --yes                Do not ask for confirmation
 #   --with-iwr6843       Also run the IWR6843 angle radar (adds --iwr6843 to the service)
 #   --with-camera        Install camera packages (adds --camera-capture to the service)
+#   --with-updates       Offer GitHub updates on the touchscreen (adds --update-check)
 #   --no-kiosk           Leave desktop autologin and screen blanking alone
 #   --server-args "..."  Extra server flags for the service, e.g. "--radar-port /dev/ttyAMA0"
 #   --dry-run            Print every step and change without making any
@@ -92,6 +93,7 @@ TOTAL_STEPS=11
 ASSUME_YES=false
 WITH_IWR6843=false
 WITH_CAMERA=false
+WITH_UPDATES=false
 CONFIGURE_KIOSK=true
 EXTRA_SERVER_ARGS=""
 DRY_RUN=false
@@ -109,6 +111,7 @@ parse_args() {
             --yes|-y) ASSUME_YES=true; shift ;;
             --with-iwr6843) WITH_IWR6843=true; shift ;;
             --with-camera) WITH_CAMERA=true; shift ;;
+            --with-updates) WITH_UPDATES=true; shift ;;
             --no-kiosk) CONFIGURE_KIOSK=false; shift ;;
             --server-args) EXTRA_SERVER_ARGS="${2?--server-args needs a value}"; shift 2 ;;
             --dry-run) DRY_RUN=true; shift ;;
@@ -377,6 +380,7 @@ server_args() {
     if [ -n "$EXTRA_SERVER_ARGS" ]; then args+=("$EXTRA_SERVER_ARGS"); fi
     if [ "$WITH_IWR6843" = true ]; then args+=(--iwr6843); fi
     if [ "$WITH_CAMERA" = true ]; then args+=(--camera-capture); fi
+    if [ "$WITH_UPDATES" = true ]; then args+=(--update-check); fi
     printf '%s' "${args[*]:-}"
 }
 

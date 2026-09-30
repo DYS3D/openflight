@@ -52,6 +52,7 @@ nav = [
     "setup/raspberry-pi.md",
     "setup/installer.md",
     "setup/hardware-validation.md",
+    "setup/updates.md",
     "setup/rolling-buffer.md",
     "setup/auto-start.md",
     "setup/splash-screen.md",

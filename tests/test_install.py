@@ -313,6 +313,13 @@ class TestServiceConfig:
             result.stdout
         )
 
+    def test_updates_are_off_unless_asked_for(self):
+        default = _call(INSTALLER, "parse_args; render_env_file")
+        assert "--update-check" not in default.stdout
+        result = _call(INSTALLER, 'parse_args "$@"; render_env_file', "--with-updates")
+        assert result.returncode == 0, result.stderr
+        assert 'OPENFLIGHT_ARGS="--update-check"' in result.stdout
+
     def test_env_file_is_empty_by_default(self):
         result = _call(INSTALLER, "parse_args; render_env_file")
         assert 'OPENFLIGHT_ARGS=""' in result.stdout

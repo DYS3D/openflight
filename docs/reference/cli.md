@@ -34,6 +34,10 @@ Binding, ports, and debug output.
 | `--allowed-origin` | repeatable | Extra browser origin/hostname accepted with `--auth-required` |
 | `--request-rate-limit` | float/s; default `0` | Refuse HTTP requests from one non-loopback IP above this sustained rate (2 s burst window) with 429. 0 = no limit |
 | `--max-request-bytes` | int; default `0` | Reject HTTP bodies larger than this with 413. 0 = unlimited |
+| `--update-check` | flag; default off | Check GitHub for a newer OpenFlight and show an Update button on the touchscreen (kiosk only). See [Software updates](../setup/updates.md) |
+| `--update-remote` | default `origin` | Git remote the update check fetches |
+| `--update-branch` | default `main` | Branch to follow; the Pi must be checked out on it |
+| `--update-check-hours` | float; default `6` | Hours between automatic update checks |
 | `--startup-status-file` | path | Write structured initialization progress for the optional kiosk splash |
 | `--debug`, `-d` | flag | Enable verbose FFT/CFAR debug output |
 | `--radar-log` | flag | Log raw radar data to console (Python logging) |

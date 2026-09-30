@@ -43,6 +43,9 @@ VALID_PAYLOADS = {
     "get_radar_config": None,
     "set_radar_config": {"min_speed": 20},
     "shutdown": None,
+    "get_update_status": None,
+    "check_for_updates": None,
+    "apply_update": None,
 }
 
 # Events whose real side effects must be neutralised for a unit test.

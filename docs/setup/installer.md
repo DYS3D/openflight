@@ -53,6 +53,7 @@ no new backup is made.
 | `--yes` | Skip the confirmation (required when there is no terminal, e.g. piped installs) |
 | `--with-iwr6843` | Add `--iwr6843` to the service arguments and print the firmware flash command |
 | `--with-camera` | Install the camera packages and add `--camera-capture` to the service arguments |
+| `--with-updates` | Add `--update-check` to the service arguments ([Software updates](updates.md)) |
 | `--no-kiosk` | Leave desktop autologin and screen blanking alone |
 | `--server-args "..."` | Other server flags for the service, e.g. `"--radar-port /dev/ttyAMA0 --altitude-ft 850"` |
 | `--dry-run` | Print every step and every change without making any (nothing is logged either) |

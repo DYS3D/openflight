@@ -34,7 +34,13 @@ from flask_cors import CORS
 from flask_socketio import SocketIO
 
 from . import __version__
-from .access import TOKEN_HEADER, TOKEN_QUERY_PARAM, AccessPolicy, add_access_args
+from .access import (
+    TOKEN_HEADER,
+    TOKEN_QUERY_PARAM,
+    AccessPolicy,
+    add_access_args,
+    is_loopback_address,
+)
 from .ballistics import AIR_DENSITY_STD, air_density_kg_m3, resolve_launch, simulate
 from .clubs import ClubType
 from .clubs.physics import (
@@ -82,6 +88,8 @@ from .speed_correction import SpeedCorrectionConfig, correct_ball_speed
 from .spin_estimate import calculated_spin_rpm
 from .startup_status import StartupStatusReporter, configured_startup_components
 from .swing_speed import SwingSpeedEvent
+from .update_service import UpdateService, restart_mode_from_env
+from .updater import UpdateConfig, Updater, add_update_args, disabled_status
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -200,6 +208,11 @@ _config_lock = threading.RLock()
 # Created lazily so importing the server (in tests, in tooling) never writes
 # to the real config directory.
 profile_store: Optional[ProfileStore] = None
+# --update-check: None (the default) means updates are off entirely.
+update_service: Optional[UpdateService] = None
+# time.monotonic() of the last shot capture/processing event, so an update
+# never starts in the middle of one.
+_last_shot_activity: Optional[float] = None
 
 
 def get_profile_store() -> ProfileStore:
@@ -2005,12 +2018,16 @@ def handle_connect(auth=None, *_args):
     if monitor:
         _reply("session_state", _session_state_payload(include_runtime_meta=True))
         _reply("trigger_status", _get_trigger_status())
+    if update_service is not None:
+        update_service.client_connected(_current_sid(), _client_is_kiosk())
 
 
 @socketio.on("disconnect")
 def handle_disconnect(*_args):
     """Handle client disconnection."""
     logger.info("Client disconnected")
+    if update_service is not None:
+        update_service.client_disconnected(_current_sid())
 
 
 @socketio.on("get_trigger_status")
@@ -2405,7 +2422,94 @@ def handle_shutdown(*_args):
 
 def on_shot_processing(state: str) -> None:
     """Forward the rolling-buffer processing lifecycle to the UI."""
+    _note_shot_activity()
     socketio.emit("shot_processing", {"state": state})
+
+
+def _note_shot_activity() -> None:
+    global _last_shot_activity  # pylint: disable=global-statement
+    _last_shot_activity = time.monotonic()
+
+
+def _seconds_since_shot_activity() -> float:
+    if _last_shot_activity is None:
+        return math.inf
+    return time.monotonic() - _last_shot_activity
+
+
+def _client_is_kiosk() -> bool:
+    """The Pi's own touchscreen: a loopback client."""
+    return has_request_context() and is_loopback_address(request.remote_addr)
+
+
+@socketio.on("get_update_status")
+def handle_get_update_status(*_args):
+    """Update availability for this client (``can_apply`` only on the kiosk)."""
+    if update_service is None:
+        _reply("update_status", disabled_status())
+        return
+    _reply("update_status", update_service.payload_for(_current_sid(), _client_is_kiosk()))
+
+
+@socketio.on("check_for_updates")
+def handle_check_for_updates(*_args):
+    """Kiosk-only: check GitHub now instead of waiting for the next scheduled check."""
+    if update_service is None:
+        _reply("update_error", {"error": "Updates are off (start with --update-check)"})
+        return
+    refusal = update_service.request_check(_client_is_kiosk())
+    if refusal:
+        _reply("update_error", {"error": refusal})
+
+
+@socketio.on("apply_update")
+def handle_apply_update(*_args):
+    """Kiosk-only: install the available update, then restart the service."""
+    if update_service is None:
+        _reply("update_error", {"error": "Updates are off (start with --update-check)"})
+        return
+    refusal = update_service.request_apply(_client_is_kiosk())
+    if refusal:
+        logger.info("[UPDATE] Refused update request: %s", refusal)
+        _reply("update_error", {"error": refusal})
+
+
+def _exit_for_update(code: int) -> None:
+    """Leave so systemd (Restart=on-failure) starts the updated service."""
+    logger.info("[UPDATE] Exiting with %d so the service restarts", code)
+    logging.shutdown()
+    os._exit(code)
+
+
+def init_update_service(args) -> UpdateService:
+    """Build and start the update checker for ``--update-check``."""
+    global update_service  # pylint: disable=global-statement
+    updater = Updater(
+        UpdateConfig(
+            project_dir=REPO_ROOT,
+            remote=args.update_remote,
+            branch=args.update_branch,
+            python_extras=("camera",) if getattr(args, "camera_capture", False) else (),
+            log_dir=DEBUG_LOG_DIR,
+        )
+    )
+    update_service = UpdateService(
+        updater,
+        emit=_emit_to,
+        stop_hardware=_cleanup_hardware_for_shutdown,
+        exit_process=_exit_for_update,
+        seconds_since_activity=_seconds_since_shot_activity,
+        check_interval_s=args.update_check_hours * 3600.0,
+        restart_mode=restart_mode_from_env(),
+    )
+    update_service.start()
+    logger.info(
+        "[UPDATE] Checking %s/%s every %g h; install from the touchscreen",
+        args.update_remote,
+        args.update_branch,
+        args.update_check_hours,
+    )
+    return update_service
 
 
 def _forward_shot_to_simulators(shot: Shot) -> None:
@@ -3825,6 +3929,7 @@ def on_shot_detected(shot: Shot) -> None:
 
 def _handle_shot_detected(shot: Shot) -> None:
     """Publish OPS metrics promptly, then enrich optional hardware data."""
+    _note_shot_activity()
     _assign_shot_number(shot)
     active_profile = get_profile_store().get_active()
     shot.profile_id = active_profile.id
@@ -5098,6 +5203,7 @@ def main():
     )
     add_radar_timing_args(parser)
     add_access_args(parser)
+    add_update_args(parser)
     server_group = parser.add_argument_group("Web server limits (off by default)")
     server_group.add_argument(
         "--request-rate-limit",
@@ -5536,6 +5642,8 @@ def main():
         )
     if request_rate_limit_per_s:
         logger.info("Request rate limit: %.0f/s per non-loopback IP", request_rate_limit_per_s)
+    if args.update_check:
+        init_update_service(args)
     startup_status.start("server", "Starting OpenFlight server")
 
     install_signal_handlers()

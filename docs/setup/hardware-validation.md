@@ -191,7 +191,38 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
       deleted; sessions and TI dumps still queued for cloud upload are kept.
       Set both to 0 to disable.
 
-## 8. Installer and stable device names
+## 8. Software updates (`--update-check`)
+
+See [Software updates](updates.md). Validate on the Pi before relying on it.
+
+- [ ] **Baseline.** With the flag off, the menu has no Software row and
+      `journalctl -u openflight | grep UPDATE` is empty: the Pi never contacts
+      GitHub.
+- [ ] **Check.** Enable the flag and restart. Within a minute the menu shows
+      "Up to date · <commit>". Push a harmless commit to `main` (a docs edit),
+      tap **Check now**, and confirm "Update available" with the commit subject
+      and a dot on the menu button.
+- [ ] **Phone is read-only.** Open `http://<pi>:8080/` on a phone: the row
+      shows the same status with no buttons.
+- [ ] **Shot guard.** Hit a shot and tap **Update now** within 15 s; it must be
+      refused with "A shot is being processed".
+- [ ] **Install.** Tap **Update now**. Watch the steps, then the restart. The
+      screen must come back on its own within about two minutes showing the
+      new commit, and "Updated to <commit>" under the Software row. Hit five
+      shots to confirm the radar re-armed after the restart.
+- [ ] **UI change.** Repeat with a commit that changes `ui/` so the build step
+      runs; the kiosk must show the new UI after the restart.
+- [ ] **Rollback.** Over SSH, make the next update fail on purpose: push a
+      commit whose `ui/src` does not compile (on a test branch, then run with
+      `--update-branch <test-branch>` after `git checkout <test-branch>`).
+      Tap **Update now**: expect "Update failed", "previous version was
+      restored", and the old UI and commit after the restart.
+- [ ] **Local edits.** Edit any tracked file on the Pi; **Update now** must be
+      refused and the file left alone. `git checkout -- <file>` afterwards.
+- [ ] **Offline.** Unplug the network and tap **Check now**: "Can't check for
+      updates" with a git error, and nothing else changes.
+
+## 9. Installer and stable device names
 
 - [ ] `scripts/install.sh --dry-run` lists every step; the real run completes
       and `scripts/openflight-doctor.sh` passes after a reboot.

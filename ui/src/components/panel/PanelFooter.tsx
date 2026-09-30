@@ -26,6 +26,8 @@ interface PanelFooterProps {
    * `renderToString` keeps the store's server snapshot at `null`.
    */
   powerStatus?: PowerStatus | null;
+  /** Dot on the menu button when the touchscreen can install an update. */
+  updateAvailable?: boolean;
 }
 
 const VIEWS_WITH_UNITS: ReadonlySet<PanelView> = new Set(['live', 'stats', 'shots']);
@@ -47,6 +49,7 @@ export function PanelFooter({
   debugRecording,
   brand,
   powerStatus: powerStatusProp,
+  updateAvailable = false,
 }: PanelFooterProps) {
   const { t } = useI18n();
   const { unitSystem } = useUnitPreference();
@@ -83,9 +86,10 @@ export function PanelFooter({
         style={{ border: 'none' }}
         onClick={onOpenMenu}
         aria-expanded={menuOpen}
-        aria-label={t('nav.openMenu')}
+        aria-label={updateAvailable ? `${t('nav.openMenu')} (${t('nav.updateAvailable')})` : t('nav.openMenu')}
       >
         {brand ?? <Logo size="small" variant="mono" />}
+        {updateAvailable ? <span className="panel-footer__menu-badge" aria-hidden="true" /> : null}
       </button>
 
       <div className="panel-footer__nav">

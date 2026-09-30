@@ -24,6 +24,7 @@ vi.mock('socket.io-client', () => ({ io: () => fake.socket }));
 const { socketService } = await import('./socketService');
 const { useBannerStore } = await import('../stores/useBannerStore');
 const { useDebugStore } = await import('../stores/useDebugStore');
+const { useSystemStore } = await import('../stores/useSystemStore');
 
 function fire(handlers: Map<string, (...args: unknown[]) => void>, event: string, ...args: unknown[]) {
   const handler = handlers.get(event);
@@ -119,5 +120,49 @@ describe('socketService', () => {
     socketService.disconnect();
 
     expect(useBannerStore.getState().reconnectAttempt).toBeNull();
+  });
+
+  describe('software updates', () => {
+    afterEach(() => {
+      useSystemStore.setState({ updateStatus: null, updateError: null });
+    });
+
+    it('asks for the update status on connect', () => {
+      fire(fake.handlers, 'connect');
+      expect(emit).toHaveBeenCalledWith('get_update_status');
+    });
+
+    it('stores status and refusals', () => {
+      fire(fake.handlers, 'update_error', { error: 'A shot is being processed' });
+      expect(useSystemStore.getState().updateError).toBe('A shot is being processed');
+
+      fire(fake.handlers, 'update_status', { enabled: true, state: 'available', can_apply: true });
+      expect(useSystemStore.getState().updateStatus).toMatchObject({ state: 'available' });
+      expect(useSystemStore.getState().updateError).toBeNull();
+    });
+
+    it('sends check and apply requests', () => {
+      useSystemStore.getState().setUpdateError('old');
+      socketService.checkForUpdates();
+      socketService.applyUpdate();
+      expect(emit).toHaveBeenCalledWith('check_for_updates');
+      expect(emit).toHaveBeenCalledWith('apply_update');
+      expect(useSystemStore.getState().updateError).toBeNull();
+    });
+
+    it('reloads instead of resyncing when it reconnects after an update restart', () => {
+      const reload = vi.spyOn(socketService, 'reloadPage').mockImplementation(() => {});
+      fire(fake.handlers, 'update_status', { enabled: true, state: 'restarting' });
+      fire(fake.handlers, 'connect');
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(emit).not.toHaveBeenCalledWith('get_session');
+    });
+
+    it('does not reload on an ordinary reconnect', () => {
+      const reload = vi.spyOn(socketService, 'reloadPage').mockImplementation(() => {});
+      fire(fake.handlers, 'update_status', { enabled: true, state: 'up_to_date' });
+      fire(fake.handlers, 'connect');
+      expect(reload).not.toHaveBeenCalled();
+    });
   });
 });

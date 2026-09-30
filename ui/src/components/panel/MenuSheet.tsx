@@ -6,10 +6,16 @@ import { useLocaleStore } from '../../stores/useLocaleStore';
 import { useUnitPreference } from '../../state/useUnitPreference';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { SimStatus } from '../SimStatus';
+import type { UpdateStatus } from '../../types/socket';
+import { canCheckForUpdates, canInstallUpdate, updateDetail, updateLabel } from '../../utils/updateStatus';
 
 interface MenuSheetProps {
   onClose: () => void;
   onShutdown: () => void;
+  /** `update_status` from the server; the Software row is hidden unless `enabled`. */
+  updateStatus?: UpdateStatus | null;
+  onOpenUpdate?: () => void;
+  onCheckUpdates?: () => void;
 }
 
 /**
@@ -20,7 +26,7 @@ interface MenuSheetProps {
  * state had nowhere else to go. Battery lives in the footer.
  * Socket connection lives on the panel header LED.
  */
-export function MenuSheet({ onClose, onShutdown }: MenuSheetProps) {
+export function MenuSheet({ onClose, onShutdown, updateStatus = null, onOpenUpdate, onCheckUpdates }: MenuSheetProps) {
   const simStatuses = useSystemStore((state) => state.simStatuses);
   const { t } = useI18n();
   const { unitSystem, setUnitSystem } = useUnitPreference();
@@ -79,6 +85,29 @@ export function MenuSheet({ onClose, onShutdown }: MenuSheetProps) {
             <div className="menu-sheet__status-row">
               <span className="menu-sheet__status-label">{t('menu.simulators')}</span>
               <SimStatus statuses={simStatuses} />
+            </div>
+          ) : null}
+          {updateStatus?.enabled ? (
+            <div className="menu-sheet__update">
+              <div className="menu-sheet__status-row">
+                <span className="menu-sheet__status-label">{t('menu.software')}</span>
+                <span className="menu-sheet__status-value" data-state={updateStatus.state}>
+                  {updateLabel(updateStatus, t)}
+                </span>
+              </div>
+              {updateDetail(updateStatus, t) ? (
+                <span className="menu-sheet__update-detail">{updateDetail(updateStatus, t)}</span>
+              ) : null}
+              {canInstallUpdate(updateStatus) ? (
+                <button type="button" className="menu-sheet__update-button" onClick={onOpenUpdate}>
+                  {t('update.open')}
+                </button>
+              ) : null}
+              {canCheckForUpdates(updateStatus) ? (
+                <button type="button" className="menu-sheet__update-button" onClick={onCheckUpdates}>
+                  {t('update.checkNow')}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </section>

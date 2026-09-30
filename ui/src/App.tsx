@@ -16,6 +16,8 @@ import { DisplayMode } from './components/DisplayMode';
 import { SimShotBadges } from './components/SimShotBadges';
 import { ShotProcessingArea } from './components/ShotProcessingArea';
 import { ShutdownDialog, type ShutdownState } from './components/ShutdownDialog';
+import { UpdateDialog } from './components/UpdateDialog';
+import { canInstallUpdate, isUpdateInProgress } from './utils/updateStatus';
 import { CameraReplayDialog } from './components/CameraReplayDialog';
 import {
   CameraPanel,
@@ -47,13 +49,15 @@ import './components/panel/panel.css';
 function AppContent() {
   const { t } = useI18n();
   const { shutdown } = useSocket();
-  const { connected, mockMode, debugMode, latestSimShots, serverClub } = useSystemStore(
+  const { connected, mockMode, debugMode, latestSimShots, serverClub, updateStatus, updateError } = useSystemStore(
     useShallow((state) => ({
       connected: state.connected,
       mockMode: state.mockMode,
       debugMode: state.debugMode,
       latestSimShots: state.latestSimShots,
       serverClub: state.serverClub,
+      updateStatus: state.updateStatus,
+      updateError: state.updateError,
     }))
   );
   const { latestShot, shots, isNewShot, shotProcessingPhase, shotVersion } = useShotStore(
@@ -98,6 +102,13 @@ function AppContent() {
   const [profileDialog, setProfileDialog] = useState<{ mode: 'add' | 'rename'; target: Profile | null } | null>(null);
   const [profileDialogName, setProfileDialogName] = useState('');
   const [clearSessionOpen, setClearSessionOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  // Progress and failure open the update dialog for everyone; Close hides that state only.
+  const [dismissedUpdateState, setDismissedUpdateState] = useState<string | null>(null);
+  const showUpdateDialog =
+    updateStatus !== null &&
+    updateStatus.enabled &&
+    (updateOpen || (isUpdateInProgress(updateStatus) && dismissedUpdateState !== updateStatus.state));
   const { activeReplay, openReplay, closeReplay, reportPlaybackError } = useCameraReplayController();
 
   // Reflect a server-pushed club change (e.g. the club changed in the connected
@@ -204,6 +215,18 @@ function AppContent() {
     setShutdownState('confirm');
   };
 
+  const openUpdate = () => {
+    setMenuOpen(false);
+    useSystemStore.getState().setUpdateError(null);
+    setUpdateOpen(true);
+  };
+
+  const closeUpdate = () => {
+    setUpdateOpen(false);
+    setDismissedUpdateState(updateStatus?.state ?? null);
+    useSystemStore.getState().setUpdateError(null);
+  };
+
   const profileShots = filterShotsByProfile(shots, activeProfileId);
   const profileLatestShot = profileShots[profileShots.length - 1] ?? null;
   const profileIsNewShot = Boolean(
@@ -251,6 +274,15 @@ function AppContent() {
 
       {showShutdown ? (
         <ShutdownDialog state={shutdownState} onConfirm={handleShutdown} onCancel={closeShutdown} />
+      ) : null}
+
+      {showUpdateDialog && updateStatus ? (
+        <UpdateDialog
+          status={updateStatus}
+          error={updateError}
+          onConfirm={() => socketService.applyUpdate()}
+          onClose={closeUpdate}
+        />
       ) : null}
 
       {activeReplay ? (
@@ -340,6 +372,9 @@ function AppContent() {
       {menuOpen ? (
         <MenuSheet
           onClose={() => setMenuOpen(false)}
+          updateStatus={updateStatus}
+          onOpenUpdate={openUpdate}
+          onCheckUpdates={() => socketService.checkForUpdates()}
           onShutdown={() => {
             setMenuOpen(false);
             setShutdownState('confirm');
@@ -385,6 +420,7 @@ function AppContent() {
         shotCount={profileShots.length}
         debugRecording={debugMode}
         brand={isLaunchDaddyMode ? <LaunchDaddyBrand /> : undefined}
+        updateAvailable={canInstallUpdate(updateStatus)}
         onShutdown={() => {
           setShutdownState('confirm');
           setShowShutdown(true);

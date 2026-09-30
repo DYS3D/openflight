@@ -120,4 +120,26 @@ describe('PanelFooter', () => {
     expect(html).toContain('aria-label="Panels"');
     expect(html.match(/panel-header__divider/g)).toHaveLength(5);
   });
+
+  it('marks the menu button only when the touchscreen can install an update', () => {
+    const plain = render();
+    expect(plain).not.toContain('panel-footer__menu-badge');
+    expect(plain).toContain('aria-label="Open menu"');
+
+    const flagged = renderToString(
+      <PanelFooter
+        currentView="live"
+        onChangeView={() => {}}
+        onOpenMenu={() => {}}
+        menuOpen={false}
+        shotCount={0}
+        debugRecording={false}
+        powerStatus={null}
+        updateAvailable
+        onShutdown={() => {}}
+      />
+    );
+    expect(flagged).toContain('panel-footer__menu-badge');
+    expect(flagged).toContain('aria-label="Open menu (Update available)"');
+  });
 });

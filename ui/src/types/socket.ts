@@ -63,3 +63,43 @@ export interface DebugShotLog {
   } | null;
   club: string;
 }
+
+/** `update_status` from the server (`--update-check`). `enabled: false` hides all update UI. */
+export type UpdateState =
+  'disabled' | 'idle' | 'checking' | 'up_to_date' | 'available' | 'updating' | 'restarting' | 'failed' | 'error';
+
+export interface UpdateCommit {
+  sha: string;
+  subject: string;
+}
+
+export interface UpdateResult {
+  ok: boolean;
+  previous: string | null;
+  installed: string | null;
+  error: string | null;
+  rolled_back: boolean;
+  finished_at: string;
+  log_path: string | null;
+}
+
+export interface UpdateStatus {
+  enabled: boolean;
+  state: UpdateState;
+  remote?: string;
+  branch?: string;
+  current?: string | null;
+  current_date?: string | null;
+  latest?: string | null;
+  behind?: number;
+  commits?: UpdateCommit[];
+  checked_at?: string | null;
+  error?: string | null;
+  step?: string | null;
+  rolled_back?: boolean;
+  /** True only for the Pi's own touchscreen; phones see the status read-only. */
+  can_apply?: boolean;
+  /** `systemd` restarts the service by itself; `manual` needs a relaunch. */
+  restart?: 'systemd' | 'manual';
+  last_result?: UpdateResult | null;
+}

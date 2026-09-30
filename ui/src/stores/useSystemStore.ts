@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { PowerStatus } from '../types/power';
-import type { SimShotInfo, SimStatus } from '../types/socket';
+import type { SimShotInfo, SimStatus, UpdateStatus } from '../types/socket';
 
 interface SystemState {
   connected: boolean;
@@ -12,6 +12,9 @@ interface SystemState {
   latestSimShots: Record<string, SimShotInfo>;
   serverClub: string | null;
   powerStatus: PowerStatus | null;
+  updateStatus: UpdateStatus | null;
+  /** The server's reason for refusing the last check/apply request. */
+  updateError: string | null;
   setConnected: (connected: boolean) => void;
   setMockMode: (mockMode: boolean) => void;
   setDebugMode: (debugMode: boolean) => void;
@@ -20,6 +23,8 @@ interface SystemState {
   setLatestSimShot: (shot: SimShotInfo) => void;
   setServerClub: (club: string | null) => void;
   setPowerStatus: (status: PowerStatus) => void;
+  setUpdateStatus: (status: UpdateStatus) => void;
+  setUpdateError: (error: string | null) => void;
 }
 
 export const useSystemStore = create<SystemState>((set) => ({
@@ -32,6 +37,8 @@ export const useSystemStore = create<SystemState>((set) => ({
   latestSimShots: {},
   serverClub: null,
   powerStatus: null,
+  updateStatus: null,
+  updateError: null,
   setConnected: (connected) => set({ connected }),
   setMockMode: (mockMode) => set({ mockMode }),
   setDebugMode: (debugMode) => set({ debugMode }),
@@ -46,4 +53,6 @@ export const useSystemStore = create<SystemState>((set) => ({
     })),
   setServerClub: (serverClub) => set({ serverClub }),
   setPowerStatus: (status) => set({ powerStatus: status }),
+  setUpdateStatus: (updateStatus) => set({ updateStatus, updateError: null }),
+  setUpdateError: (updateError) => set({ updateError }),
 }));

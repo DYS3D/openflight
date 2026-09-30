@@ -9,6 +9,9 @@ lerna-debug.log*
 
 node_modules
 dist
+# Staging and backup of dist while the updater swaps in a new build
+dist.update
+dist.prev
 dist-ssr
 *.local
 

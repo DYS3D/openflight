@@ -11,7 +11,8 @@ import {
   type TriggerDiagnosticUpdate,
   type TriggerStatus,
 } from '../types/shot';
-import type { DebugReading, RadarConfig, DebugShotLog, SimShotInfo, SimStatus } from '../types/socket';
+import type { DebugReading, RadarConfig, DebugShotLog, SimShotInfo, SimStatus, UpdateStatus } from '../types/socket';
+import { shouldReloadAfterReconnect } from '../utils/updateStatus';
 import type { PowerStatus } from '../types/power';
 import { getServerOrigin } from '../utils/serverOrigin';
 import { getAccessToken } from '../utils/accessToken';
@@ -54,6 +55,11 @@ class SocketService {
 
     this.socket.on('connect', () => {
       console.log('Connected to server');
+      // Back after an update restart: load the new UI bundle.
+      if (shouldReloadAfterReconnect(useSystemStore.getState().updateStatus)) {
+        this.reloadPage();
+        return;
+      }
       useSystemStore.getState().setConnected(true);
       useBannerStore.getState().clearReconnect();
       this.socket?.emit('get_session');
@@ -61,6 +67,7 @@ class SocketService {
       this.socket?.emit('get_radar_config');
       this.socket?.emit('get_camera_capture_settings');
       this.socket?.emit('get_profiles');
+      this.socket?.emit('get_update_status');
     });
 
     this.socket.io.on('reconnect_attempt', (attempt: number) => {
@@ -102,6 +109,14 @@ class SocketService {
 
     this.socket.on('sim_status', (data: SimStatus) => {
       useSystemStore.getState().setSimStatus(data);
+    });
+
+    this.socket.on('update_status', (data: UpdateStatus) => {
+      useSystemStore.getState().setUpdateStatus(data);
+    });
+
+    this.socket.on('update_error', (data: { error?: string }) => {
+      useSystemStore.getState().setUpdateError(data?.error ?? 'Update request refused');
     });
 
     this.socket.on('power_status', (data: PowerStatus) => {
@@ -263,6 +278,23 @@ class SocketService {
 
   setCameraCaptureSettings(settings: Partial<CameraCaptureSettings>) {
     this.socket?.emit('set_camera_capture_settings', settings);
+  }
+
+  /** Kiosk only (the server refuses other clients): check GitHub now. */
+  checkForUpdates() {
+    useSystemStore.getState().setUpdateError(null);
+    this.socket?.emit('check_for_updates');
+  }
+
+  /** Kiosk only: install the available update; the server restarts afterwards. */
+  applyUpdate() {
+    useSystemStore.getState().setUpdateError(null);
+    this.socket?.emit('apply_update');
+  }
+
+  /** Separate so tests can observe it without navigating. */
+  reloadPage() {
+    window.location.reload();
   }
 }
 

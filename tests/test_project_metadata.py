@@ -47,3 +47,12 @@ def test_camera_extra_installs_portable_image_processing_dependency():
 
     assert any(_requirement_name(dep) == "opencv-python-headless" for dep in camera_dependencies)
     assert not any(_requirement_name(dep) == "picamera2" for dep in camera_dependencies)
+
+
+def test_eventlet_is_not_a_dependency():
+    """The server runs Flask-SocketIO in threading mode; eventlet was never imported."""
+    project = _pyproject()["project"]
+    everything = list(project["dependencies"])
+    for extra in project.get("optional-dependencies", {}).values():
+        everything.extend(extra)
+    assert not any(_requirement_name(dep) == "eventlet" for dep in everything)

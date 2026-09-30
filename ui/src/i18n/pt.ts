@@ -242,6 +242,12 @@ export const pt: Messages = {
   'metric.consistencyGood': 'Dentro da sua faixa habitual',
   'metric.consistencyFair': 'Um pouco fora da sua faixa habitual',
   'metric.consistencyPoor': 'Bem fora da sua faixa habitual',
+  'voice.mph': 'milhas por hora',
+  'voice.kmh': 'quilômetros por hora',
+  'voice.yards': 'jardas',
+  'voice.meters': 'metros',
+  'voice.degrees': 'graus',
+  'voice.rpm': 'rpm',
 
   'display.tvAria': 'Modo de tela de TV',
   'display.streamUnavailable': 'Transmissão da câmera indisponível',

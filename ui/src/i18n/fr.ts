@@ -243,6 +243,12 @@ export const fr: Messages = {
   'metric.consistencyGood': 'Dans votre plage habituelle',
   'metric.consistencyFair': 'Un peu hors de votre plage habituelle',
   'metric.consistencyPoor': 'Loin de votre plage habituelle',
+  'voice.mph': 'miles par heure',
+  'voice.kmh': 'kilomètres par heure',
+  'voice.yards': 'yards',
+  'voice.meters': 'mètres',
+  'voice.degrees': 'degrés',
+  'voice.rpm': 'tours par minute',
 
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',

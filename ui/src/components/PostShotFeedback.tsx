@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { getHtmlLang } from '../i18n';
+import { useI18n } from '../i18n/useI18n';
 import type { Shot } from '../types/shot';
 import { computeSwingSpeedStats, filterShotsByProfile } from '../types/shot';
 import { useUnitPreference } from '../state/useUnitPreference';
@@ -6,7 +8,8 @@ import { useDisplayPreferencesStore } from '../stores/useDisplayPreferencesStore
 import { applySharedFitFontSize } from '../hooks/useFitFontSize';
 import { buildLiveMetrics, pinSelectedMetric, type LiveMetric } from './panel/liveMetrics';
 import { EstimatedMark } from './ui/MetricCard';
-import { nextShotCue, TAKEOVER_DURATION_MS, type ShotCue } from './postShot';
+import { speakCallout } from '../utils/voiceCallout';
+import { initialShotCue, nextShotCue, TAKEOVER_DURATION_MS, type ShotCue } from './postShot';
 import './PostShotFeedback.css';
 
 interface PostShotTakeoverProps {
@@ -46,8 +49,9 @@ interface PostShotFeedbackProps {
   shotVersion: number;
   isNewShot: boolean;
   liveView: boolean;
-  /** Omit to read the display preferences store; pass it in tests. */
+  /** Omit these to read the display preferences store; pass them in tests. */
   bigNumberAfterShot?: boolean;
+  voiceCallout?: boolean;
 }
 
 export function PostShotFeedback({
@@ -60,13 +64,17 @@ export function PostShotFeedback({
   isNewShot,
   liveView,
   bigNumberAfterShot: bigNumberAfterShotProp,
+  voiceCallout: voiceCalloutProp,
 }: PostShotFeedbackProps) {
-  const storeBigNumber = useDisplayPreferencesStore((state) => state.preferences.bigNumberAfterShot);
-  const bigNumberAfterShot = bigNumberAfterShotProp ?? storeBigNumber;
+  const storePreferences = useDisplayPreferencesStore((state) => state.preferences);
+  const bigNumberAfterShot = bigNumberAfterShotProp ?? storePreferences.bigNumberAfterShot;
+  const voiceCallout = voiceCalloutProp ?? storePreferences.voiceCallout;
   const { unitSystem } = useUnitPreference();
+  const { locale } = useI18n();
+  const lang = getHtmlLang(locale);
 
   let metric: LiveMetric | null = null;
-  if (shot) {
+  if (shot && (bigNumberAfterShot || voiceCallout)) {
     const swingStats = computeSwingSpeedStats(filterShotsByProfile(shots, profileId), {
       profileId,
       trainingImplement: activeTrainingImplement,
@@ -74,11 +82,30 @@ export function PostShotFeedback({
     metric = pinSelectedMetric(buildLiveMetrics(shot, unitSystem, swingStats), heroMetricId)[0] ?? null;
   }
 
-  const [cue, setCue] = useState<ShotCue>({ seenVersion: shotVersion, takeoverVersion: null });
-  const nextCue = nextShotCue(cue, { shotVersion, isNewShot, metric, bigNumberAfterShot, liveView });
+  const [cue, setCue] = useState<ShotCue>(() => initialShotCue(shotVersion));
+  const nextCue = nextShotCue(cue, {
+    shotVersion,
+    isNewShot,
+    metric,
+    bigNumberAfterShot,
+    voiceCallout,
+    lang,
+    liveView,
+  });
   if (nextCue !== cue) {
     setCue(nextCue);
   }
+
+  const spokenVersion = useRef(cue.seenVersion);
+  useEffect(() => {
+    if (spokenVersion.current === cue.seenVersion) {
+      return;
+    }
+    spokenVersion.current = cue.seenVersion;
+    if (cue.callout) {
+      speakCallout(cue.callout, lang);
+    }
+  }, [cue.seenVersion, cue.callout, lang]);
 
   useEffect(() => {
     if (cue.takeoverVersion === null) {

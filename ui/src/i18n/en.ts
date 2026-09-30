@@ -239,6 +239,12 @@ export const en = {
   'metric.consistencyGood': 'Within your usual range',
   'metric.consistencyFair': 'A little off your usual range',
   'metric.consistencyPoor': 'Well off your usual range',
+  'voice.mph': 'miles per hour',
+  'voice.kmh': 'kilometers per hour',
+  'voice.yards': 'yards',
+  'voice.meters': 'meters',
+  'voice.degrees': 'degrees',
+  'voice.rpm': 'rpm',
 
   'display.tvAria': 'TV display mode',
   'display.streamUnavailable': 'Camera stream unavailable',

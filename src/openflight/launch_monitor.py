@@ -313,6 +313,12 @@ class Shot:
     carry_normalized_yards: Optional[float] = None
     # Downsampled simulated flight for UI display only; never written to session logs.
     flight: Optional[dict] = field(default=None, repr=False, compare=False)
+    # Host epoch seconds at which each pipeline stage finished, keyed by stage
+    # name. Latency is derived from these relative to impact_timestamp.
+    pipeline_marks: Optional[dict] = field(default=None, repr=False, compare=False)
+    # Set only when --gated-postprocessing skips an optional enrichment.
+    iwr6843_status: Optional[str] = None
+    camera_status: Optional[str] = None
 
     @property
     def ball_speed_ms(self) -> float:
@@ -481,7 +487,27 @@ class Shot:
         }
         if self.carry_normalized_yards is not None:
             data["carry_normalized_yards"] = self.carry_normalized_yards
+        if self.iwr6843_status is not None:
+            data["iwr6843_status"] = self.iwr6843_status
+        if self.camera_status is not None:
+            data["camera_status"] = self.camera_status
         return data
+
+    def mark_stage(self, stage: str, timestamp: float) -> None:
+        """Record when a pipeline stage finished for this shot."""
+        if self.pipeline_marks is None:
+            self.pipeline_marks = {}
+        self.pipeline_marks[stage] = timestamp
+
+    def latency_ms(self) -> dict:
+        """Milliseconds from the trigger to each recorded pipeline stage."""
+        marks = self.pipeline_marks or {}
+        if self.impact_timestamp is None:
+            return {stage: None for stage in marks}
+        return {
+            stage: round(max(0.0, (finished - self.impact_timestamp) * 1000.0), 1)
+            for stage, finished in marks.items()
+        }
 
 
 def summarize_shots(shots: List[Shot], mode: str) -> dict:

@@ -198,6 +198,8 @@ class RollingBufferMonitor:
         radar_auto_reconnect: bool = False,
         ball_marker: str = "none",
         spin_octave_check: bool = False,
+        scale_speed_band: bool = False,
+        fast_dsp: bool = False,
         **trigger_kwargs,
     ):
         """
@@ -225,6 +227,10 @@ class RollingBufferMonitor:
                 see RollingBufferProcessor.
             spin_octave_check: Correct ~2x / ~0.5x spin picks against the
                 club/ball-speed prior; see RollingBufferProcessor.
+            scale_speed_band: Keep the processor's DC mask and peak
+                separation at their 30 ksps mph meaning at other rates
+                (--radar-profile low-latency); see RollingBufferProcessor.
+            fast_dsp: Pre-planned multi-threaded FFT path (--fast-dsp).
             **trigger_kwargs: Arguments for trigger strategy
         """
         self.timing = ActiveRadarTiming(radar_timing)
@@ -234,6 +240,8 @@ class RollingBufferMonitor:
             sample_rate=sample_rate_ksps * 1000,
             ball_marker=ball_marker,
             spin_octave_check=spin_octave_check,
+            scale_speed_band=scale_speed_band,
+            fast_dsp=fast_dsp,
         )
         self.trigger_type = trigger_type
         self.sample_rate_ksps = sample_rate_ksps
@@ -957,6 +965,9 @@ class RollingBufferMonitor:
             spin_rejection_reason=spin_rejection_reason,
             mode="rolling-buffer",
         )
+        if capture is not None:
+            shot.mark_stage("capture", capture.timestamp)
+        shot.mark_stage("processed", time.time())
 
         return shot
 

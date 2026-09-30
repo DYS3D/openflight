@@ -25,6 +25,7 @@ from ..radar_reconnect import (
 from ..radar_timing import ActiveRadarTiming, RadarTimingConfig
 from ..session_logger import get_session_logger, log_session_error
 from .processor import RollingBufferProcessor
+from .radar_health import RadarHealthMonitor
 from .trigger import create_trigger
 from .types import IQCapture, ProcessedCapture, SpeedTimeline
 
@@ -198,6 +199,7 @@ class RollingBufferMonitor:
         radar_auto_reconnect: bool = False,
         ball_marker: str = "none",
         spin_octave_check: bool = False,
+        interference_check: bool = False,
         **trigger_kwargs,
     ):
         """
@@ -225,6 +227,9 @@ class RollingBufferMonitor:
                 see RollingBufferProcessor.
             spin_octave_check: Correct ~2x / ~0.5x spin picks against the
                 club/ball-speed prior; see RollingBufferProcessor.
+            interference_check: Track the OPS243 noise floor from every
+                buffer dump and report ``radar_health`` transitions; see
+                radar_health.py. Off by default.
             **trigger_kwargs: Arguments for trigger strategy
         """
         self.timing = ActiveRadarTiming(radar_timing)
@@ -255,6 +260,15 @@ class RollingBufferMonitor:
         self._shots: List[Shot] = []
         self._shot_sequence_number = 0
         self._current_club: ClubType = ClubType.DRIVER
+        self._radar_health_callback: Optional[Callable[[dict], None]] = None
+        self.radar_health: Optional[RadarHealthMonitor] = None
+        if interference_check:
+            self.radar_health = RadarHealthMonitor(self.processor, on_change=self._on_radar_health)
+            self.processor.capture_observer = self.radar_health.observe
+
+    def _on_radar_health(self, payload: dict) -> None:
+        if self._radar_health_callback is not None:
+            self._radar_health_callback(payload)
 
     def connect(self) -> bool:
         """
@@ -324,6 +338,7 @@ class RollingBufferMonitor:
         diagnostic_callback: Optional[Callable[[dict], None]] = None,
         processing_callback: Optional[Callable[[str], None]] = None,
         radar_status_callback: Optional[Callable[[str], None]] = None,
+        radar_health_callback: Optional[Callable[[dict], None]] = None,
     ):
         """
         Start monitoring for shots.
@@ -335,14 +350,19 @@ class RollingBufferMonitor:
             processing_callback: Called with "started" or "failed" around shot processing
             radar_status_callback: Called with "reconnecting" / "connected" when
                 radar auto-reconnect changes the serial link state
+            radar_health_callback: Called with the ``radar_health`` payload
+                when the interference flag changes (``interference_check``)
         """
         self._shot_callback = shot_callback
         self._live_callback = live_callback
         self._diagnostic_callback = diagnostic_callback
         self._processing_callback = processing_callback
         self._radar_status_callback = radar_status_callback
+        self._radar_health_callback = radar_health_callback
         self._stop_event.clear()
         self._running = True
+        if self.radar_health is not None:
+            self.radar_health.start()
 
         self._capture_thread = threading.Thread(
             target=self._capture_loop,
@@ -356,6 +376,8 @@ class RollingBufferMonitor:
         """Stop monitoring."""
         self._running = False
         self._stop_event.set()
+        if self.radar_health is not None:
+            self.radar_health.stop()
         if self._capture_thread:
             capture_thread = self._capture_thread
             # Idle sound waits are cancelled immediately. If bytes are

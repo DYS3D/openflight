@@ -1999,6 +1999,16 @@ def on_radar_status(_state: str) -> None:
     socketio.emit("trigger_status", _get_trigger_status())
 
 
+def on_radar_health(payload: dict) -> None:
+    """Push a radar_health transition (--interference-check) to every client."""
+    socketio.emit("radar_health", payload)
+
+
+def _radar_health_snapshot() -> dict | None:
+    radar_health = getattr(monitor, "radar_health", None)
+    return radar_health.snapshot() if radar_health is not None else None
+
+
 def _current_club_id() -> str:
     """Club id the kiosk should restore after a reload."""
     if monitor is None:
@@ -2142,6 +2152,9 @@ def handle_connect(auth=None, *_args):
     if monitor:
         _reply("session_state", _session_state_payload(include_runtime_meta=True))
         _reply("trigger_status", _get_trigger_status())
+    radar_health = _radar_health_snapshot()
+    if radar_health is not None:
+        _reply("radar_health", radar_health)
     if update_service is not None:
         update_service.client_connected(_current_sid(), _client_is_kiosk())
 
@@ -4322,6 +4335,7 @@ def start_monitor(
     radar_auto_reconnect: bool = False,
     ball_marker: str = "none",
     spin_octave_check: bool = False,
+    interference_check: bool = False,
 ):
     """
     Start the monitor in launch monitor or swing speed mode.
@@ -4335,6 +4349,7 @@ def start_monitor(
         radar_auto_reconnect: Re-detect the OPS243 after a serial error
         ball_marker: Rolling-buffer spin ball marker mode (none, dot, rct)
         spin_octave_check: Correct rolling-buffer ~2x/~0.5x spin picks
+        interference_check: Track the OPS243 noise floor and emit radar_health
     """
     global monitor, mock_mode, mock_swing_speed_mode, debug_mode, radar_config
 
@@ -4368,6 +4383,7 @@ def start_monitor(
             radar_auto_reconnect=radar_auto_reconnect,
             ball_marker=ball_marker,
             spin_octave_check=spin_octave_check,
+            interference_check=interference_check,
             **(trigger_kwargs or {}),
         )
         logger.info(
@@ -4472,6 +4488,7 @@ def start_monitor(
             diagnostic_callback=on_trigger_diagnostic,
             processing_callback=on_shot_processing,
             radar_status_callback=on_radar_status,
+            radar_health_callback=on_radar_health,
         )
         if iwr6843_runtime is not None:
             iwr6843_runtime.capture_monitor.arm()
@@ -5128,6 +5145,15 @@ def main():
             "Add a display-only 'derived' block to UI shot payloads: smash factor, "
             "face/path/loft estimates, apex, hang time, curve, roll and shot shape "
             "(see src/openflight/derived_metrics.py). Default off"
+        ),
+    )
+    parser.add_argument(
+        "--interference-check",
+        action="store_true",
+        help=(
+            "Track the OPS243 noise floor from every rolling-buffer dump and emit a "
+            "radar_health event when interference starts or clears "
+            "(see src/openflight/rolling_buffer/radar_health.py). Default off"
         ),
     )
     parser.add_argument(
@@ -5900,6 +5926,7 @@ def main():
             radar_auto_reconnect=args.radar_auto_reconnect,
             ball_marker=args.ball_marker,
             spin_octave_check=args.spin_octave_check,
+            interference_check=args.interference_check,
         )
     except Exception:
         monitor_recovery = (

@@ -226,7 +226,36 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
       Flight / Dispersion / Gapping use the new `flight` payload; Practice
       is under menu → System; TV layout at `/display?layout=tv`.
 
-## 9. Software updates (`--update-check`)
+## 9. Latency and self-check options (off by default)
+
+- [ ] **Baseline `[LATENCY]` lines** (always on). Hit 10 shots; note trigger→ui
+      and →final. Expect capture ≈ post-trigger span + serial dump time; the
+      dump dominates.
+- [ ] **`--fast-dsp`.** Same shots; ball/club speed and spin must be
+      identical to the baseline; `[LATENCY] →processed` a few ms lower.
+- [ ] **`--radar-profile low-latency`.** Confirm the log shows the 50 ksps
+      preset and that captures still arrive with ~69 ms trigger offset and
+      4096 samples. Compare ball speed against the standard profile on 10
+      shots (short post-impact window). Do not expect measured spin.
+- [ ] **`--gated-postprocessing`.** With the IWR6843, hit shots; the angle
+      must still arrive within 400 ms or be marked `skipped_budget` with the
+      next shot unaffected. Raise the budget or leave off if the IWR driver
+      misbehaves when abandoned mid-dump.
+- [ ] **`--derived-metrics`** + menu → Display → More metrics: Total, Roll,
+      Apex, Hang time, Land angle, Curve, Side, Face-to-path, Spin loft, Shot
+      shape appear; sanity-check smash and face-to-path against a reference.
+- [ ] **`--interference-check`.** Run a range session with a Wi-Fi router or
+      second radar nearby; watch `[RADAR-HEALTH]` lines and confirm the
+      banner does not chatter. Needs three dumps to assert.
+- [ ] **`--gspro-ready-signals`.** GSPro must keep the connection with
+      IsReady=false beats and show ready again shortly after each shot.
+- [ ] **Level tool** (menu → System → Level) with `--inclinometer
+      --level-warning-deg`: bubble and numbers track a phone level.
+- [ ] **Camera → Show ball zone**: box sits where the ball should be teed.
+- [ ] **`--camera-strobe-spin`**: not testable without IR strobe hardware;
+      leave off.
+
+## 10. Software updates (`--update-check`)
 
 See [Software updates](updates.md). Validate on the Pi before relying on it.
 
@@ -257,7 +286,7 @@ See [Software updates](updates.md). Validate on the Pi before relying on it.
 - [ ] **Offline.** Unplug the network and tap **Check now**: "Can't check for
       updates" with a git error, and nothing else changes.
 
-## 10. Installer and stable device names
+## 11. Installer and stable device names
 
 - [ ] `scripts/install.sh --dry-run` lists every step; the real run completes
       and `scripts/openflight-doctor.sh` passes after a reboot.

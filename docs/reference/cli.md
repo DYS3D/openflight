@@ -46,6 +46,17 @@ Binding, ports, and debug output.
 
 ## OPS243 radar & transport
 
+Latency options (off by default; `docs/setup/hardware-validation.md` §9):
+
+| Flag | Type / default | Description |
+| --- | --- | --- |
+| `--radar-profile` | `standard` \| `low-latency`; default `standard` | `low-latency` runs the OPS243 at 50 ksps with the pre-trigger span kept at the same duration (S#27), cutting ~55 ms before the dump starts. Costs post-impact window (spin will rarely report) and halves per-window frequency resolution |
+| `--fast-dsp` | flag; default off | Pre-planned, multi-threaded FFT path in the rolling-buffer processor; numerically identical results, ~35% faster STFT stage |
+| `--gated-postprocessing` | flag; default off | Run IWR6843 and camera enrichment inside a 400 ms budget each; a stage that overruns is skipped (`*_status="skipped_budget"`) so ball speed and carry are never delayed |
+
+Every shot now logs `[LATENCY] trigger→ui … ms, →final … ms` and carries `latency_ms` in the UI payload (Debug panel).
+
+
 Serial port, baud, and sample rate.
 
 | Flag | Type / default | Description |
@@ -128,6 +139,10 @@ Opt-in accuracy models (see [Hardware validation](../setup/hardware-validation.m
 | `--ball-marker` | `none` \| `dot` \| `rct`; default `none` | Tell the radar spin estimator the ball has a metallic dot or is a Titleist RCT ball: expects the once-per-revolution line, prefers it over a 2× line, and lets a passing result reach the trusted band |
 | `--spin-octave-check` | flag; default off | Halve a spin pick that is ≈2× the club prior (or double one ≈0.5×) when a supporting spectral peak exists; tagged `octave_*` in `spin_method` |
 | `--inclinometer-roll-compensation` | flag; default off | With `--inclinometer`: rotate IWR6843 launch angles and club path by the measured enclosure roll into a level frame |
+| `--derived-metrics` | flag; default off | Add a `derived` block to UI shot payloads: smash, face angle, face-to-path, dynamic loft, spin loft, curve, side, apex, hang time, landing angle, descent speed, roll, total and a shot-shape label, each tagged measured/estimated. Display only; never logged |
+| `--interference-check` | flag; default off | Track the OPS243 noise floor from every buffer dump and emit `radar_health` (UI banner + status row) when it rises > 6 dB above its baseline for three samples |
+| `--gspro-ready-signals` | flag; default off | GSPro heartbeats report `LaunchMonitorIsReady` from the real armed state (radar connected, no shot in flight) instead of a constant |
+| `--camera-strobe-spin` | flag; default off | **Experimental, needs IR strobe hardware.** With `--camera-capture`: estimate spin from a marked ball in two strobed exposures and attach `camera_spin_*` fields. Never overwrites radar spin |
 
 
 Carry model and spin handling.

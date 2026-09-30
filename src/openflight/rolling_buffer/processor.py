@@ -12,7 +12,6 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
-from scipy.signal import butter, find_peaks, sosfiltfilt
 
 from ..clubs import ClubType
 from ..launch_monitor import SPIN_CONFIDENCE_HIGH
@@ -28,6 +27,9 @@ from .types import (
 )
 
 logger = logging.getLogger("openflight.rolling_buffer.processor")
+
+# scipy.signal is imported inside the spin functions that use it: it is slow to
+# import and the trigger/speed path never needs it.
 
 
 class RollingBufferProcessor:
@@ -710,6 +712,8 @@ class RollingBufferProcessor:
                 method="multitaper_ungated",
             )
 
+        from scipy.signal import butter, sosfiltfilt  # pylint: disable=import-outside-toplevel
+
         try:
             sos = butter(self.SPIN_BANDPASS_ORDER, [low, high], btype="band", output="sos")
             envelope = np.abs(sosfiltfilt(sos, iq))
@@ -830,6 +834,8 @@ class RollingBufferProcessor:
         high = min(high, 0.999)
         if low >= high:
             return SpinResult.no_spin_detected("Ball Doppler outside filter range")
+
+        from scipy.signal import butter, sosfiltfilt  # pylint: disable=import-outside-toplevel
 
         try:
             sos = butter(self.SPIN_BANDPASS_ORDER, [low, high], btype="band", output="sos")
@@ -1267,6 +1273,8 @@ class RollingBufferProcessor:
         if len(valid_mag) == 0 or not np.any(valid_mag > 0):
             return []
 
+        from scipy.signal import find_peaks  # pylint: disable=import-outside-toplevel
+
         strongest_idx = int(np.argmax(valid_mag))
         peak_indices = set(find_peaks(valid_mag, distance=2)[0])
         peak_indices.add(strongest_idx)
@@ -1455,6 +1463,8 @@ class RollingBufferProcessor:
             or valid_mag[strongest_idx] <= 0
         ):
             return strongest_idx
+
+        from scipy.signal import find_peaks  # pylint: disable=import-outside-toplevel
 
         peak_indices = set(find_peaks(valid_mag, distance=2)[0])
         peak_indices.add(strongest_idx)

@@ -57,7 +57,10 @@ describe('speakCallout', () => {
     const speak = vi.fn();
     class FakeUtterance {
       lang = '';
-      constructor(public text: string) {}
+      text: string;
+      constructor(text: string) {
+        this.text = text;
+      }
     }
     vi.stubGlobal('window', { speechSynthesis: { speak, cancel: vi.fn() }, SpeechSynthesisUtterance: FakeUtterance });
 

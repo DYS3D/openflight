@@ -157,6 +157,9 @@ export const pt: Messages = {
   'app.selectClub': 'Selecionar taco',
   'app.simulateSwing': 'Simular swing',
   'app.simulateShot': 'Simular tacada',
+  'app.errorTitle': 'Algo deu errado',
+  'app.errorDetail': 'A tela encontrou um erro inesperado. Recarregue para continuar.',
+  'app.reload': 'Recarregar',
   'picker.groups': 'Grupos',
   'picker.close': 'Fechar {title}',
 

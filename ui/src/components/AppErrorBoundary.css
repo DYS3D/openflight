@@ -1,0 +1,30 @@
+.app-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+  min-height: 100vh;
+  padding: var(--space-xl);
+  text-align: center;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.app-error__title {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.app-error__detail {
+  margin: 0;
+  max-width: 32rem;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+}
+
+.app-error__reload {
+  min-width: 10rem;
+  min-height: 3rem;
+  font-size: 1rem;
+}

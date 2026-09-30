@@ -157,6 +157,9 @@ export const es: Messages = {
   'app.selectClub': 'Elegir palo',
   'app.simulateSwing': 'Simular swing',
   'app.simulateShot': 'Simular golpe',
+  'app.errorTitle': 'Algo salió mal',
+  'app.errorDetail': 'La pantalla encontró un error inesperado. Recarga para continuar.',
+  'app.reload': 'Recargar',
   'picker.groups': 'Grupos',
   'picker.close': 'Cerrar {title}',
 

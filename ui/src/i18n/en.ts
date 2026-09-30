@@ -155,6 +155,9 @@ export const en = {
   'app.selectClub': 'Select club',
   'app.simulateSwing': 'Simulate swing',
   'app.simulateShot': 'Simulate shot',
+  'app.errorTitle': 'Something went wrong',
+  'app.errorDetail': 'The display hit an unexpected error. Reload to continue.',
+  'app.reload': 'Reload',
   'picker.groups': 'Groups',
   'picker.close': 'Close {title}',
 

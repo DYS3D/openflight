@@ -22,6 +22,89 @@ def _build(codec, resolved) -> dict:
     return json.loads(codec.build_shot(resolved).decode("utf-8"))
 
 
+# Byte-exact payloads captured from the codec before omit_unsupported_fields
+# existed. The default configuration must keep producing exactly these.
+_LEGACY_FULL = (
+    b'{"DeviceID":"OpenFlight","Units":"Yards","ShotNumber":1,"APIversion":"1",'
+    b'"BallData":{"Speed":140.0,"SpinAxis":-3.0,"TotalSpin":2500.0,"BackSpin":2497.0,'
+    b'"SideSpin":-131.0,"HLA":1.5,"VLA":12.0,"CarryDistance":255.0},'
+    b'"ClubData":{"Speed":110.0,"AngleOfAttack":0.0,"FaceToTarget":0.0,"Lie":0.0,'
+    b'"Loft":0.0,"Path":0.5,"SpeedAtImpact":0.0,"VerticalFaceImpact":0.0,'
+    b'"HorizontalFaceImpact":0.0,"ClosureRate":0.0},'
+    b'"ShotDataOptions":{"ContainsBallData":true,"ContainsClubData":true,'
+    b'"LaunchMonitorIsReady":true,"LaunchMonitorBallDetected":true,"IsHeartBeat":false}}'
+)
+_LEGACY_NO_CLUB_SPEED = _LEGACY_FULL.replace(
+    b'"ClubData":{"Speed":110.0,', b'"ClubData":{"Speed":0.0,'
+).replace(b'"ContainsClubData":true', b'"ContainsClubData":false')
+_LEGACY_HEARTBEAT = (
+    b'{"DeviceID":"OpenFlight","Units":"Yards","ShotNumber":0,"APIversion":"1",'
+    b'"BallData":{"Speed":0.0,"SpinAxis":0.0,"TotalSpin":0.0,"BackSpin":0.0,"SideSpin":0.0,'
+    b'"HLA":0.0,"VLA":0.0,"CarryDistance":0.0},'
+    b'"ClubData":{"Speed":0.0,"AngleOfAttack":0.0,"FaceToTarget":0.0,"Lie":0.0,"Loft":0.0,'
+    b'"Path":0.0,"SpeedAtImpact":0.0,"VerticalFaceImpact":0.0,"HorizontalFaceImpact":0.0,'
+    b'"ClosureRate":0.0},'
+    b'"ShotDataOptions":{"ContainsBallData":false,"ContainsClubData":false,'
+    b'"LaunchMonitorIsReady":true,"LaunchMonitorBallDetected":false,"IsHeartBeat":true}}'
+)
+
+
+def test_default_codec_payload_is_byte_identical_to_legacy():
+    codec = GSProCodec()
+    assert codec.omit_unsupported_fields is False
+    assert codec.build_shot(_resolved()) == _LEGACY_FULL
+    assert codec.build_shot(_resolved(club_speed_mph=None)) == _LEGACY_NO_CLUB_SPEED
+    assert codec.heartbeat_bytes() == _LEGACY_HEARTBEAT
+
+
+def test_default_codec_ignores_measured_path_for_contains_club_data():
+    # Legacy rule: ContainsClubData follows club speed alone; a measured path
+    # without club speed is still sent as a value but not flagged.
+    p = _build(GSProCodec(), _resolved(club_speed_mph=None, provenance={"club_path": "measured"}))
+    assert p["ClubData"]["Path"] == 0.5
+    assert p["ShotDataOptions"]["ContainsClubData"] is False
+
+
+def test_omit_flag_sends_only_measured_club_fields():
+    codec = GSProCodec(omit_unsupported_fields=True)
+    p = _build(codec, _resolved(provenance={"club_path": "measured"}))
+    assert p["ClubData"] == {"Speed": 110.0, "Path": 0.5}
+    assert p["ShotDataOptions"]["ContainsClubData"] is True
+
+
+def test_omit_flag_drops_estimated_path():
+    p = _build(GSProCodec(omit_unsupported_fields=True), _resolved(provenance={"club_path": "estimated"}))
+    assert p["ClubData"] == {"Speed": 110.0}
+    assert p["ShotDataOptions"]["ContainsClubData"] is True
+
+
+def test_omit_flag_measured_path_alone_flags_club_data():
+    p = _build(
+        GSProCodec(omit_unsupported_fields=True),
+        _resolved(club_speed_mph=None, provenance={"club_path": "measured"}),
+    )
+    assert p["ClubData"] == {"Path": 0.5}
+    assert p["ShotDataOptions"]["ContainsClubData"] is True
+
+
+def test_omit_flag_no_club_measurements_sends_empty_club_data():
+    p = _build(GSProCodec(omit_unsupported_fields=True), _resolved(club_speed_mph=None))
+    assert p["ClubData"] == {}
+    assert p["ShotDataOptions"]["ContainsClubData"] is False
+
+
+def test_omit_flag_leaves_ball_data_options_and_heartbeat_unchanged():
+    codec = GSProCodec(omit_unsupported_fields=True)
+    p = _build(codec, _resolved(club_speed_mph=None))
+    legacy = json.loads(_LEGACY_NO_CLUB_SPEED)
+    assert p["BallData"] == legacy["BallData"]
+    assert p["ShotDataOptions"] == legacy["ShotDataOptions"]
+    assert {k: v for k, v in p.items() if k not in ("BallData", "ClubData", "ShotDataOptions")} == {
+        "DeviceID": "OpenFlight", "Units": "Yards", "ShotNumber": 1, "APIversion": "1",
+    }
+    assert codec.heartbeat_bytes() == _LEGACY_HEARTBEAT
+
+
 def test_build_shot_full_payload():
     p = _build(GSProCodec(), _resolved())
     assert p["DeviceID"] == "OpenFlight"
@@ -54,6 +137,7 @@ def test_build_shot_options_flags():
 
 
 def test_device_id_and_units_configurable():
+    # The codec only labels the payload; sim.config is what restricts units to "Yards".
     p = _build(GSProCodec(device_id="Bay7", units="Meters"), _resolved())
     assert p["DeviceID"] == "Bay7"
     assert p["Units"] == "Meters"

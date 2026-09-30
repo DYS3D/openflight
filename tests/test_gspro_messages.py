@@ -46,6 +46,34 @@ def test_serialize_includes_all_required_keys():
         assert key in obj["ClubData"]
 
 
+def test_serialize_omits_none_keys_only():
+    payload = ShotPayload(
+        DeviceID="X", Units="Yards", ShotNumber=1, APIversion="1",
+        BallData=BallData(),
+        ClubData=ClubData(Speed=101.0, AngleOfAttack=None, Path=None, Loft=None),
+        ShotDataOptions=ShotDataOptions(),
+    )
+    obj = json.loads(serialize_payload(payload))
+    assert obj["ClubData"] == {
+        "Speed": 101.0, "FaceToTarget": 0.0, "Lie": 0.0, "SpeedAtImpact": 0.0,
+        "VerticalFaceImpact": 0.0, "HorizontalFaceImpact": 0.0, "ClosureRate": 0.0,
+    }
+    # Sibling objects with no None values are untouched.
+    assert len(obj["BallData"]) == 8
+    assert len(obj["ShotDataOptions"]) == 5
+
+
+def test_measured_only_club_data_keeps_just_speed_and_path():
+    club = ClubData.measured_only(speed=98.5, path=-1.2)
+    assert club.Speed == 98.5 and club.Path == -1.2
+    for name in ("AngleOfAttack", "FaceToTarget", "Lie", "Loft", "SpeedAtImpact",
+                 "VerticalFaceImpact", "HorizontalFaceImpact", "ClosureRate"):
+        assert getattr(club, name) is None
+    assert ClubData.measured_only(speed=None, path=None) == ClubData(
+        **{name: None for name in ClubData.__dataclass_fields__}
+    )
+
+
 def test_build_heartbeat():
     raw = build_heartbeat(device_id="OpenFlight", units="Yards", shot_number=42)
     obj = json.loads(raw)

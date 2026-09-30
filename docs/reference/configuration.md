@@ -31,7 +31,8 @@ cp config/sim.example.json config/sim.json
       "port": 921,
       "device_id": "OpenFlight",
       "units": "Yards",
-      "heartbeat_interval_s": 5
+      "heartbeat_interval_s": 5,
+      "omit_unsupported_fields": false
     }
   ]
 }
@@ -43,8 +44,9 @@ cp config/sim.example.json config/sim.json
 | `enabled` | Whether this connector is active |
 | `host`, `port` | Where the simulator is listening |
 | `device_id` | Identifier the simulator displays |
-| `units` | `Yards` or `Meters` (GSPro) |
+| `units` | Must be `Yards`. OpenFlight sends yards/mph and does not convert; any other value (including `Meters`) is rejected at startup |
 | `heartbeat_interval_s` | Keepalive cadence (GSPro) |
+| `omit_unsupported_fields` | `false` (default) sends every OpenConnect `ClubData` key, unmeasured ones as `0.0`. `true` sends only measured club fields; see [GSPro field requirements](../using/simulator/gspro.md#openconnect-field-requirements) |
 
 Enable connectors at runtime with `--sim`. See
 [simulator connectors](../using/simulator/index.md).

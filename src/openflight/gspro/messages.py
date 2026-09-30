@@ -1,7 +1,26 @@
-"""OpenConnectV1 JSON schema (https://gsprogolf.com/GSProConnectV1.html)."""
+"""OpenConnectV1 JSON schema (https://gsprogolf.com/GSProConnectV1.html).
+
+The spec annotates its example shot message field by field. Verbatim, it marks:
+
+- required: ``DeviceID``, ``ShotNumber``, ``APIversion``; ``BallData.Speed``,
+  ``SpinAxis``, ``TotalSpin``, ``HLA``, ``VLA``; ``ShotDataOptions.ContainsBallData``,
+  ``ContainsClubData``.
+- ``BallData.BackSpin`` / ``SideSpin``: "only required if total spin is not sent".
+- optional: ``BallData.CarryDistance``.
+- "not required": ``ShotDataOptions.LaunchMonitorIsReady``,
+  ``LaunchMonitorBallDetected``, ``IsHeartBeat``.
+- ``Units``: "default yards" — no other value is documented, and the spec never
+  states which units the numeric fields are in.
+- Every ``ClubData`` key is listed with the value 0.0 and *no* required/optional
+  annotation; ``ContainsClubData`` is the only stated signal for club data.
+
+OpenFlight always sends every key with 0.0 placeholders (the spec's own
+example). ``serialize_payload`` drops keys set to ``None`` so a codec can
+instead omit the ``ClubData`` fields it did not measure.
+"""
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Optional
 
 
@@ -19,16 +38,30 @@ class BallData:
 
 @dataclass
 class ClubData:
-    Speed: float = 0.0
-    AngleOfAttack: float = 0.0
-    FaceToTarget: float = 0.0
-    Lie: float = 0.0
-    Loft: float = 0.0
-    Path: float = 0.0
-    SpeedAtImpact: float = 0.0
-    VerticalFaceImpact: float = 0.0
-    HorizontalFaceImpact: float = 0.0
-    ClosureRate: float = 0.0
+    """Club fields; OpenFlight measures only ``Speed`` and ``Path``.
+
+    ``None`` omits the key from the wire. Defaults stay 0.0 so the legacy
+    payload (every key present) is unchanged unless a codec opts out.
+    """
+
+    Speed: Optional[float] = 0.0
+    AngleOfAttack: Optional[float] = 0.0
+    FaceToTarget: Optional[float] = 0.0
+    Lie: Optional[float] = 0.0
+    Loft: Optional[float] = 0.0
+    Path: Optional[float] = 0.0
+    SpeedAtImpact: Optional[float] = 0.0
+    VerticalFaceImpact: Optional[float] = 0.0
+    HorizontalFaceImpact: Optional[float] = 0.0
+    ClosureRate: Optional[float] = 0.0
+
+    @classmethod
+    def measured_only(cls, speed: Optional[float], path: Optional[float]) -> "ClubData":
+        """ClubData carrying only the measured fields; everything else is omitted."""
+        values = {f.name: None for f in fields(cls)}
+        values["Speed"] = speed
+        values["Path"] = path
+        return cls(**values)
 
 
 @dataclass
@@ -58,8 +91,15 @@ class GSProResponse:
     Player: Optional[dict] = None
 
 
+def _drop_none(obj):
+    if isinstance(obj, dict):
+        return {k: _drop_none(v) for k, v in obj.items() if v is not None}
+    return obj
+
+
 def serialize_payload(payload: ShotPayload) -> bytes:
-    return json.dumps(asdict(payload), separators=(",", ":")).encode("utf-8")
+    """Encode a payload; keys whose value is ``None`` are left off the wire."""
+    return json.dumps(_drop_none(asdict(payload)), separators=(",", ":")).encode("utf-8")
 
 
 def build_heartbeat(device_id: str, units: str, shot_number: int) -> bytes:

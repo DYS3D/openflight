@@ -16,6 +16,15 @@ const SPOKEN_UNITS: Record<string, MessageKey> = {
   rpm: 'voice.rpm',
 };
 
+/** Spin is already localized with grouping ("2.328" in pt-BR); every other value is `toFixed` with a '.' decimal. */
+const GROUPED_INTEGER = /^[+-]?\d{1,3}(\.\d{3})+$/;
+
+function spokenNumber(value: string, decimal: string): string {
+  if (decimal === '.') return value;
+  if (GROUPED_INTEGER.test(value)) return value.replaceAll('.', '');
+  return value.replace('.', decimal);
+}
+
 /** Value and unit as words for speech in the active language, or null when there is nothing to say. */
 export function calloutText(metric: LiveMetric | null, lang: string): string | null {
   if (!hasCalloutValue(metric)) {
@@ -23,7 +32,7 @@ export function calloutText(metric: LiveMetric | null, lang: string): string | n
   }
 
   const decimal = new Intl.NumberFormat(lang).formatToParts(1.5).find((part) => part.type === 'decimal')?.value;
-  const value = decimal ? metric.value.replace('.', decimal) : metric.value;
+  const value = decimal ? spokenNumber(metric.value, decimal) : metric.value;
   const unitKey = metric.unit ? SPOKEN_UNITS[metric.unit] : undefined;
   const unit = unitKey ? t(unitKey) : (metric.unit ?? '');
   return `${value} ${unit}`.trim();

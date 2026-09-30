@@ -119,7 +119,7 @@ export const pt: Messages = {
   'gapping.colCarry': 'Carry ({unit})',
   'gapping.colAverage': 'Média ± DP',
   'gapping.colRange': 'Mín–máx',
-  'gapping.colGap': 'Intervalo',
+  'gapping.colGap': 'Gap',
   'gapping.noDataDetail': 'As distâncias por taco aparecem após a primeira tacada',
   'practice.title': 'Treino',
   'practice.newRound': 'Nova rodada',

@@ -1,8 +1,9 @@
 import { expect, type Page } from '@playwright/test';
 import { io, type Socket } from 'socket.io-client';
 
-const UI_URL = 'http://127.0.0.1:5173';
-const SOCKET_URL = 'http://127.0.0.1:8080';
+/** Overridable so a local run can use spare ports while another checkout holds the defaults. */
+const UI_URL = process.env.E2E_UI_URL ?? 'http://127.0.0.1:5173';
+const SOCKET_URL = process.env.E2E_SERVER_URL ?? 'http://127.0.0.1:8080';
 
 function connectSocket(): Promise<Socket> {
   return new Promise((resolve, reject) => {
@@ -123,9 +124,9 @@ export const WIDEST_LIVE_METRIC_VALUE = '10,000';
 
 export async function liveMetricValueFontSizes(page: Page): Promise<number[]> {
   await page.evaluate(() => document.fonts.ready);
-  return page.locator('.live-panel__grid .metric-card__value').evaluateAll((values) =>
-    values.map((value) => parseFloat(getComputedStyle(value).fontSize))
-  );
+  return page
+    .locator('.live-panel__grid .metric-card__value')
+    .evaluateAll((values) => values.map((value) => parseFloat(getComputedStyle(value).fontSize)));
 }
 
 export async function overflowingLiveMetricValues(page: Page): Promise<string[]> {
@@ -175,10 +176,8 @@ export async function overflowingLiveMetricValues(page: Page): Promise<string[]>
         textRect.bottom > cardRect.bottom + slop ||
         textRect.top < cardRect.top - slop;
       const rowOverflowsCard = rowRect.right > cardRect.right + slop || row.scrollWidth > row.clientWidth + slop;
-      const overlapsLabel =
-        label instanceof HTMLElement && rowRect.top < label.getBoundingClientRect().bottom - slop;
-      const overlapsMeta =
-        meta instanceof HTMLElement && rowRect.bottom > meta.getBoundingClientRect().top + slop;
+      const overlapsLabel = label instanceof HTMLElement && rowRect.top < label.getBoundingClientRect().bottom - slop;
+      const overlapsMeta = meta instanceof HTMLElement && rowRect.bottom > meta.getBoundingClientRect().top + slop;
 
       if (
         valueOverflowsCard ||

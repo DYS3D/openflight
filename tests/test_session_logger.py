@@ -1,6 +1,8 @@
 """Tests for session_logger module."""
 
 import json
+import logging
+import logging.handlers
 import threading
 import time
 from datetime import datetime
@@ -871,3 +873,89 @@ class TestBackgroundWriter:
         session_file = next(tmp_path.glob("session_*.jsonl"))
         entries = [json.loads(line) for line in session_file.read_text().splitlines()]
         assert [entry["error"] for entry in entries if entry["type"] == "error"] == ["before-exit"]
+
+
+class TestRawRadarLog:
+    """The DEBUG radar FileHandler is opt-in and never blocks radar threads."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_radar_loggers(self):
+        loggers = [logging.getLogger("ops243"), logging.getLogger("ops243.raw")]
+        saved = [(lg, lg.level, lg.handlers[:]) for lg in loggers]
+        yield
+        for lg, level, handlers in saved:
+            lg.setLevel(level)
+            lg.handlers[:] = handlers
+
+    def test_raw_radar_log_is_off_by_default(self, tmp_path):
+        radar_logger = logging.getLogger("ops243")
+        sentinel = logging.NullHandler()
+        radar_logger.addHandler(sentinel)
+
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+        radar_logger.debug("should not be written")
+        logger.end_session()
+
+        assert logger.raw_path is None
+        assert list(tmp_path.glob("radar_raw_*.log")) == []
+        # Handlers owned by others (e.g. --radar-log console output) are left alone.
+        assert radar_logger.handlers == [sentinel]
+
+    def test_init_session_logger_passes_raw_radar_log(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(session_logger_module, "_session_logger", None)
+
+        assert session_logger_module.init_session_logger(log_dir=tmp_path).raw_radar_log is False
+        assert (
+            session_logger_module.init_session_logger(
+                log_dir=tmp_path, raw_radar_log=True
+            ).raw_radar_log
+            is True
+        )
+
+    def test_opt_in_writes_radar_debug_log_via_queue_listener(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True, raw_radar_log=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+
+        radar_logger = logging.getLogger("ops243")
+        raw_logger = logging.getLogger("ops243.raw")
+        assert all(
+            isinstance(handler, logging.handlers.QueueHandler)
+            for handler in radar_logger.handlers + raw_logger.handlers
+        )
+        assert logger._raw_listener is not None
+
+        radar_logger.debug("radar-debug-line")
+        logger.end_session()
+
+        assert logger._raw_listener is None
+        assert radar_logger.handlers == []
+        assert raw_logger.handlers == []
+        assert "radar-debug-line" in logger.raw_path.read_text()
+
+    def test_radar_thread_does_not_block_on_slow_disk(self, tmp_path):
+        release_disk = threading.Event()
+        logger = SessionLogger(log_dir=tmp_path, enabled=True, raw_radar_log=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+
+        (file_handler,) = logger._raw_listener.handlers
+        original_emit = file_handler.emit
+
+        def slow_emit(record):
+            release_disk.wait(timeout=5)
+            original_emit(record)
+
+        file_handler.emit = slow_emit
+
+        logged = threading.Event()
+
+        def radar_thread():
+            logging.getLogger("ops243").debug("while-disk-stalled")
+            logged.set()
+
+        threading.Thread(target=radar_thread, daemon=True).start()
+        assert logged.wait(timeout=1.0), "radar thread blocked on the raw-log file write"
+
+        release_disk.set()
+        logger.end_session()
+        assert "while-disk-stalled" in logger.raw_path.read_text()

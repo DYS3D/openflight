@@ -8,6 +8,7 @@ for analysis and debugging.
 import atexit
 import json
 import logging
+import logging.handlers
 import queue
 import threading
 import time
@@ -74,7 +75,7 @@ class SessionLogger:
 
     Creates structured log files with semantic naming:
     - session_YYYYMMDD_HHMMSS_<location>.jsonl - Main session log (JSON lines)
-    - radar_raw_YYYYMMDD_HHMMSS.log - Raw radar serial data
+    - radar_raw_YYYYMMDD_HHMMSS.log - Raw radar serial data (only with raw_radar_log)
 
     Log entry types:
     - session_start: Session metadata
@@ -87,7 +88,11 @@ class SessionLogger:
     DEFAULT_LOG_DIR = Path.home() / "openflight_sessions"
 
     def __init__(
-        self, log_dir: Optional[Path] = None, location: str = "range", enabled: bool = True
+        self,
+        log_dir: Optional[Path] = None,
+        location: str = "range",
+        enabled: bool = True,
+        raw_radar_log: bool = False,
     ):
         """
         Initialize session logger.
@@ -96,6 +101,8 @@ class SessionLogger:
             log_dir: Directory for log files (default: ~/openflight_sessions)
             location: Location identifier for file naming (e.g., "range", "course", "home")
             enabled: Whether logging is enabled
+            raw_radar_log: Also write DEBUG-level ``ops243`` radar logging to
+                radar_raw_<session>.log (opt-in; verbose)
         """
         self.log_dir = Path(log_dir) if log_dir else self.DEFAULT_LOG_DIR
         self.location = location
@@ -128,8 +135,10 @@ class SessionLogger:
         }
 
         # Setup Python logger for raw radar data
+        self.raw_radar_log = raw_radar_log
         self._raw_logger = logging.getLogger("ops243.raw")
         self._radar_logger = logging.getLogger("ops243")
+        self._raw_listener: Optional[logging.handlers.QueueListener] = None
 
     def start_session(
         self,
@@ -171,14 +180,15 @@ class SessionLogger:
         raw_filename = f"radar_raw_{self._session_id}.log"
 
         self._session_path = self.log_dir / session_filename
-        self._raw_path = self.log_dir / raw_filename
+        self._raw_path = self.log_dir / raw_filename if self.raw_radar_log else None
 
         # Open log files
         self._session_file = open(self._session_path, "w")
         self._start_writer()
 
-        # Setup raw radar logging to file
-        self._setup_raw_logging()
+        # DEBUG-level radar logging is verbose, so it is opt-in (--radar-log).
+        if self.raw_radar_log:
+            self._setup_raw_logging()
 
         # Reset stats
         self._stats = {k: 0 for k in self._stats}
@@ -204,7 +214,8 @@ class SessionLogger:
 
         print(f"[SESSION] Started logging: {self._session_path}")
         print(f"[SESSION] Mode: {mode}" + (f" (trigger: {trigger_type})" if trigger_type else ""))
-        print(f"[SESSION] Raw radar log: {self._raw_path}")
+        if self._raw_path is not None:
+            print(f"[SESSION] Raw radar log: {self._raw_path}")
 
         return self._session_id
 
@@ -248,7 +259,12 @@ class SessionLogger:
         self._write_entry("ops_clock_sync", entry)
 
     def _setup_raw_logging(self):
-        """Configure Python logging for raw radar data."""
+        """Configure Python logging for raw radar data.
+
+        Radar threads only enqueue records through a QueueHandler; a
+        QueueListener thread owns the FileHandler, so serial/capture threads
+        never block on disk I/O.
+        """
         # Remove existing handlers
         for handler in self._raw_logger.handlers[:]:
             self._raw_logger.removeHandler(handler)
@@ -262,11 +278,34 @@ class SessionLogger:
             logging.Formatter("%(asctime)s.%(msecs)03d - %(message)s", datefmt="%H:%M:%S")
         )
 
-        self._raw_logger.addHandler(file_handler)
+        record_queue: "queue.SimpleQueue[logging.LogRecord]" = queue.SimpleQueue()
+        queue_handler = logging.handlers.QueueHandler(record_queue)
+        queue_handler.setLevel(logging.DEBUG)
+        self._raw_listener = logging.handlers.QueueListener(
+            record_queue, file_handler, respect_handler_level=True
+        )
+        self._raw_listener.start()
+
+        self._raw_logger.addHandler(queue_handler)
         self._raw_logger.setLevel(logging.DEBUG)
 
-        self._radar_logger.addHandler(file_handler)
+        self._radar_logger.addHandler(queue_handler)
         self._radar_logger.setLevel(logging.DEBUG)
+
+    def _teardown_raw_logging(self):
+        """Detach the raw radar handlers and drain the listener to disk."""
+        if self._raw_listener is None:
+            return
+        for handler in self._raw_logger.handlers[:]:
+            handler.close()
+            self._raw_logger.removeHandler(handler)
+        for handler in self._radar_logger.handlers[:]:
+            handler.close()
+            self._radar_logger.removeHandler(handler)
+        self._raw_listener.stop()
+        for handler in self._raw_listener.handlers:
+            handler.close()
+        self._raw_listener = None
 
     def end_session(self):
         """End the current logging session and write summary."""
@@ -292,13 +331,7 @@ class SessionLogger:
                 self._session_file.close()
                 self._session_file = None
 
-        # Remove logging handlers
-        for handler in self._raw_logger.handlers[:]:
-            handler.close()
-            self._raw_logger.removeHandler(handler)
-        for handler in self._radar_logger.handlers[:]:
-            handler.close()
-            self._radar_logger.removeHandler(handler)
+        self._teardown_raw_logging()
 
         print(f"[SESSION] Ended. Total shots: {self._stats['shots_detected']}")
         print(f"[SESSION] Logs saved to: {self._session_path}")
@@ -912,7 +945,10 @@ def log_session_error(
 
 
 def init_session_logger(
-    log_dir: Optional[Path] = None, location: str = "range", enabled: bool = True
+    log_dir: Optional[Path] = None,
+    location: str = "range",
+    enabled: bool = True,
+    raw_radar_log: bool = False,
 ) -> SessionLogger:
     """
     Initialize and return the global session logger.
@@ -921,10 +957,13 @@ def init_session_logger(
         log_dir: Directory for log files
         location: Location identifier
         enabled: Whether logging is enabled
+        raw_radar_log: Write DEBUG radar logging to a per-session raw log file
 
     Returns:
         SessionLogger instance
     """
     global _session_logger
-    _session_logger = SessionLogger(log_dir=log_dir, location=location, enabled=enabled)
+    _session_logger = SessionLogger(
+        log_dir=log_dir, location=location, enabled=enabled, raw_radar_log=raw_radar_log
+    )
     return _session_logger

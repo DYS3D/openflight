@@ -384,3 +384,37 @@ def test_server_publishes_specific_ti_recovery(
     assert payload["overall"] == "error"
     assert payload["message"] == "TI radar failed to initialize"
     assert payload["error"]["recovery"] == expected_recovery
+
+
+@pytest.mark.parametrize(("extra_args", "expected"), [([], False), (["--radar-log"], True)])
+def test_server_raw_radar_session_log_follows_radar_log_flag(
+    tmp_path, monkeypatch, extra_args, expected
+):
+    import logging
+
+    from openflight import server
+
+    for name in ("ops243", "ops243.raw"):
+        monkeypatch.setattr(logging.getLogger(name), "level", logging.getLogger(name).level)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "openflight-server",
+            "--log-dir",
+            str(tmp_path),
+            "--startup-status-file",
+            str(tmp_path / "status.json"),
+            *extra_args,
+        ],
+    )
+    init_kwargs = {}
+    monkeypatch.setattr(server, "init_session_logger", lambda **kwargs: init_kwargs.update(kwargs))
+    monkeypatch.setattr(server, "start_monitor", lambda **_kwargs: None)
+    monkeypatch.setattr(server.socketio, "run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(server, "_cleanup_hardware_for_shutdown", lambda: None)
+
+    server.main()
+
+    assert init_kwargs["enabled"] is True
+    assert init_kwargs["raw_radar_log"] is expected

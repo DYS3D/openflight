@@ -1,7 +1,6 @@
 """Tests for server module."""
 
 import argparse
-import json
 import sys
 import threading
 from datetime import datetime
@@ -2563,9 +2562,21 @@ class TestSessionStatePayload:
 class TestRadarLaunchGuard:
     """Tests for club-and-speed sanity checks on radar launch angles."""
 
-    SESSION_LOG_PATH = (
-        Path(__file__).parent.parent / "session_logs" / "session_20260402_121507_range.jsonl"
-    )
+    # shot_detected fields from backyard session 20260402_121507 (the log itself
+    # was removed from the repo in edf0b9f): (shot, launch_deg, ball_mph, club_mph)
+    BACKYARD_DRIVER_SHOTS = [
+        (1, 18.4, 73.6, 52.8),
+        (2, 18.1, 75.9, 55.3),
+        (3, -8.8, 76.1, 51.6),
+        (4, 19.0, 69.6, 50.5),
+        (5, 31.8, 93.2, 62.7),
+        (6, 3.9, 84.5, 56.7),
+        (7, 19.8, 82.0, 55.7),
+        (8, 15.7, 96.7, 67.9),
+        (9, -7.3, 95.8, 66.9),
+        (10, 16.8, 92.3, 64.3),
+        (11, -10.4, 92.7, 62.3),
+    ]
 
     def test_rejects_implausible_7iron_launch(self):
         """An obviously impossible 7-iron launch angle should be rejected."""
@@ -2603,31 +2614,18 @@ class TestRadarLaunchGuard:
         assert details["delta_deg"] > details["allowed_delta_deg"]
 
     def test_flags_known_outliers_in_real_session_log(self):
-        """Historic backyard session log should surface the same three driver outliers."""
-        if not self.SESSION_LOG_PATH.exists():
-            pytest.skip(f"Session log not found: {self.SESSION_LOG_PATH}")
+        """Historic backyard session should surface the same three driver outliers."""
+        implausible_shots = [
+            shot_number
+            for shot_number, launch_deg, ball_mph, club_mph in self.BACKYARD_DRIVER_SHOTS
+            if not radar_launch_is_plausible(
+                radar_angle_deg=launch_deg,
+                club=ClubType.DRIVER,
+                ball_speed_mph=ball_mph,
+                club_speed_mph=club_mph,
+            )[0]
+        ]
 
-        implausible_shots = []
-        total_shots = 0
-
-        with self.SESSION_LOG_PATH.open() as f:
-            for line in f:
-                entry = json.loads(line)
-                if entry.get("type") != "shot_detected":
-                    continue
-
-                total_shots += 1
-                plausible, _ = radar_launch_is_plausible(
-                    radar_angle_deg=entry["launch_angle_vertical"],
-                    club=ClubType(entry["club"]),
-                    ball_speed_mph=entry["ball_speed_mph"],
-                    club_speed_mph=entry.get("club_speed_mph"),
-                    spin_rpm=entry.get("spin_rpm"),
-                )
-                if not plausible:
-                    implausible_shots.append(entry["shot_number"])
-
-        assert total_shots == 11
         assert implausible_shots == [3, 9, 11]
 
 

@@ -74,6 +74,21 @@ def test_unknown_type_in_file_raises(tmp_path):
         load_sim_config(config_path=p)
 
 
+@pytest.mark.parametrize("ctype", ["gspro", "opengolfsim", "partee"])
+def test_omit_unsupported_fields_defaults_false(tmp_path, ctype):
+    p = _write(tmp_path, {"connectors": [{"type": ctype, "enabled": True}]})
+    assert load_sim_config(config_path=p)[0].omit_unsupported_fields is False
+
+
+def test_omit_unsupported_fields_parsed(tmp_path):
+    p = _write(tmp_path, {"connectors": [
+        {"type": "gspro", "enabled": True, "omit_unsupported_fields": True},
+        {"type": "partee", "enabled": True, "omit_unsupported_fields": False},
+    ]})
+    by_type = {c.type: c.omit_unsupported_fields for c in load_sim_config(config_path=p)}
+    assert by_type == {"gspro": True, "partee": False}
+
+
 def test_malformed_json_degrades_to_empty(tmp_path):
     """A syntactically broken sim.json must not crash startup — sim is opt-in and
     the core shot pipeline doesn't depend on it (PR #115 review #4)."""

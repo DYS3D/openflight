@@ -95,6 +95,43 @@ requirements and setup specific to GSPro.
 | `BallData.CarryDistance` | OpenFlight's carry estimate |
 | `ClubData.Speed` / `Path` | measured if available (`ContainsClubData` set accordingly) |
 
+## OpenConnect field requirements
+
+The [OpenConnect V1 spec](https://gsprogolf.com/GSProConnectV1.html) annotates
+its example shot message inline. Verbatim, it marks:
+
+| Field | Spec annotation |
+|---|---|
+| `DeviceID`, `ShotNumber`, `APIversion` | `//required` |
+| `Units` | `//default yards` (no other value documented) |
+| `BallData.Speed`, `SpinAxis`, `TotalSpin`, `HLA`, `VLA` | `//required` |
+| `BallData.BackSpin`, `SideSpin` | `//only required if total spin is not sent` |
+| `BallData.CarryDistance` | `//optional` |
+| `ClubData.*` (all ten keys) | no annotation — listed as `0.0` with no required/optional marking |
+| `ShotDataOptions.ContainsBallData`, `ContainsClubData` | `//required` |
+| `ShotDataOptions.LaunchMonitorIsReady`, `LaunchMonitorBallDetected`, `IsHeartBeat` | `//not required` |
+
+The spec never says whether a `ClubData` key may be left out of the JSON, or
+whether GSPro reads `ClubData` when `ContainsClubData` is `false`. Its own
+example sends every club key as `0.0` with `ContainsClubData: false`.
+
+By default OpenFlight does the same: every `ClubData` key is sent, the ones it
+does not measure (`AngleOfAttack`, `FaceToTarget`, `Lie`, `Loft`,
+`SpeedAtImpact`, `VerticalFaceImpact`, `HorizontalFaceImpact`, `ClosureRate`,
+and `Path` when it was not measured) as `0.0`, and `ContainsClubData` is
+`true` only when club speed was measured.
+
+Set `"omit_unsupported_fields": true` on a connector to instead leave
+unmeasured `ClubData` keys out of the JSON entirely and set `ContainsClubData`
+to `true` when club speed **or** a measured club path is present. `BallData`,
+`ShotDataOptions`, and heartbeats are unchanged by this option: every
+`BallData` key is required (estimated values are still sent, as documented
+above) except `CarryDistance`, which OpenFlight sends deliberately.
+
+Whether GSPro accepts a `ClubData` object with missing keys has not been
+verified against a real GSPro install; the spec does not say. Leave the option
+off unless you have tested it.
+
 ## Club selection
 
 When you change clubs in GSPro, it sends a player update (code 201). OpenFlight

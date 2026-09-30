@@ -14,7 +14,8 @@
       "port": 921,
       "device_id": "OpenFlight",
       "units": "Yards",
-      "heartbeat_interval_s": 5
+      "heartbeat_interval_s": 5,
+      "omit_unsupported_fields": false
     },
     {
       "type": "partee",

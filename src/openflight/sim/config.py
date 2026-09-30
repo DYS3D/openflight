@@ -28,25 +28,32 @@ _DEFAULTS: Dict[str, dict] = {
         "units": "Yards",
         "device_id": "OpenFlight",
         "heartbeat_interval_s": 5.0,
+        "omit_unsupported_fields": False,
     },
     "opengolfsim": {
         "port": 3111,
         "units": "Yards",
         "device_id": "OpenFlight",
         "heartbeat_interval_s": 5.0,
+        "omit_unsupported_fields": False,
     },
     "partee": {
         "port": 921,
         "units": "Yards",
         "device_id": "OpenFlight",
         "heartbeat_interval_s": 5.0,
+        "omit_unsupported_fields": False,
     },
 }
 
 
 @dataclass
 class ConnectorConfig:
-    """One resolved simulator endpoint."""
+    """One resolved simulator endpoint.
+
+    ``omit_unsupported_fields`` leaves unmeasured ClubData keys off the wire
+    instead of sending 0.0 placeholders (see ``gspro.codec.GSProCodec``).
+    """
 
     type: str
     enabled: bool = False
@@ -55,6 +62,7 @@ class ConnectorConfig:
     units: str = "Yards"
     device_id: str = "OpenFlight"
     heartbeat_interval_s: float = 5.0
+    omit_unsupported_fields: bool = False
 
 
 def _with_defaults(connector_type: str, data: dict) -> ConnectorConfig:
@@ -68,6 +76,7 @@ def _with_defaults(connector_type: str, data: dict) -> ConnectorConfig:
         units=str(base.get("units", "Yards")),
         device_id=str(base.get("device_id", "OpenFlight")),
         heartbeat_interval_s=float(base.get("heartbeat_interval_s", 5.0)),
+        omit_unsupported_fields=bool(base.get("omit_unsupported_fields", False)),
     )
 
 

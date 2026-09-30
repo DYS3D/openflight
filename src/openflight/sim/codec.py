@@ -89,7 +89,12 @@ def _codec_for(cfg: "ConnectorConfig") -> Codec:
         raise ValueError(f"unknown simulator connector type: {cfg.type!r}")
     from openflight.gspro.codec import GSProCodec  # pylint: disable=import-outside-toplevel
 
-    return GSProCodec(device_id=cfg.device_id, units=cfg.units, name=cfg.type)
+    return GSProCodec(
+        device_id=cfg.device_id,
+        units=cfg.units,
+        name=cfg.type,
+        omit_unsupported_fields=cfg.omit_unsupported_fields,
+    )
 
 
 def build_connector(

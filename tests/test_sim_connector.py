@@ -7,7 +7,7 @@ import pytest
 
 from openflight.clubs import ClubType
 from openflight.gspro.codec import GSProCodec
-from openflight.sim.codec import build_connector, SimConnector
+from openflight.sim.codec import SimConnector, build_connector
 from openflight.sim.config import ConnectorConfig
 from openflight.sim.types import ConnectionState, PlayerUpdate, ResolvedShot
 
@@ -139,6 +139,13 @@ def test_build_connector_gspro():
     assert isinstance(c, SimConnector)
     assert c.name == "gspro"
     assert c.codec.device_id == "Bay7"
+    assert c.codec.omit_unsupported_fields is False
+
+
+@pytest.mark.parametrize("ctype", ["gspro", "opengolfsim", "partee"])
+def test_build_connector_passes_omit_unsupported_fields(ctype):
+    c = build_connector(ConnectorConfig(type=ctype, port=1, omit_unsupported_fields=True))
+    assert c.codec.omit_unsupported_fields is True
 
 
 def test_build_connector_opengolfsim_uses_shared_codec_named_ogs():

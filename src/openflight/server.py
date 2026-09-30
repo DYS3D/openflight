@@ -85,6 +85,7 @@ from .sim import (
     resolve_shot,
 )
 from .speed_correction import SpeedCorrectionConfig, correct_ball_speed
+from .spin_axis import SPIN_AXIS_MODELS, dplane_spin_axis
 from .spin_estimate import calculated_spin_rpm
 from .startup_status import StartupStatusReporter, configured_startup_components
 from .swing_speed import SwingSpeedEvent
@@ -2697,6 +2698,54 @@ VERTICAL_SPREAD_ZERO_CONFIDENCE_DEG = 10.0
 # non-null, only once the weaker of the two legs (horizontal launch) clears
 # this bar.
 SPIN_AXIS_MIN_CONFIDENCE = 0.6
+# --spin-axis-model: "legacy" (HLA - path) or "dplane" (see spin_axis.py).
+spin_axis_model = "legacy"
+
+
+def _derive_spin_axis(shot: Shot) -> None:
+    """Set spin axis from start direction and club path once both are trusted.
+
+    The D-plane model also needs a vertical launch angle; without one it
+    keeps the legacy difference so the shot behaves exactly as before.
+    """
+    if (
+        shot.launch_angle_horizontal is None
+        or shot.club_path_deg is None
+        or (shot.launch_angle_horizontal_confidence or 0.0) < SPIN_AXIS_MIN_CONFIDENCE
+    ):
+        return
+    if spin_axis_model == "dplane" and shot.launch_angle_vertical is not None:
+        estimate = dplane_spin_axis(
+            launch_horizontal_deg=shot.launch_angle_horizontal,
+            club_path_deg=shot.club_path_deg,
+            launch_vertical_deg=shot.launch_angle_vertical,
+            club=shot.club,
+            attack_angle_deg=shot.club_angle_deg,
+        )
+        shot.spin_axis_deg = round(estimate.spin_axis_deg, 1)
+        logger.info(
+            "[SERVER] Spin axis (D-plane): %+.1f° (HLA=%+.1f°, path=%+.1f°, "
+            "face-to-path=%+.1f°, VLA=%.1f°, dynamic loft=%.1f°, AoA=%+.1f° [%s], "
+            "spin loft=%.1f°, club=%s)",
+            shot.spin_axis_deg,
+            shot.launch_angle_horizontal,
+            shot.club_path_deg,
+            estimate.face_to_path_deg,
+            shot.launch_angle_vertical,
+            estimate.dynamic_loft_deg,
+            estimate.attack_angle_deg,
+            estimate.attack_angle_source,
+            estimate.spin_loft_deg,
+            shot.club.value,
+        )
+        return
+    shot.spin_axis_deg = round(shot.launch_angle_horizontal - shot.club_path_deg, 1)
+    logger.info(
+        "[SERVER] Spin axis: %+.1f° (face=%+.1f° - path=%+.1f°)",
+        shot.spin_axis_deg,
+        shot.launch_angle_horizontal,
+        shot.club_path_deg,
+    )
 
 
 def vertical_confidence(measurement) -> float:
@@ -3462,18 +3511,7 @@ def _enrich_shot_from_optional_hardware(shot: Shot) -> _ShotEnrichmentResult:
             # club_path_deg can come from IWR6843 (_process_iwr6843_angle,
             # above) rather than K-LD7, so a failure here is not necessarily
             # a K-LD7 failure -- see the except block below.
-            if (
-                shot.launch_angle_horizontal is not None
-                and shot.club_path_deg is not None
-                and (shot.launch_angle_horizontal_confidence or 0.0) >= SPIN_AXIS_MIN_CONFIDENCE
-            ):
-                shot.spin_axis_deg = round(shot.launch_angle_horizontal - shot.club_path_deg, 1)
-                logger.info(
-                    "[SERVER] Spin axis: %+.1f° (face=%+.1f° - path=%+.1f°)",
-                    shot.spin_axis_deg,
-                    shot.launch_angle_horizontal,
-                    shot.club_path_deg,
-                )
+            _derive_spin_axis(shot)
 
             if kld7_vertical or kld7_horizontal:
                 kld7_ms = (time.time() - kld7_start) * 1000
@@ -5143,6 +5181,16 @@ def main():
         ),
     )
     parser.add_argument(
+        "--spin-axis-model",
+        choices=SPIN_AXIS_MODELS,
+        default="legacy",
+        help=(
+            "How spin axis is derived from horizontal launch and club path. "
+            "legacy (default): HLA minus club path. dplane: D-plane model using "
+            "face-to-path and spin loft (see src/openflight/spin_axis.py)"
+        ),
+    )
+    parser.add_argument(
         "--kld7-mount-tilt",
         type=float,
         default=os.getenv("KLD7_MOUNT_TILT"),
@@ -5309,6 +5357,8 @@ def main():
     _VERTICAL_RADAR_GATE_BYPASS = args.kld7_vertical_raw
     global calculated_spin_enabled
     calculated_spin_enabled = args.calculated_spin
+    global spin_axis_model
+    spin_axis_model = args.spin_axis_model
     global radar_auto_reconnect_enabled
     radar_auto_reconnect_enabled = args.radar_auto_reconnect
     ballistics_enabled = args.ballistics

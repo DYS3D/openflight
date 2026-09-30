@@ -1,6 +1,10 @@
 import { createRoot } from 'react-dom/client';
 import { StatsPanel, type StatsView } from '../../../src/components/panel/StatsPanel';
+import { LevelPanel } from '../../../src/components/panel/LevelPanel';
+import { PracticePanel } from '../../../src/components/panel/PracticePanel';
 import { TvDisplay } from '../../../src/components/TvDisplay';
+import { isLocaleId } from '../../../src/i18n';
+import { useLocaleStore } from '../../../src/stores/useLocaleStore';
 import { makeTestFlight, makeTestShot } from '../../../src/test/shotFixtures';
 import { applyTheme } from '../../../src/theme/theme';
 import type { Shot } from '../../../src/types/shot';
@@ -8,7 +12,11 @@ import '../../../src/components/panel/panel.css';
 
 const params = new URLSearchParams(window.location.search);
 const view = params.get('view') ?? 'dispersion';
+const locale = params.get('locale');
 applyTheme(params.get('theme') === 'light' ? 'light' : 'dark');
+if (isLocaleId(locale)) {
+  useLocaleStore.getState().setLocale(locale);
+}
 
 const BAG: ReadonlyArray<readonly [string, number]> = [
   ['driver', 250],
@@ -34,7 +42,7 @@ const SPREAD: ReadonlyArray<readonly [number, number]> = [
   [-2, -7],
 ];
 
-const shots: Shot[] = BAG.flatMap(([club, carry], clubIndex) =>
+const allShots: Shot[] = BAG.flatMap(([club, carry], clubIndex) =>
   SPREAD.map(([long, lateral], shotIndex) =>
     makeTestShot({
       club,
@@ -46,21 +54,31 @@ const shots: Shot[] = BAG.flatMap(([club, carry], clubIndex) =>
     })
   )
 );
+/** `shots=N` keeps the first N shots (0, 1, 30…); the default is the whole bag. */
+const shotCount = params.get('shots');
+const shots = shotCount === null ? allShots : allShots.slice(0, Number(shotCount));
 
-createRoot(document.getElementById('root')!).render(
+const fixture =
   view === 'tv' ? (
     <TvDisplay connected shots={shots} profileId="james" profileName="James" />
   ) : (
     <div className="panel-app">
       <main className="panel-app__main">
-        <StatsPanel
-          shots={shots}
-          activeClub="7-iron"
-          profileId="james"
-          profileName="James"
-          initialView={view as StatsView}
-        />
+        {view === 'level' ? (
+          <LevelPanel status={{ pitch_deg: 1.25, roll_deg: -0.4, level: false, threshold_deg: 1 }} />
+        ) : view === 'practice' ? (
+          <PracticePanel shots={shots} profileId="james" profileName="James" />
+        ) : (
+          <StatsPanel
+            shots={shots}
+            activeClub="7-iron"
+            profileId="james"
+            profileName="James"
+            initialView={view as StatsView}
+          />
+        )}
       </main>
     </div>
-  )
-);
+  );
+
+createRoot(document.getElementById('root')!).render(fixture);

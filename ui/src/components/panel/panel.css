@@ -1432,6 +1432,7 @@
 }
 
 .menu-sheet__select {
+  flex: 0 0 auto;
   width: 100%;
   min-height: 44px;
   appearance: auto;
@@ -1485,12 +1486,15 @@
 /* Practice and Level share one row so the sheet stays short on 800×400. */
 .menu-sheet__tools {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
+/* A long label (fr "Entraînement") takes its own row instead of running into its neighbour. */
 .menu-sheet__tools > .menu-sheet__practice {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  padding: 0 12px;
 }
 
 .menu-sheet__practice {

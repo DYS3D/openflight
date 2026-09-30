@@ -771,6 +771,7 @@ class TestBackgroundWriter:
         logger = SessionLogger(log_dir=tmp_path, enabled=True)
         logger.start_session(mode="rolling-buffer", trigger_type="sound")
         stream = _RecordingStream()
+        logger._session_file.close()
         logger._session_file = stream
 
         logger.log_error("one")
@@ -845,6 +846,7 @@ class TestBackgroundWriter:
         logger = SessionLogger(log_dir=tmp_path, enabled=True)
         logger.start_session(mode="rolling-buffer", trigger_type="sound")
         stream = _RecordingStream(fail_first_write=True)
+        logger._session_file.close()
         logger._session_file = stream
 
         logger.log_error("lost")

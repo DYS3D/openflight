@@ -50,7 +50,7 @@
   display: block;
   margin-bottom: 2px;
   color: var(--color-accent);
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -151,7 +151,7 @@
 
 .camera-replay__playback-label {
   color: var(--color-text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -182,7 +182,7 @@
   background: transparent;
   color: var(--color-text);
   font: inherit;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -205,7 +205,7 @@
   margin-left: auto;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 .camera-replay__status {

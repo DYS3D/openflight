@@ -47,7 +47,7 @@
   /* Estimated ≈ is 16px; keep titles the same height without it. */
   min-height: 16px;
   letter-spacing: 0.18em;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   line-height: 1;
   white-space: nowrap;
 }

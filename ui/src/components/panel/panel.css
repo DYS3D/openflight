@@ -62,7 +62,7 @@
 
 .panel__empty-detail {
   font-weight: 500;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
@@ -140,7 +140,7 @@
 .panel-header__status-label {
   flex: 1;
   font-weight: 500;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-text-muted);
@@ -154,7 +154,7 @@
 
 .panel-header__title {
   font-weight: 700;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--color-text);
@@ -169,7 +169,7 @@
 
 .panel-header__subtitle {
   font-weight: 500;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-text-muted);
@@ -180,7 +180,7 @@
 
 .panel-header__club {
   font-weight: 600;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.04em;
   color: var(--color-text);
   overflow: hidden;
@@ -198,12 +198,12 @@
 .panel-header__actions .panel-action {
   height: var(--panel-control-height, 32px);
   padding: 0 14px;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
 }
 
 .panel-header__meta {
   font-weight: 600;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-text-muted);
@@ -242,7 +242,7 @@
   color: var(--color-text);
   font-family: inherit;
   font-weight: 600;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -353,7 +353,7 @@
 
 .panel-footer__units {
   font-weight: 600;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-text-muted);
@@ -794,7 +794,7 @@
 
 .profiles-panel__count {
   font-weight: 600;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-text);
@@ -862,7 +862,7 @@
   border-top: 1px solid var(--color-border);
   flex-shrink: 0;
   font-weight: 600;
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--color-text-muted);
@@ -921,7 +921,7 @@
 
 .shots-panel__profile-name {
   font-weight: 600;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -930,7 +930,7 @@
 
 .shots-panel__profile-club {
   font-weight: 500;
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-text-faint);
@@ -967,7 +967,7 @@
   color: var(--color-text-muted);
   font-family: inherit;
   font-weight: 600;
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;
@@ -1002,7 +1002,7 @@
   flex-direction: column;
   gap: 4px;
   font-weight: 600;
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-text-faint);
@@ -1094,7 +1094,7 @@
 
 .menu-sheet__section-title {
   font-weight: 700;
-  font-size: 0.59rem;
+  font-size: 0.75rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--color-text-muted);
@@ -1120,7 +1120,7 @@
   color: var(--color-text);
   font-family: inherit;
   font-weight: 600;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -1138,7 +1138,7 @@
   background: transparent;
   color: var(--color-text-faint);
   font-family: inherit;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -1181,13 +1181,13 @@
 .menu-sheet__status-label {
   flex: 1;
   font-weight: 500;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
 .menu-sheet__status-value {
   font-weight: 600;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text);
 }
 
@@ -1199,7 +1199,7 @@
   color: var(--color-danger);
   font-family: inherit;
   font-weight: 700;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   cursor: pointer;
@@ -1527,7 +1527,7 @@
   color: var(--color-text);
   font-family: inherit;
   font-weight: 700;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;

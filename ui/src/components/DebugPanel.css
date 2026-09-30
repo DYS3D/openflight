@@ -96,13 +96,13 @@
 
 .debug-panel__hint {
   margin: var(--space-sm) 0 0;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
 .debug-panel__mock-warning {
   margin: 0 0 var(--space-sm);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-warning);
 }
 
@@ -127,7 +127,7 @@
 }
 
 .system-status__label {
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -152,7 +152,7 @@
   display: inline-block;
   padding: 2px 8px;
   border-radius: var(--radius);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -228,7 +228,7 @@
 }
 
 .last-trigger__time {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
@@ -259,7 +259,7 @@
 }
 
 .last-trigger__speed-label {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
   font-weight: 600;
 }
@@ -281,7 +281,7 @@
 }
 
 .last-trigger__meta-item {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
   background: var(--color-surface);
   padding: 2px 6px;
@@ -303,7 +303,7 @@
 }
 
 .last-trigger__shot-label {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
@@ -349,12 +349,12 @@
 }
 
 .trigger-row__time {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
 .trigger-row__badge {
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   font-weight: 700;
   padding: 1px 6px;
   border-radius: var(--radius);
@@ -380,12 +380,12 @@
 }
 
 .trigger-row__reason {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
 .trigger-row__speed {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
   font-family: var(--font-body);
 }
@@ -492,7 +492,7 @@
 .slider-control__range {
   display: flex;
   justify-content: space-between;
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
@@ -517,7 +517,7 @@
   }
 
   .debug-panel__section h4 {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
     margin-bottom: var(--space-xs);
   }
 
@@ -526,11 +526,11 @@
   }
 
   .system-status__label {
-    font-size: 0.5625rem;
+    font-size: 0.75rem;
   }
 
   .system-status__value {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
   }
 
   .last-trigger__status {
@@ -538,12 +538,12 @@
   }
 
   .last-trigger__reason {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
   }
 
   .last-trigger__speed-label,
   .last-trigger__speed-value {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
   }
 
   .last-trigger__shot-result {
@@ -551,12 +551,12 @@
   }
 
   .trigger-row__reason {
-    font-size: 0.625rem;
+    font-size: 0.75rem;
   }
 
   .debug-tabs__tab {
     padding: var(--space-xs) var(--space-sm);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     min-height: 28px;
   }
 
@@ -566,7 +566,7 @@
 
   .slider-control__label,
   .slider-control__value {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
   }
 
   .slider-control__input {
@@ -584,6 +584,6 @@
   }
 
   .debug-panel__hint {
-    font-size: 0.5625rem;
+    font-size: 0.75rem;
   }
 }

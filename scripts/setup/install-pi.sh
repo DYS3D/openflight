@@ -8,7 +8,7 @@
 # service; then runs the post-install self-test.
 #
 # From a fresh Pi:
-#   curl -fsSL https://raw.githubusercontent.com/open-flight/openflight/main/scripts/setup/install-pi.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/DYS3D/openflight/improvements/scripts/setup/install-pi.sh | bash -s -- --repo https://github.com/DYS3D/openflight.git --branch improvements
 # From a clone:
 #   ./scripts/setup/install-pi.sh [options]
 #

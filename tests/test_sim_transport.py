@@ -4,6 +4,7 @@ Exercises TcpSimClient through a real codec (GSProCodec) against the mock
 sim server, plus framing unit tests for the brace-balanced JSON framer.
 """
 import json
+import threading
 import time
 from typing import List, Optional
 
@@ -90,13 +91,28 @@ def _client(host, port, hb=60.0, codec=None, **kw) -> TcpSimClient:
     return TcpSimClient(host, port, codec or GSProCodec(), heartbeat_interval_s=hb, **kw)
 
 
-def _wait_for_state(client, state, deadline=3.0):
-    end = time.time() + deadline
-    while time.time() < end:
-        if client.state == state:
-            return True
-        time.sleep(0.05)
-    return False
+def _wait_until(condition, timeout=3.0, poll_s=0.005) -> bool:
+    """Poll ``condition`` until it is truthy or ``timeout`` elapses."""
+    pause = threading.Event()
+    end = time.monotonic() + timeout
+    while not condition():
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            return False
+        pause.wait(min(poll_s, remaining))
+    return True
+
+
+def _wait_for_state(client, state, timeout=3.0):
+    return _wait_until(lambda: client.state == state, timeout)
+
+
+class _FakeClock:
+    def __init__(self, now: float = 1000.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
 
 
 def _resolved() -> ResolvedShot:
@@ -114,10 +130,7 @@ def test_send_shot_arrives_at_server(mock_sim):
     try:
         assert _wait_for_state(client, ConnectionState.CONNECTED)
         client.send_raw(client._codec.build_shot(_resolved()))
-        deadline = time.time() + 1.0
-        while time.time() < deadline and not mock_sim.received:
-            time.sleep(0.05)
-        assert mock_sim.received
+        assert _wait_until(lambda: mock_sim.received, 1.0)
         obj = json.loads(mock_sim.received[0])
         assert obj["ShotNumber"] == 7
         assert obj["BallData"]["Speed"] == 140.0
@@ -131,9 +144,7 @@ def test_recv_dispatches_inbound_events(mock_sim):
     mock_sim.queue_reply({"Code": 201, "Player": {"Handed": "LH", "Club": "I7"}})
     client.start()
     try:
-        deadline = time.time() + 1.5
-        while time.time() < deadline and not events:
-            time.sleep(0.05)
+        assert _wait_until(lambda: events, 1.5)
         assert len(events) == 1
         assert isinstance(events[0], PlayerUpdate)
         assert events[0].club is ClubType.IRON_7
@@ -148,9 +159,7 @@ def test_recv_handles_split_and_concatenated_frames(mock_sim):
     mock_sim.queue_raw(b'{"Code":200}{"Code":200}')
     client.start()
     try:
-        deadline = time.time() + 1.5
-        while time.time() < deadline and len(events) < 2:
-            time.sleep(0.05)
+        assert _wait_until(lambda: len(events) >= 2, 1.5)
         assert len(events) == 2
         assert all(isinstance(e, ShotAck) for e in events)
     finally:
@@ -162,37 +171,46 @@ def test_heartbeats_are_sent_periodically(mock_sim):
     client.start()
     try:
         assert _wait_for_state(client, ConnectionState.CONNECTED)
-        time.sleep(0.7)
-        beats = [m for m in mock_sim.received if b'"IsHeartBeat":true' in m]
-        assert len(beats) >= 2
+
+        def beats():
+            return [m for m in mock_sim.received if b'"IsHeartBeat":true' in m]
+
+        assert _wait_until(lambda: len(beats()) >= 2, 2.0)
     finally:
         client.stop()
 
 
-def test_heartbeat_suppressed_after_recent_send(mock_sim):
-    client = _client(mock_sim.host, mock_sim.port, hb=0.5)
-    client.start()
-    try:
-        assert _wait_for_state(client, ConnectionState.CONNECTED)
-        time.sleep(0.05)
-        for _ in range(3):
-            client.send_raw(b'{"hello":"world"}')
-            time.sleep(0.3)
-        beats = [m for m in mock_sim.received if b'"IsHeartBeat":true' in m]
-        assert len(beats) <= 1
-    finally:
-        client.stop()
+def test_heartbeat_suppressed_after_recent_send():
+    clock = _FakeClock()
+    client = _client("127.0.0.1", 1, hb=0.5, clock=clock)
+
+    class _Sink:
+        def sendall(self, _data):
+            pass
+
+    client._sock = _Sink()
+    client.send_raw(b'{"hello":"world"}')
+
+    clock.now += 0.3
+    assert not client._heartbeat_due(0.5)
+    client.send_raw(b'{"hello":"world"}')
+    clock.now += 0.3
+    assert not client._heartbeat_due(0.5)
+    clock.now += 0.2
+    assert client._heartbeat_due(0.5)
 
 
 def test_no_heartbeat_thread_when_codec_has_none(mock_sim):
     client = _client(mock_sim.host, mock_sim.port, hb=0.1, codec=_NoHeartbeatCodec())
     client.start()
     try:
-        assert _wait_for_state(client, ConnectionState.CONNECTED)
-        time.sleep(0.5)
-        # Codec sends no heartbeat; the server should have received nothing.
-        assert not mock_sim.received
         assert client._hb_thread is None
+        assert _wait_for_state(client, ConnectionState.CONNECTED)
+        # Codec sends no heartbeat or hello, so the first bytes the server
+        # sees are our own frame.
+        client.send_raw(b'{"sentinel":1}')
+        assert _wait_until(lambda: mock_sim.received, 1.0)
+        assert mock_sim.received[0] == b'{"sentinel":1}'
     finally:
         client.stop()
 
@@ -206,10 +224,7 @@ def test_on_connect_bytes_sent_on_connect(mock_sim):
     client.start()
     try:
         assert _wait_for_state(client, ConnectionState.CONNECTED)
-        deadline = time.time() + 1.0
-        while time.time() < deadline and not mock_sim.received:
-            time.sleep(0.05)
-        assert mock_sim.received
+        assert _wait_until(lambda: mock_sim.received, 1.0)
         assert json.loads(mock_sim.received[0]) == {"type": "device", "status": "ready"}
     finally:
         client.stop()
@@ -238,10 +253,7 @@ def test_reconnect_after_server_drop(mock_sim):
         # wait for the server to receive it so there's a live client socket to
         # drop (otherwise disconnect_client() no-ops and the test flakes).
         client.send_raw(client._codec.build_shot(_resolved()))
-        recv_deadline = time.time() + 2.0
-        while time.time() < recv_deadline and not mock_sim.received:
-            time.sleep(0.02)
-        assert mock_sim.received
+        assert _wait_until(lambda: mock_sim.received, 2.0)
         mock_sim.disconnect_client()
         assert _wait_for_state(client, ConnectionState.RECONNECT_BACKOFF, 2.0)
         assert _wait_for_state(client, ConnectionState.CONNECTED, 3.0)
@@ -254,16 +266,22 @@ def test_backoff_progression_capped():
                           backoff_seconds=(0.05, 0.1, 0.1))
     statuses = []
     client.on_status = statuses.append
-    client.start()
-    time.sleep(0.5)
-    client.stop()
     # Before the first successful connection the client reports CONNECTING during
     # the retry backoff (RECONNECT_BACKOFF is reserved for a connection that was
     # established and then dropped). The backoff schedule is still carried on
     # next_retry_in_s, so assert on the CONNECTING retries here.
-    backoffs = [s.next_retry_in_s for s in statuses
+    def retry_backoffs():
+        return [s.next_retry_in_s for s in statuses
                 if s.state == ConnectionState.CONNECTING and s.next_retry_in_s > 0]
-    assert len(backoffs) >= 2
+
+    client.start()
+    try:
+        # Three retries walk the whole schedule, including the capped tail.
+        assert _wait_until(lambda: len(retry_backoffs()) >= 3, 3.0)
+    finally:
+        client.stop()
+    backoffs = retry_backoffs()
+    assert backoffs[:3] == [0.05, 0.1, 0.1]
     assert max(backoffs) <= 0.1
 
 

@@ -38,6 +38,7 @@ Binding, ports, and debug output.
 | `--update-remote` | default `origin` | Git remote the update check fetches |
 | `--update-branch` | default `main` | Branch to follow; the Pi must be checked out on it |
 | `--update-check-hours` | float; default `6` | Hours between automatic update checks |
+| `--level-warning-deg` | float; default `0` (off) | With `--inclinometer`: send a `level_status` event (UI banner) when enclosure pitch or roll exceeds this many degrees; clears below 0.8× |
 | `--startup-status-file` | path | Write structured initialization progress for the optional kiosk splash |
 | `--debug`, `-d` | flag | Enable verbose FFT/CFAR debug output |
 | `--radar-log` | flag | Log raw radar data to console (Python logging) |
@@ -117,6 +118,17 @@ LIS3DH enclosure tilt compensation.
 | `--inclinometer-zero-offset` | float | Degrees added to raw LIS3DH pitch (default: 0) |
 
 ## Ballistics & spin
+
+Opt-in accuracy models (see [Hardware validation](../setup/hardware-validation.md)):
+
+| Flag | Type / default | Description |
+| --- | --- | --- |
+| `--spin-axis-model` | `legacy` \| `dplane`; default `legacy` | `legacy` = horizontal launch minus club path (today). `dplane` = D-plane geometry: face-to-path from the start-direction ratio, spin loft from launch angle and attack angle, tilt = atan(tan(face-to-path)/tan(spin loft)). Labelled estimated |
+| `--show-normalized-carry` | flag; default off | Re-simulate each shot at sea level, 77 °F, 0% humidity and add `carry_normalized_yards` to the UI payload and session log |
+| `--ball-marker` | `none` \| `dot` \| `rct`; default `none` | Tell the radar spin estimator the ball has a metallic dot or is a Titleist RCT ball: expects the once-per-revolution line, prefers it over a 2× line, and lets a passing result reach the trusted band |
+| `--spin-octave-check` | flag; default off | Halve a spin pick that is ≈2× the club prior (or double one ≈0.5×) when a supporting spectral peak exists; tagged `octave_*` in `spin_method` |
+| `--inclinometer-roll-compensation` | flag; default off | With `--inclinometer`: rotate IWR6843 launch angles and club path by the measured enclosure roll into a level frame |
+
 
 Carry model and spin handling.
 

@@ -191,7 +191,42 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
       deleted; sessions and TI dumps still queued for cloud upload are kept.
       Set both to 0 to disable.
 
-## 8. Software updates (`--update-check`)
+## 8. Accuracy models (off by default)
+
+- [ ] **`--spin-axis-model dplane`.** Needs a club path (K-LD7 or IWR6843
+      path) and a vertical launch angle. Hit deliberate fades and draws next
+      to a TrackMan/GC: fade must read positive, and the size should sit
+      within a few degrees of the reference where `legacy` reads roughly a
+      third to a fifth of it. The `[SERVER] Spin axis (D-plane)` line lists
+      every input. Watch GSPro: curved shots should now curve.
+- [ ] **`--show-normalized-carry`.** Run with your real `--altitude-ft`,
+      `--temperature-f`, `--humidity`. `carry_normalized_yards` should be
+      shorter than carry at altitude and 1–2 yd longer than carry at the
+      default 59 °F; compare with TrackMan's normalized carry.
+- [ ] **`--ball-marker dot|rct`.** Put a ~6 mm foil dot on the ball (or use
+      RCT balls). Hit ~10 shots each with driver, 7-iron and wedge next to a
+      reference. In the session JSONL check `spin_method` contains
+      `marker_dot`, and no trusted spin (≥0.7) lands at 2× or 0.5× the
+      reference. Repeat with an unmarked ball and the same flag: nothing may
+      become trusted. Do not combine with `--calculated-spin`.
+- [ ] **`--spin-octave-check`.** Same shots; look for `+octave_halved` /
+      `+octave_doubled` tags. Offline it changed 1 of 41 committed captures.
+- [ ] **`--inclinometer-roll-compensation`.** Shim the right side of the
+      enclosure (viewed from behind): the startup log `roll` must go
+      positive and match a phone level. Then hit shots rolled ~3° with and
+      without the flag; horizontal launch should shift by about roll ×
+      vertical launch (radians).
+- [ ] **`--level-warning-deg 1.5`.** Tilt past 1.5°: log `Enclosure NOT
+      level`, UI banner "Unit is not level". Back under 1.2° clears it; it
+      must not flap near 1.5°. Reconnect a client and confirm it gets the
+      state.
+- [ ] **UI extras (menu → Display).** Big number after shot, consistency
+      colours (need ≥5 shots per club), voice callout (needs a voice on the
+      Pi's Chromium; silent otherwise), normalized carry line. Stats →
+      Flight / Dispersion / Gapping use the new `flight` payload; Practice
+      is under menu → System; TV layout at `/display?layout=tv`.
+
+## 9. Software updates (`--update-check`)
 
 See [Software updates](updates.md). Validate on the Pi before relying on it.
 
@@ -222,7 +257,7 @@ See [Software updates](updates.md). Validate on the Pi before relying on it.
 - [ ] **Offline.** Unplug the network and tap **Check now**: "Can't check for
       updates" with a git error, and nothing else changes.
 
-## 9. Installer and stable device names
+## 10. Installer and stable device names
 
 - [ ] `scripts/install.sh --dry-run` lists every step; the real run completes
       and `scripts/openflight-doctor.sh` passes after a reboot.

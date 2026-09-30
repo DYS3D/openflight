@@ -158,7 +158,8 @@ follows GSPro. Putts (`PT`) are out of scope and ignored.
   ([conversion tool](https://gsprogolf.com/convert.html)) and clear your Connect
   settings, then restart GSPro.
 - **Pill red (error):** GSPro returned an error code; hover the pill for the
-  message. The connection stays up.
+  message. The connection stays up, and the pill turns green again on the next
+  shot GSPro accepts.
 - **Shots don't appear in GSPro:** confirm a round is active and the Connect
   window shows the device connected. Check `sim_send` entries in the session
   log to confirm OpenFlight is sending.

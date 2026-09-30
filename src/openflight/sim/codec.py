@@ -10,7 +10,14 @@ from typing import Callable, List, Optional
 
 from openflight.sim.config import ConnectorConfig
 from openflight.sim.transport import DEFAULT_BACKOFF, Codec, TcpSimClient
-from openflight.sim.types import InboundEvent, ResolvedShot, StatusEvent
+from openflight.sim.types import (
+    ConnectionState,
+    InboundEvent,
+    ResolvedShot,
+    ShotAck,
+    SimError,
+    StatusEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +28,11 @@ class SimConnector:
     Callbacks are invoked as ``on_status(target, StatusEvent)`` and
     ``on_inbound(target, InboundEvent)`` so the server can multiplex several
     connectors through a single pair of handlers.
+
+    A ``SimError`` leaves the socket up, so the transport emits no status for
+    it; the server shows it as an "error" badge that nothing would otherwise
+    clear. The connector therefore re-emits its real connection state through
+    ``on_status`` on the first accepted shot after an error.
     """
 
     def __init__(
@@ -39,6 +51,7 @@ class SimConnector:
         self.port = port
         self._on_status_user = on_status
         self._on_inbound_user = on_inbound
+        self._sim_error_pending = False
         self._client = TcpSimClient(
             host=host,
             port=port,
@@ -51,12 +64,28 @@ class SimConnector:
         )
 
     def _handle_status(self, event: StatusEvent) -> None:
+        if event.state is not ConnectionState.CONNECTED:
+            # Any real transition already replaces the error badge.
+            self._sim_error_pending = False
         if self._on_status_user is not None:
             self._on_status_user(self.name, event)
 
     def _handle_inbound(self, event: InboundEvent) -> None:
         if self._on_inbound_user is not None:
             self._on_inbound_user(self.name, event)
+        if isinstance(event, SimError):
+            self._sim_error_pending = True
+        elif isinstance(event, ShotAck) and event.ok and self._sim_error_pending:
+            self._sim_error_pending = False
+            self._handle_status(
+                StatusEvent(
+                    state=self._client.state,
+                    target=self.name,
+                    host=self.host,
+                    port=self.port,
+                    message="shot accepted after error",
+                )
+            )
 
     def start(self) -> None:
         self._client.start()

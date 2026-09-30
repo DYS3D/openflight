@@ -9,7 +9,14 @@ from openflight.clubs import ClubType
 from openflight.gspro.codec import GSProCodec
 from openflight.sim.codec import SimConnector, build_connector
 from openflight.sim.config import ConnectorConfig
-from openflight.sim.types import ConnectionState, PlayerUpdate, ResolvedShot
+from openflight.sim.types import (
+    ConnectionState,
+    PlayerUpdate,
+    ResolvedShot,
+    ShotAck,
+    SimError,
+    StatusEvent,
+)
 
 
 def _resolved() -> ResolvedShot:
@@ -131,6 +138,89 @@ def test_reconnect_after_drop_reports_reconnecting(mock_sim):
         assert ConnectionState.RECONNECT_BACKOFF in states
     finally:
         c.stop()
+
+
+def test_sim_error_then_accepted_shot_reemits_real_state(mock_sim):
+    # A SimError keeps the socket up, so the transport never emits a status for
+    # it; the server renders it as an "error" badge. The next accepted shot must
+    # re-emit the connector's real state so that badge clears.
+    statuses = []
+    inbound = []
+    c = SimConnector(GSProCodec(), mock_sim.host, mock_sim.port,
+                     on_status=lambda name, evt: statuses.append(evt),
+                     on_inbound=lambda name, evt: inbound.append(evt))
+    mock_sim.queue_raw(b'{"Code":501,"Message":"boom"}{"Code":200,"Message":"OK"}')
+    c.start()
+    try:
+        deadline = time.time() + 2.0
+        while time.time() < deadline and len(inbound) < 2:
+            time.sleep(0.02)
+        assert [type(e) for e in inbound] == [SimError, ShotAck]
+        recovered = [s for s in statuses if s.message == "shot accepted after error"]
+        assert len(recovered) == 1
+        assert recovered[0].state is ConnectionState.CONNECTED
+        assert recovered[0].target == "gspro"
+        assert (recovered[0].host, recovered[0].port) == (mock_sim.host, mock_sim.port)
+        # It follows the ack, not the error.
+        assert statuses.index(recovered[0]) == len(statuses) - 1
+    finally:
+        c.stop()
+
+
+class _StubClient:
+    def __init__(self, state=ConnectionState.CONNECTED):
+        self.state = state
+
+
+def _offline_connector(statuses):
+    c = SimConnector(GSProCodec(), "127.0.0.1", 921,
+                     on_status=lambda name, evt: statuses.append((name, evt)))
+    c._client = _StubClient()
+    return c
+
+
+def test_ack_without_prior_error_emits_no_status():
+    statuses = []
+    c = _offline_connector(statuses)
+    c._handle_inbound(ShotAck(ok=True))
+    c._handle_inbound(ShotAck(ok=True))
+    assert statuses == []
+
+
+def test_error_then_rejected_ack_keeps_error_pending():
+    statuses = []
+    c = _offline_connector(statuses)
+    c._handle_inbound(SimError(message="boom"))
+    c._handle_inbound(ShotAck(ok=False, message="nope"))
+    assert statuses == []
+    c._handle_inbound(ShotAck(ok=True))
+    assert [evt.state for _n, evt in statuses] == [ConnectionState.CONNECTED]
+
+
+def test_error_status_reemitted_once_per_error():
+    statuses = []
+    c = _offline_connector(statuses)
+    c._handle_inbound(SimError(message="boom"))
+    c._handle_inbound(ShotAck(ok=True))
+    c._handle_inbound(ShotAck(ok=True))
+    assert len(statuses) == 1
+    name, evt = statuses[0]
+    assert name == "gspro" and evt.target == "gspro"
+    assert (evt.host, evt.port) == ("127.0.0.1", 921)
+
+
+def test_reconnect_after_error_clears_pending_without_extra_status():
+    # A real transition (drop → reconnect) already replaces the error badge, so
+    # the ack after reconnecting must not emit a second CONNECTED.
+    statuses = []
+    c = _offline_connector(statuses)
+    c._handle_inbound(SimError(message="boom"))
+    c._handle_status(StatusEvent(state=ConnectionState.RECONNECT_BACKOFF, target="gspro"))
+    c._handle_status(StatusEvent(state=ConnectionState.CONNECTED, target="gspro"))
+    c._handle_inbound(ShotAck(ok=True))
+    assert [evt.state for _n, evt in statuses] == [
+        ConnectionState.RECONNECT_BACKOFF, ConnectionState.CONNECTED,
+    ]
 
 
 def test_build_connector_gspro():

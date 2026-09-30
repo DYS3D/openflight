@@ -19,4 +19,5 @@ export { StatsPanel } from './StatsPanel';
 export { ShotsPanel } from './ShotsPanel';
 export { CameraPanel } from './CameraPanel';
 export { PracticePanel } from './PracticePanel';
+export { LevelPanel } from './LevelPanel';
 export { PANEL_VIEWS, type PanelView } from './views';

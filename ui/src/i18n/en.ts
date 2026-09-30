@@ -329,6 +329,17 @@ export const en = {
   'shape.pullFade': 'Pull fade',
   'shape.pullDraw': 'Pull draw',
 
+  'level.title': 'Level',
+  'level.pitch': 'Pitch',
+  'level.roll': 'Roll',
+  'level.threshold': 'Threshold ±{deg}°',
+  'level.instructions': 'Adjust the feet until both read 0.0°',
+  'level.ok': 'Level',
+  'level.notLevel': 'Not level',
+  'level.bubbleAria': 'Bubble level: pitch {pitch}°, roll {roll}°',
+  'level.empty': 'No level data',
+  'level.emptyDetail': 'Start the server with --inclinometer --level-warning-deg to enable the level tool',
+
   'display.tvAria': 'TV display mode',
   'display.streamUnavailable': 'Camera stream unavailable',
   'display.streamAlt': 'OpenFlight camera stream',

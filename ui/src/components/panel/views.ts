@@ -1,5 +1,5 @@
-/** `practice` opens from the menu sheet, so it has no footer tab. */
-export type PanelView = 'live' | 'profiles' | 'stats' | 'shots' | 'camera' | 'debug' | 'practice';
+/** `practice` and `level` open from the menu sheet, so they have no footer tab. */
+export type PanelView = 'live' | 'profiles' | 'stats' | 'shots' | 'camera' | 'debug' | 'practice' | 'level';
 
 /**
  * Footer tabs, in order. Design doc 6a uses text-only tabs, so no icons here.

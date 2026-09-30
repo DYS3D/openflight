@@ -333,6 +333,17 @@ export const fr: Messages = {
   'shape.pullFade': 'Pull fade',
   'shape.pullDraw': 'Pull draw',
 
+  'level.title': 'Niveau',
+  'level.pitch': 'Tangage',
+  'level.roll': 'Roulis',
+  'level.threshold': 'Seuil ±{deg}°',
+  'level.instructions': 'Réglez les pieds jusqu’à ce que les deux affichent 0,0°',
+  'level.ok': 'De niveau',
+  'level.notLevel': 'Pas de niveau',
+  'level.bubbleAria': 'Niveau à bulle : tangage {pitch}°, roulis {roll}°',
+  'level.empty': 'Aucune donnée de niveau',
+  'level.emptyDetail': 'Lancez le serveur avec --inclinometer --level-warning-deg pour activer le niveau',
+
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',
   'display.streamAlt': 'Flux caméra OpenFlight',

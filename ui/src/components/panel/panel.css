@@ -1194,6 +1194,112 @@
   min-height: 0;
 }
 
+/* ----------------------------------------------------------- level panel -- */
+
+.level-panel__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 24px;
+  padding: 12px 26px;
+  min-height: 0;
+  background: var(--color-surface);
+}
+
+.level-vial {
+  justify-self: center;
+  width: min(100%, 60vh);
+  height: auto;
+  max-height: 100%;
+  aspect-ratio: 1;
+  color: var(--color-warning);
+}
+
+.level-vial--level {
+  color: var(--color-success);
+}
+
+.level-vial__rim {
+  fill: transparent;
+  stroke: var(--color-border);
+  stroke-width: 3;
+}
+
+.level-vial__target {
+  fill: color-mix(in srgb, currentColor 12%, transparent);
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
+.level-vial__axis {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.level-vial__bubble {
+  fill: currentColor;
+  stroke: var(--color-surface);
+  stroke-width: 2;
+  transition:
+    cx 0.15s ease-out,
+    cy 0.15s ease-out;
+}
+
+.level-panel__readouts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.level-panel__readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.level-panel__readout-label,
+.level-panel__threshold {
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.level-panel__readout-value {
+  font-weight: 700;
+  font-size: clamp(2rem, 10vh, 3.5rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.level-panel__readout-unit {
+  font-size: 0.5em;
+  margin-left: 0.1em;
+}
+
+.level-panel__state {
+  font-weight: 700;
+  font-size: 0.875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+}
+
+.level-panel__body--level .level-panel__state {
+  color: var(--color-success);
+}
+
+.level-panel__instructions {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--color-text);
+}
+
 /* ------------------------------------------------------------ menu sheet -- */
 
 .panel-scrim {
@@ -1351,6 +1457,17 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+/* Practice and Level share one row so the sheet stays short on 800×400. */
+.menu-sheet__tools {
+  display: flex;
+  gap: 8px;
+}
+
+.menu-sheet__tools > .menu-sheet__practice {
+  flex: 1;
+  min-width: 0;
 }
 
 .menu-sheet__practice {

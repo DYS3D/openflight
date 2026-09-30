@@ -332,6 +332,17 @@ export const es: Messages = {
   'shape.pullFade': 'Pull fade',
   'shape.pullDraw': 'Pull draw',
 
+  'level.title': 'Nivel',
+  'level.pitch': 'Cabeceo',
+  'level.roll': 'Balanceo',
+  'level.threshold': 'Umbral ±{deg}°',
+  'level.instructions': 'Ajusta las patas hasta que ambos marquen 0,0°',
+  'level.ok': 'Nivelado',
+  'level.notLevel': 'No nivelado',
+  'level.bubbleAria': 'Nivel de burbuja: cabeceo {pitch}°, balanceo {roll}°',
+  'level.empty': 'Sin datos de nivel',
+  'level.emptyDetail': 'Inicia el servidor con --inclinometer --level-warning-deg para activar el nivel',
+
   'display.tvAria': 'Modo pantalla TV',
   'display.streamUnavailable': 'Transmisión de cámara no disponible',
   'display.streamAlt': 'Transmisión de cámara OpenFlight',

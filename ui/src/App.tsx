@@ -33,6 +33,7 @@ import {
   PanelAction,
   PickerOverlay,
   PracticePanel,
+  LevelPanel,
   ShotsPanel,
   StatsPanel,
   clubSections,
@@ -373,6 +374,7 @@ function AppContent() {
         {currentView === 'practice' && (
           <PracticePanel shots={shots} profileId={activeProfileId} profileName={activeProfileName} />
         )}
+        {currentView === 'level' && <LevelPanel />}
         {mockMode && (currentView === 'live' || currentView === 'practice') ? (
           <SimulateBubble
             label={isSwingSpeedMode ? t('app.simulateSwing') : t('app.simulateShot')}
@@ -394,6 +396,10 @@ function AppContent() {
           onOpenPractice={() => {
             setMenuOpen(false);
             setCurrentView('practice');
+          }}
+          onOpenLevel={() => {
+            setMenuOpen(false);
+            setCurrentView('level');
           }}
           onShutdown={() => {
             setMenuOpen(false);

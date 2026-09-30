@@ -21,6 +21,7 @@ interface MenuSheetProps {
   onOpenUpdate?: () => void;
   onCheckUpdates?: () => void;
   onOpenPractice?: () => void;
+  onOpenLevel?: () => void;
 }
 
 /**
@@ -38,6 +39,7 @@ export function MenuSheet({
   onOpenUpdate,
   onCheckUpdates,
   onOpenPractice,
+  onOpenLevel,
 }: MenuSheetProps) {
   const simStatuses = useSystemStore((state) => state.simStatuses);
   const { t } = useI18n();
@@ -107,10 +109,19 @@ export function MenuSheet({
 
         <section className="menu-sheet__section">
           <span className="menu-sheet__section-title">{t('menu.system')}</span>
-          {onOpenPractice ? (
-            <button type="button" className="menu-sheet__practice" onClick={onOpenPractice}>
-              {t('practice.title')}
-            </button>
+          {onOpenPractice || onOpenLevel ? (
+            <div className="menu-sheet__tools">
+              {onOpenPractice ? (
+                <button type="button" className="menu-sheet__practice" onClick={onOpenPractice}>
+                  {t('practice.title')}
+                </button>
+              ) : null}
+              {onOpenLevel ? (
+                <button type="button" className="menu-sheet__practice" onClick={onOpenLevel}>
+                  {t('level.title')}
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {Object.keys(simStatuses).length > 0 ? (
             <div className="menu-sheet__status-row">

@@ -101,3 +101,14 @@ describe('MenuSheet practice', () => {
     expect(renderMenu()).not.toContain('menu-sheet__practice');
   });
 });
+
+describe('MenuSheet level tool', () => {
+  it('offers a Level button in the System block only when the app wires it', () => {
+    const withLevel = renderToString(<MenuSheet onClose={() => {}} onShutdown={() => {}} onOpenLevel={() => {}} />);
+    expect(withLevel).toContain('menu-sheet__practice">Level<');
+    expect(withLevel.indexOf('>System<')).toBeLessThan(withLevel.indexOf('menu-sheet__practice">Level<'));
+    expect(withLevel.indexOf('menu-sheet__practice">Level<')).toBeLessThan(withLevel.indexOf('>Display<'));
+
+    expect(renderMenu()).not.toContain('>Level<');
+  });
+});

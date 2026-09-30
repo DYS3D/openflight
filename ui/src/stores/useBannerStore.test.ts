@@ -68,4 +68,17 @@ describe('useBannerStore', () => {
     useBannerStore.getState().clearReconnect();
     expect(useBannerStore.getState().reconnectAttempt).toBeNull();
   });
+
+  it('keeps the latest level_status for the Level tool while only warning when not level', () => {
+    const tilted = { pitch_deg: 2, roll_deg: 0, level: false, threshold_deg: 1 };
+    useBannerStore.getState().setLevelStatus(tilted);
+    expect(useBannerStore.getState().levelWarning).toEqual(tilted);
+    expect(useBannerStore.getState().levelStatus).toEqual(tilted);
+
+    const flat = { pitch_deg: 0.1, roll_deg: 0, level: true, threshold_deg: 1 };
+    useBannerStore.getState().setLevelStatus(flat);
+    expect(useBannerStore.getState().levelWarning).toBeNull();
+    expect(useBannerStore.getState().levelStatus).toEqual(flat);
+  });
+
 });

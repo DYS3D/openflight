@@ -332,6 +332,17 @@ export const pt: Messages = {
   'shape.pullFade': 'Pull fade',
   'shape.pullDraw': 'Pull draw',
 
+  'level.title': 'Nível',
+  'level.pitch': 'Arfagem',
+  'level.roll': 'Rolagem',
+  'level.threshold': 'Limite ±{deg}°',
+  'level.instructions': 'Ajuste os pés até que ambos marquem 0,0°',
+  'level.ok': 'Nivelado',
+  'level.notLevel': 'Não nivelado',
+  'level.bubbleAria': 'Nível de bolha: arfagem {pitch}°, rolagem {roll}°',
+  'level.empty': 'Sem dados de nível',
+  'level.emptyDetail': 'Inicie o servidor com --inclinometer --level-warning-deg para ativar o nível',
+
   'display.tvAria': 'Modo de tela de TV',
   'display.streamUnavailable': 'Transmissão da câmera indisponível',
   'display.streamAlt': 'Transmissão da câmera OpenFlight',

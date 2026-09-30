@@ -234,6 +234,12 @@ export const es: Messages = {
   'power.criticalDetail': 'Conecta OpenFlight a la corriente ahora.',
   'power.dismiss': 'Cerrar',
 
+  'menu.display': 'Pantalla',
+  'menu.bigNumberAfterShot': 'Número grande tras el golpe',
+  'menu.consistencyColors': 'Colores de consistencia',
+  'menu.voiceCallout': 'Anuncio por voz',
+  'menu.showNormalizedCarry': 'Mostrar carry normalizado',
+
   'display.tvAria': 'Modo pantalla TV',
   'display.streamUnavailable': 'Transmisión de cámara no disponible',
   'display.streamAlt': 'Transmisión de cámara OpenFlight',

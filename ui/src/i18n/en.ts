@@ -231,6 +231,12 @@ export const en = {
   'power.criticalDetail': 'Connect OpenFlight to external power now.',
   'power.dismiss': 'Dismiss',
 
+  'menu.display': 'Display',
+  'menu.bigNumberAfterShot': 'Big number after shot',
+  'menu.consistencyColors': 'Consistency colours',
+  'menu.voiceCallout': 'Voice callout',
+  'menu.showNormalizedCarry': 'Show normalized carry',
+
   'display.tvAria': 'TV display mode',
   'display.streamUnavailable': 'Camera stream unavailable',
   'display.streamAlt': 'OpenFlight camera stream',

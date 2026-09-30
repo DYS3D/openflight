@@ -235,6 +235,12 @@ export const fr: Messages = {
   'power.criticalDetail': 'Branchez OpenFlight sur le secteur maintenant.',
   'power.dismiss': 'Fermer',
 
+  'menu.display': 'Affichage',
+  'menu.bigNumberAfterShot': 'Grand chiffre après le coup',
+  'menu.consistencyColors': 'Couleurs de régularité',
+  'menu.voiceCallout': 'Annonce vocale',
+  'menu.showNormalizedCarry': 'Afficher le carry normalisé',
+
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',
   'display.streamAlt': 'Flux caméra OpenFlight',

@@ -50,6 +50,7 @@ nav = [
   { "Setup" = [
     "setup/index.md",
     "setup/raspberry-pi.md",
+    "setup/installer.md",
     "setup/rolling-buffer.md",
     "setup/auto-start.md",
     "setup/splash-screen.md",

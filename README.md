@@ -104,15 +104,18 @@ The script installs everything and walks you through the one-time hardware
 configuration (radar flash setup, legacy K-LD7 device naming, auto-start, and
 optional cloud sync) with prompts. It's safe to re-run any time.
 
-Prefer no prompts? The one-command installer sets up packages, Node.js, uv, the
-UI build, serial permissions, udev rules, the GPIO UART (`--uart`), and the
-boot-time kiosk, then runs a self-test:
+Prefer no prompts? On a Pi 5 with Bookworm the idempotent installer sets up
+packages, uv, Node.js and the UI build, the GPIO UART, serial permissions, udev
+names for the radars, and the boot-time kiosk; the doctor then gives a
+PASS/FAIL checklist. See the **[One-Command Installer](docs/setup/installer.md)**.
 
 ```bash
-./scripts/setup/install-pi.sh --uart --altitude-ft 850         # flags optional
-uv run python scripts/hardware-test/self_test.py               # after rebooting
-./scripts/setup/flash-iwr6843.sh                               # optional TI radar firmware
+./scripts/install.sh --dry-run          # see every change first; flags: --with-iwr6843 --with-camera --no-kiosk
+./scripts/install.sh
+./scripts/openflight-doctor.sh          # after rebooting
+./scripts/setup/flash-iwr6843.sh        # optional: TI radar firmware
 ```
+
 See the **[Raspberry Pi Setup Guide](docs/setup/raspberry-pi.md)** for details and troubleshooting. Touchscreen installations can use the **[Startup Splash Screen](docs/setup/splash-screen.md)** guide to install a terminal-free desktop launcher with immediate startup progress.
 
 ### 4. Hit balls

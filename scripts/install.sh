@@ -13,7 +13,7 @@
 # From a clone:
 #   ./scripts/install.sh [options]
 # From a fresh Pi (clones into --dir, then runs the clone's installer):
-#   curl -fsSL https://raw.githubusercontent.com/open-flight/openflight/main/scripts/install.sh | bash -s -- --yes
+#   curl -fsSL https://raw.githubusercontent.com/DYS3D/openflight/improvements/scripts/install.sh | bash -s -- --yes --repo https://github.com/DYS3D/openflight.git --branch improvements
 #
 # Options:
 #   --yes                Do not ask for confirmation

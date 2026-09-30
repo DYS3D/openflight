@@ -12,6 +12,10 @@ Software configuration, once the hardware is wired.
 
     OS, dependencies, the setup script, and what it configures.
 
+- :material-download: **[One-command installer](installer.md)**
+
+    Idempotent Pi 5 install, stable radar names, and the PASS/FAIL doctor.
+
 - :material-content-save-outline: **[Rolling buffer setup](rolling-buffer.md)**
 
     The one-time flash-persist step. Hardware triggers do not work without it.

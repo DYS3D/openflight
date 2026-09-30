@@ -24,43 +24,23 @@ Make sure you have all the hardware. See the **[Parts List](../get-started/parts
 
 ## One-command install
 
-On a freshly flashed Raspberry Pi OS (64-bit), this does the dependency and
-service setup below without prompts — system packages (including Node.js 22 and uv), Python
-and UI dependencies, `dialout`/`gpio`/`i2c` group membership, udev rules for the
-OPS243-A and IWR6843, the boot-time kiosk service, desktop autologin, and a
-self-test:
+On a Raspberry Pi 5 with Raspberry Pi OS Bookworm (64-bit), `scripts/install.sh`
+does the dependency, UART, udev and service setup without prompts, then
+`scripts/openflight-doctor.sh` checks the result after a reboot:
 
 ```bash
 git clone https://github.com/open-flight/openflight.git
 cd openflight
-./scripts/setup/install-pi.sh
+./scripts/install.sh      # --dry-run shows every change first
+sudo reboot
+./scripts/openflight-doctor.sh
 ```
 
-| Flag | Effect |
-| --- | --- |
-| `--uart` | OPS243-A is on the GPIO UART: enables UART0, removes the serial console, and passes `--radar-port /dev/ttyAMA0` |
-| `--altitude-ft N`, `--temperature-f N` | Site conditions for the [ballistic model](../how-it-works/ballistics.md#site-conditions) |
-| `--server-args "..."` | Any other server flags (e.g. `--iwr6843`) |
-| `--no-service`, `--no-kiosk` | Skip the boot service or the autologin/screen-blanking changes |
-| `--dry-run` | Print every change without making it |
-
-Site settings are stored in `/etc/default/openflight` (`OPENFLIGHT_ARGS=...`);
-edit it and `sudo systemctl restart openflight` to change them later.
-
-Reboot afterwards so group and UART changes apply, then check the hardware:
-
-```bash
-uv run python scripts/hardware-test/self_test.py          # add --ops-port /dev/ttyAMA0 for UART
-```
-
-The self-test reuses the [diagnostic checks](#troubleshooting) for the radars and
-adds install checks (UI build, service, udev rules, permissions, disk space,
-IWR6843 firmware). To flash the IWR6843 with the validated
-release image, run `./scripts/setup/flash-iwr6843.sh`; it stops OpenFlight,
-finds the CP2105 port, and runs the guided [flashing tool](../iwr6843/flashing.md).
-
-The one-time OPS243-A [rolling-buffer flash setup](rolling-buffer.md) is still
-manual because it needs a power cycle.
+See the **[One-Command Installer](installer.md)** for its flags, the stable
+`/dev/openflight-*` radar names, the doctor's checklist, and the IWR6843 flash
+helper. The one-time OPS243-A [rolling-buffer flash setup](rolling-buffer.md)
+is still manual because it needs a power cycle; the interactive setup script
+below walks you through it.
 
 ## Setup
 

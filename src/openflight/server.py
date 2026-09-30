@@ -41,13 +41,20 @@ from .access import (
     add_access_args,
     is_loopback_address,
 )
-from .ballistics import AIR_DENSITY_STD, air_density_kg_m3, resolve_launch, simulate
+from .ballistics import (
+    AIR_DENSITY_STD,
+    Trajectory,
+    air_density_kg_m3,
+    resolve_launch,
+    simulate,
+)
 from .clubs import ClubType
 from .clubs.physics import (
     SHOT_SIMULATION_DEFAULTS,
     get_club_physics,
     get_club_simulation_profile,
 )
+from .inclinometer.level import LevelMonitor, level_frame_angles
 from .launch_monitor import (
     SPIN_CONFIDENCE_CALCULATED,
     SPIN_CONFIDENCE_RELIABLE,
@@ -85,6 +92,7 @@ from .sim import (
     resolve_shot,
 )
 from .speed_correction import SpeedCorrectionConfig, correct_ball_speed
+from .spin_axis import SPIN_AXIS_MODELS, dplane_spin_axis
 from .spin_estimate import calculated_spin_rpm
 from .startup_status import StartupStatusReporter, configured_startup_components
 from .swing_speed import SwingSpeedEvent
@@ -289,6 +297,10 @@ camera_ball_flight_reference_tracker = None
 # Optional LIS3DH enclosure orientation used to compensate TI mount tilt.
 inclinometer_service = None
 inclinometer_runtime_config: dict = {"enabled": False}
+inclinometer_roll_compensation_enabled = False
+level_monitor: LevelMonitor | None = None
+_level_status_stop = threading.Event()
+LEVEL_STATUS_POLL_S = 0.5
 
 # Ballistic model toggle. Shot carry comes from the physics simulator whenever
 # a vertical launch angle is available. Operators can explicitly disable it;
@@ -296,6 +308,9 @@ inclinometer_runtime_config: dict = {"enabled": False}
 ballistics_enabled: bool = True
 # Air density for the ballistic model, from --altitude-ft/--temperature-f/--humidity.
 air_density: float = AIR_DENSITY_STD
+# TrackMan normalization: sea level, 77 °F (25 °C), 0% humidity, no wind.
+NORMALIZED_AIR_DENSITY = air_density_kg_m3(altitude_m=0.0, temperature_c=25.0)
+show_normalized_carry: bool = False
 
 # Simulator connectors (optional). Populated in main() from config/sim.json +
 # CLI flags; shots fan out to every connected connector. Player/club state is
@@ -564,6 +579,7 @@ def _cleanup_hardware_for_shutdown() -> bool:
         _run_shutdown_step("K-LD7 vertical stop", kld7_vertical.stop)
     if kld7_horizontal:
         _run_shutdown_step("K-LD7 horizontal stop", kld7_horizontal.stop)
+    _level_status_stop.set()
     if inclinometer_service:
         _run_shutdown_step("inclinometer stop", inclinometer_service.stop)
     if iwr6843_runtime:
@@ -1115,7 +1131,52 @@ def shot_to_dict(shot: Shot) -> dict:
         if data[field] is not None:
             data[field] = round(data[field], digits) if digits is not None else round(data[field])
     data["carry_range"] = [round(value) for value in data["carry_range"]]
+    if "carry_normalized_yards" in data:
+        data["carry_normalized_yards"] = round(data["carry_normalized_yards"])
+    if shot.flight is not None:
+        data["flight"] = shot.flight
     return data
+
+
+FLIGHT_MAX_POINTS = 40
+
+
+def _flight_payload(trajectory: Trajectory, carry_yards: float | None = None) -> dict:
+    """Downsample a simulated flight for the UI, in yards (x downrange, y +right, z up).
+
+    With ``carry_yards`` the downrange and lateral axes are scaled so the
+    landing point matches a carry the shot already displays.
+    """
+    scale = 1.0
+    if carry_yards is not None and trajectory.carry_yards > 0:
+        scale = carry_yards / trajectory.carry_yards
+    points = trajectory.points
+    if len(points) > FLIGHT_MAX_POINTS:
+        last = len(points) - 1
+        points = [
+            points[round(index * last / (FLIGHT_MAX_POINTS - 1))]
+            for index in range(FLIGHT_MAX_POINTS)
+        ]
+    return {
+        "points": [
+            [round(point.x * scale, 2), round(point.y * scale, 2), round(point.z, 2)]
+            for point in points
+        ],
+        "carry_yards": round(trajectory.carry_yards * scale, 1),
+        "lateral_yards": round(trajectory.lateral_yards * scale, 1),
+        "apex_yards": round(trajectory.apex_yards, 1),
+        "landing_angle_deg": round(trajectory.landing_angle_deg, 1),
+        "flight_time_s": round(trajectory.flight_time_s, 2),
+    }
+
+
+def _attach_mock_flight(shot: Shot) -> None:
+    """Give a mock shot a display flight that lands at its displayed carry."""
+    conditions = resolve_launch(shot)
+    if conditions is None:
+        return
+    trajectory = simulate(conditions, air_density=air_density)
+    shot.flight = _flight_payload(trajectory, carry_yards=shot.estimated_carry_yards)
 
 
 @app.route("/")
@@ -1420,9 +1481,10 @@ def init_inclinometer(*, zero_offset_deg: float, bus_number: int = 1, address: i
 
         snapshot = startup.snapshot
         logger.info(
-            "Inclinometer enabled (raw pitch %+.2fdeg, calibrated %+.2fdeg)",
+            "Inclinometer enabled (raw pitch %+.2fdeg, calibrated %+.2fdeg, roll %+.2fdeg)",
             snapshot.raw_pitch_deg,
             snapshot.calibrated_pitch_deg,
+            snapshot.roll_deg,
         )
         if iwr6843_runtime is not None:
             configured_tilt = math.degrees(iwr6843_runtime.calibration.tilt_rad)
@@ -1457,6 +1519,47 @@ def init_inclinometer(*, zero_offset_deg: float, bus_number: int = 1, address: i
             "error": str(error),
         }
         return False
+
+
+def _poll_level_status() -> None:
+    """Broadcast ``level_status`` when the enclosure crosses the level threshold."""
+    if level_monitor is None or inclinometer_service is None:
+        return
+    snapshot = inclinometer_service.snapshot_for_impact(time.time()).snapshot
+    if snapshot is None:
+        return
+    if not level_monitor.update(snapshot.calibrated_pitch_deg, snapshot.roll_deg):
+        return
+    status = level_monitor.status
+    log = logger.info if status["level"] else logger.warning
+    log(
+        "[SERVER] Enclosure %s: pitch %+.2fdeg, roll %+.2fdeg (threshold %.2fdeg)",
+        "level" if status["level"] else "NOT level",
+        status["pitch_deg"],
+        status["roll_deg"],
+        status["threshold_deg"],
+    )
+    socketio.emit("level_status", status)
+
+
+def _level_status_loop() -> None:
+    while not _level_status_stop.wait(LEVEL_STATUS_POLL_S):
+        try:
+            _poll_level_status()
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.warning("[SERVER] Level status check failed", exc_info=True)
+
+
+def start_level_status_monitor(threshold_deg: float) -> None:
+    """Warn connected clients whenever the enclosure leaves or returns to level."""
+    global level_monitor  # pylint: disable=global-statement
+    level_monitor = LevelMonitor(threshold_deg)
+    _level_status_stop.clear()
+    threading.Thread(
+        target=_level_status_loop,
+        name="openflight-level-status",
+        daemon=True,
+    ).start()
 
 
 def init_kld7(
@@ -2015,6 +2118,8 @@ def handle_connect(auth=None, *_args):
     _reply("profiles", get_profile_store().snapshot())
     if power_monitor and power_monitor.status:
         _reply("power_status", power_monitor.status.to_dict())
+    if level_monitor is not None and level_monitor.status is not None:
+        _reply("level_status", level_monitor.status)
     if monitor:
         _reply("session_state", _session_state_payload(include_runtime_meta=True))
         _reply("trigger_status", _get_trigger_status())
@@ -2697,6 +2802,54 @@ VERTICAL_SPREAD_ZERO_CONFIDENCE_DEG = 10.0
 # non-null, only once the weaker of the two legs (horizontal launch) clears
 # this bar.
 SPIN_AXIS_MIN_CONFIDENCE = 0.6
+# --spin-axis-model: "legacy" (HLA - path) or "dplane" (see spin_axis.py).
+spin_axis_model = "legacy"
+
+
+def _derive_spin_axis(shot: Shot) -> None:
+    """Set spin axis from start direction and club path once both are trusted.
+
+    The D-plane model also needs a vertical launch angle; without one it
+    keeps the legacy difference so the shot behaves exactly as before.
+    """
+    if (
+        shot.launch_angle_horizontal is None
+        or shot.club_path_deg is None
+        or (shot.launch_angle_horizontal_confidence or 0.0) < SPIN_AXIS_MIN_CONFIDENCE
+    ):
+        return
+    if spin_axis_model == "dplane" and shot.launch_angle_vertical is not None:
+        estimate = dplane_spin_axis(
+            launch_horizontal_deg=shot.launch_angle_horizontal,
+            club_path_deg=shot.club_path_deg,
+            launch_vertical_deg=shot.launch_angle_vertical,
+            club=shot.club,
+            attack_angle_deg=shot.club_angle_deg,
+        )
+        shot.spin_axis_deg = round(estimate.spin_axis_deg, 1)
+        logger.info(
+            "[SERVER] Spin axis (D-plane): %+.1f° (HLA=%+.1f°, path=%+.1f°, "
+            "face-to-path=%+.1f°, VLA=%.1f°, dynamic loft=%.1f°, AoA=%+.1f° [%s], "
+            "spin loft=%.1f°, club=%s)",
+            shot.spin_axis_deg,
+            shot.launch_angle_horizontal,
+            shot.club_path_deg,
+            estimate.face_to_path_deg,
+            shot.launch_angle_vertical,
+            estimate.dynamic_loft_deg,
+            estimate.attack_angle_deg,
+            estimate.attack_angle_source,
+            estimate.spin_loft_deg,
+            shot.club.value,
+        )
+        return
+    shot.spin_axis_deg = round(shot.launch_angle_horizontal - shot.club_path_deg, 1)
+    logger.info(
+        "[SERVER] Spin axis: %+.1f° (face=%+.1f° - path=%+.1f°)",
+        shot.spin_axis_deg,
+        shot.launch_angle_horizontal,
+        shot.club_path_deg,
+    )
 
 
 def vertical_confidence(measurement) -> float:
@@ -2777,6 +2930,44 @@ def _snapshot_inclinometer_for_shot(shot: Shot) -> None:
         data["applied"] = False
         logger.warning("[SERVER] Inclinometer correction not applied: %s", selection.status)
     shot.inclinometer = data
+
+
+def _level_iwr_angles(
+    shot: Shot,
+    kind: str,
+    vertical_deg: float,
+    horizontal_deg: float,
+) -> tuple[float, float]:
+    """Rotate an IWR6843 (vertical, horizontal) pair by the pre-impact enclosure roll.
+
+    Returns the pair unchanged unless --inclinometer-roll-compensation is on
+    and this shot has an applied inclinometer snapshot. The radar-frame
+    values are kept under ``inclinometer["roll_compensation"][kind]``.
+    """
+    orientation = shot.inclinometer
+    if not inclinometer_roll_compensation_enabled or not orientation:
+        return vertical_deg, horizontal_deg
+    roll_deg = orientation.get("roll_deg")
+    if not orientation.get("applied") or roll_deg is None:
+        return vertical_deg, horizontal_deg
+    level_vertical, level_horizontal = level_frame_angles(vertical_deg, horizontal_deg, roll_deg)
+    orientation.setdefault("roll_compensation", {})[kind] = {
+        "roll_deg": roll_deg,
+        "radar_vertical_deg": round(vertical_deg, 3),
+        "radar_horizontal_deg": round(horizontal_deg, 3),
+        "level_vertical_deg": round(level_vertical, 3),
+        "level_horizontal_deg": round(level_horizontal, 3),
+    }
+    logger.info(
+        "[SERVER] Inclinometer roll %+.2fdeg: IWR %s angles V %.2f->%.2fdeg, H %+.2f->%+.2fdeg",
+        roll_deg,
+        kind,
+        vertical_deg,
+        level_vertical,
+        horizontal_deg,
+        level_horizontal,
+    )
+    return level_vertical, level_horizontal
 
 
 def _process_iwr6843_angle(shot: Shot) -> float | None:
@@ -2874,6 +3065,10 @@ def _process_iwr6843_angle(shot: Shot) -> float | None:
                     (horizontal_confidence or 0.0) * 100,
                     horizontal_status,
                 )
+                shot.launch_angle_vertical, shot.launch_angle_horizontal = _level_iwr_angles(
+                    shot, "ball", measurement.angle_deg, horizontal_deg
+                )
+                shot.iwr6843_horizontal_deg = shot.launch_angle_horizontal
             logger.info(
                 "[SERVER] IWR6843 LCMF-v1 launch: %.2f° "
                 "(%d snapshots/%d frames, component std %.2f°)",
@@ -2925,6 +3120,10 @@ def _process_iwr6843_angle(shot: Shot) -> float | None:
             shot.experimental_attack_angle_status = (
                 getattr(club_path, "attack_angle_status", None) or club_path.status
             )
+            if candidate_path is not None and candidate_attack is not None:
+                candidate_attack, candidate_path = _level_iwr_angles(
+                    shot, "club", candidate_attack, candidate_path
+                )
             if candidate_path is not None:
                 shot.experimental_club_path_deg = round(candidate_path, 1)
             if candidate_attack is not None:
@@ -3462,18 +3661,7 @@ def _enrich_shot_from_optional_hardware(shot: Shot) -> _ShotEnrichmentResult:
             # club_path_deg can come from IWR6843 (_process_iwr6843_angle,
             # above) rather than K-LD7, so a failure here is not necessarily
             # a K-LD7 failure -- see the except block below.
-            if (
-                shot.launch_angle_horizontal is not None
-                and shot.club_path_deg is not None
-                and (shot.launch_angle_horizontal_confidence or 0.0) >= SPIN_AXIS_MIN_CONFIDENCE
-            ):
-                shot.spin_axis_deg = round(shot.launch_angle_horizontal - shot.club_path_deg, 1)
-                logger.info(
-                    "[SERVER] Spin axis: %+.1f° (face=%+.1f° - path=%+.1f°)",
-                    shot.spin_axis_deg,
-                    shot.launch_angle_horizontal,
-                    shot.club_path_deg,
-                )
+            _derive_spin_axis(shot)
 
             if kld7_vertical or kld7_horizontal:
                 kld7_ms = (time.time() - kld7_start) * 1000
@@ -3608,6 +3796,15 @@ def _finalize_shot_detected(
         if conditions is not None:
             trajectory = simulate(conditions, air_density=air_density)
             shot.carry_spin_adjusted = trajectory.carry_yards
+            shot.flight = _flight_payload(trajectory)
+            if show_normalized_carry:
+                shot.carry_normalized_yards = simulate(
+                    conditions, air_density=NORMALIZED_AIR_DENSITY
+                ).carry_yards
+                logger.info(
+                    "[SERVER] Normalized carry: %.0f yds (sea level, 77 °F, 0%% RH)",
+                    shot.carry_normalized_yards,
+                )
             logger.info(
                 "[SERVER] Ballistic carry: %.0f yds (spin: %.0f rpm, source: %s)",
                 shot.carry_spin_adjusted,
@@ -3635,6 +3832,8 @@ def _finalize_shot_detected(
                 spin_for_carry,
                 "" if shot.spin_rpm and shot.spin_rpm > 0 else " avg",
             )
+    else:
+        _attach_mock_flight(shot)
     if shot.spin_rejection_reason:
         logger.info(
             "[SERVER] Spin unavailable: %s (snr=%s, candidate=%s rpm)",
@@ -4886,6 +5085,14 @@ def main():
         help="Relative humidity in percent for the ballistic carry model (default: 0)",
     )
     parser.add_argument(
+        "--show-normalized-carry",
+        action="store_true",
+        help=(
+            "Also report carry_normalized_yards: the same launch re-simulated at "
+            "TrackMan normalized conditions (sea level, 77 °F, 0%% humidity). Default off"
+        ),
+    )
+    parser.add_argument(
         "--log-retention-days",
         type=float,
         default=90,
@@ -4998,6 +5205,23 @@ def main():
         type=float,
         default=0.0,
         help="Degrees added to raw LIS3DH pitch (default: 0)",
+    )
+    parser.add_argument(
+        "--inclinometer-roll-compensation",
+        action="store_true",
+        help=(
+            "Rotate IWR6843 launch angles (and IWR club path/attack angle) by the "
+            "measured enclosure roll into a level frame. Requires --inclinometer. Default off"
+        ),
+    )
+    parser.add_argument(
+        "--level-warning-deg",
+        type=float,
+        default=0.0,
+        help=(
+            "Send level_status to the UI when enclosure pitch or roll exceeds this many "
+            "degrees (clears below 80%% of it). Requires --inclinometer. 0 = off (default)"
+        ),
     )
     parser.add_argument(
         "--iwr6843-port", default=None, help="TI serial port (auto-detect by default)"
@@ -5143,6 +5367,16 @@ def main():
         ),
     )
     parser.add_argument(
+        "--spin-axis-model",
+        choices=SPIN_AXIS_MODELS,
+        default="legacy",
+        help=(
+            "How spin axis is derived from horizontal launch and club path. "
+            "legacy (default): HLA minus club path. dplane: D-plane model using "
+            "face-to-path and spin loft (see src/openflight/spin_axis.py)"
+        ),
+    )
+    parser.add_argument(
         "--kld7-mount-tilt",
         type=float,
         default=os.getenv("KLD7_MOUNT_TILT"),
@@ -5243,6 +5477,12 @@ def main():
         parser.error("--iwr6843 and horizontal --kld7 cannot both own club path")
     if args.inclinometer and not args.iwr6843:
         parser.error("--inclinometer requires --iwr6843")
+    if args.level_warning_deg < 0:
+        parser.error("--level-warning-deg must not be negative")
+    if args.inclinometer_roll_compensation and not args.inclinometer:
+        parser.error("--inclinometer-roll-compensation requires --inclinometer")
+    if args.level_warning_deg > 0 and not args.inclinometer:
+        parser.error("--level-warning-deg requires --inclinometer")
     if args.iwr6843 and args.mock:
         parser.error("--iwr6843 cannot be used with --mock")
     if args.camera_capture and args.mock:
@@ -5309,6 +5549,12 @@ def main():
     _VERTICAL_RADAR_GATE_BYPASS = args.kld7_vertical_raw
     global calculated_spin_enabled
     calculated_spin_enabled = args.calculated_spin
+    global spin_axis_model
+    spin_axis_model = args.spin_axis_model
+    global show_normalized_carry
+    show_normalized_carry = args.show_normalized_carry
+    global inclinometer_roll_compensation_enabled
+    inclinometer_roll_compensation_enabled = args.inclinometer_roll_compensation
     global radar_auto_reconnect_enabled
     radar_auto_reconnect_enabled = args.radar_auto_reconnect
     ballistics_enabled = args.ballistics
@@ -5512,6 +5758,8 @@ def main():
             startup_status.skip("inclinometer", "Inclinometer unavailable; continuing")
         else:
             startup_status.ready("inclinometer", "Inclinometer connected")
+            if args.level_warning_deg > 0:
+                start_level_status_monitor(args.level_warning_deg)
 
     # Initialize K-LD7 angle radars (if enabled)
     if args.kld7:

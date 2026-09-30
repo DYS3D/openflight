@@ -224,6 +224,27 @@ def cmd_push(
         summary["skipped"] = "inactive"
         return summary
 
+    if dry_run:
+        return _push(config, log_dir, client, summary, dry_run, retry, session, out)
+    with spool.push_lock(log_dir) as acquired:
+        if not acquired:
+            out("Another upload is already running; skipping.")
+            summary["skipped"] = "busy"
+            return summary
+        return _push(config, log_dir, client, summary, dry_run, retry, session, out)
+
+
+def _push(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    config: CloudConfig,
+    log_dir: Path,
+    client,
+    summary: Dict[str, Any],
+    dry_run: bool,
+    retry: bool,
+    session: Optional[str],
+    out: OutFn,
+) -> Dict[str, Any]:
+    """Body of cmd_push; runs under the upload lock unless dry_run."""
     if retry:
         _apply_retry(log_dir, session, out)
 

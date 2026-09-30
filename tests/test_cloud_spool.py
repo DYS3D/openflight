@@ -157,3 +157,31 @@ class TestStatusSummary:
         assert summary["parked"] == 1
         assert summary["pending"] == 1
         assert summary["total"] == 3
+
+
+class TestAtomicMarkers:
+    def test_failed_write_keeps_the_previous_marker_intact(self, tmp_path, monkeypatch):
+        path = _session(tmp_path)
+        spool.mark_pushed(path, "sid-1", 3, captures=[{"path": "a", "shot_number": 1}])
+        before = spool._sidecar(path, spool.PUSHED_SUFFIX).read_text()
+
+        def crash(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(spool.os, "fsync", crash)
+        with pytest.raises(OSError):
+            spool.save_capture_queue(path, [], [{"path": "a", "reason": "x"}])
+
+        assert spool._sidecar(path, spool.PUSHED_SUFFIX).read_text() == before
+        assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+    def test_markers_are_not_left_as_temp_files(self, tmp_path):
+        path = _session(tmp_path)
+        spool.record_failure(path, "503")
+        spool.mark_parked(path, reason="x", attempts=1, last_error=None)
+        names = sorted(p.name for p in tmp_path.iterdir())
+        assert names == [
+            path.name,
+            path.name + spool.PARKED_SUFFIX,
+            path.name + spool.STATE_SUFFIX,
+        ]

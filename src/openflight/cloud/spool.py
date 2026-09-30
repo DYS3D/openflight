@@ -17,17 +17,21 @@ never re-read just to find its dumps.
 Originals are never moved or modified.
 """
 
+import fcntl
 import json
+import os
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 PUSHED_SUFFIX = ".pushed"
 PARKED_SUFFIX = ".parked"
 STATE_SUFFIX = ".state"
 
 SESSION_GLOB = "session_*.jsonl"
+LOCK_FILENAME = ".cloud-push.lock"
 
 # After this many failures, park the file and report via ``status`` instead of
 # retrying forever.
@@ -82,7 +86,37 @@ def read_attempts(path: Path) -> int:
 
 
 def _write_json(path: Path, data: Dict[str, Any]) -> None:
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    """Replace ``path`` atomically so a crash never leaves a truncated marker."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@contextmanager
+def push_lock(log_dir: Path) -> Iterator[bool]:
+    """Hold the per-directory upload lock; yields False if another push has it.
+
+    The session-end hook, the systemd timer, and the UI button can all start a
+    push. Without this they upload the same sessions twice and race on markers.
+    """
+    log_dir = Path(log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with open(log_dir / LOCK_FILENAME, "a", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def record_failure(path: Path, error: str) -> int:

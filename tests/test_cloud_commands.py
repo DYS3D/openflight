@@ -296,3 +296,49 @@ class TestStatus:
         text = "\n".join(out)
         assert "dev-1" in text
         assert "invalid_gzip" in text
+
+
+class TestPushConcurrency:
+    def test_second_push_skips_while_first_holds_the_lock(self, tmp_path):
+        _write_session(tmp_path, "session_a.jsonl", {"type": "session_start"})
+        client = FakeClient()
+        with spool.push_lock(tmp_path) as acquired:
+            assert acquired
+            result = commands.cmd_push(_linked_config(), tmp_path, client, out=lambda _m: None)
+        assert result["skipped"] == "busy"
+        assert client.uploaded == []
+
+    def test_lock_is_released_after_a_push(self, tmp_path):
+        client = FakeClient()
+        commands.cmd_push(_linked_config(), tmp_path, client, out=lambda _m: None)
+        with spool.push_lock(tmp_path) as acquired:
+            assert acquired
+
+    def test_dry_run_does_not_need_the_lock(self, tmp_path):
+        _write_session(tmp_path, "session_a.jsonl", {"type": "session_start"})
+        with spool.push_lock(tmp_path):
+            result = commands.cmd_push(
+                _linked_config(), tmp_path, FakeClient(), dry_run=True, out=lambda _m: None
+            )
+        assert "skipped" not in result
+
+    def test_lock_excludes_other_processes(self, tmp_path):
+        import subprocess
+        import sys
+
+        script = (
+            "import sys, time\n"
+            "from openflight.cloud import spool\n"
+            "with spool.push_lock(sys.argv[1]) as ok:\n"
+            "    print(ok, flush=True)\n"
+            "    time.sleep(1.5)\n"
+        )
+        holder = subprocess.Popen(
+            [sys.executable, "-c", script, str(tmp_path)], stdout=subprocess.PIPE, text=True
+        )
+        try:
+            assert holder.stdout.readline().strip() == "True"
+            with spool.push_lock(tmp_path) as acquired:
+                assert acquired is False
+        finally:
+            holder.wait(timeout=10)

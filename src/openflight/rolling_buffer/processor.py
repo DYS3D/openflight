@@ -201,6 +201,8 @@ class RollingBufferProcessor:
         self.hanning_window = np.hanning(self.WINDOW_SIZE)
         self.ball_marker = ball_marker
         self.spin_octave_check = spin_octave_check
+        # Called with every successfully parsed capture (--interference-check).
+        self.capture_observer: Optional[Callable[[IQCapture], None]] = None
         if ball_marker != "none" or spin_octave_check:
             logger.info(
                 "[PROCESSOR] Spin options: ball_marker=%s, octave_check=%s",
@@ -273,13 +275,16 @@ class RollingBufferProcessor:
                     )
                     return None
 
-                return IQCapture(
+                capture = IQCapture(
                     sample_time=sample_time,
                     trigger_time=trigger_time,
                     i_samples=i_samples,
                     q_samples=q_samples,
                     first_byte_timestamp=first_byte_timestamp,
                 )
+                if self.capture_observer is not None:
+                    self.capture_observer(capture)
+                return capture
 
             # Log what's missing
             missing = []

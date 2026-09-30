@@ -54,6 +54,7 @@ from .clubs.physics import (
     get_club_physics,
     get_club_simulation_profile,
 )
+from .derived_metrics import derive as derive_metrics, format_for_log as format_derived_for_log
 from .inclinometer.level import LevelMonitor, level_frame_angles
 from .launch_monitor import (
     SPIN_CONFIDENCE_CALCULATED,
@@ -311,6 +312,8 @@ air_density: float = AIR_DENSITY_STD
 # TrackMan normalization: sea level, 77 °F (25 °C), 0% humidity, no wind.
 NORMALIZED_AIR_DENSITY = air_density_kg_m3(altitude_m=0.0, temperature_c=25.0)
 show_normalized_carry: bool = False
+# --derived-metrics: attach the display-only "derived" block to UI shot payloads.
+derived_metrics_enabled: bool = False
 
 # Simulator connectors (optional). Populated in main() from config/sim.json +
 # CLI flags; shots fan out to every connected connector. Player/club state is
@@ -349,6 +352,9 @@ _shot_finalization_registered: dict[int, "_RegisteredShotFinalization"] = {}
 _shot_finalization_ready: dict[int, "_PendingShotFinalization"] = {}
 _shot_finalization_running = False
 _shot_finalization_worker: threading.Thread | None = None
+# Last rolling-buffer processing state ("capturing", "calculating", "failed");
+# cleared when the shot callback hands the shot to the server.
+_shot_processing_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1139,6 +1145,8 @@ def shot_to_dict(shot: Shot) -> dict:
         data["carry_normalized_yards"] = round(data["carry_normalized_yards"])
     if shot.flight is not None:
         data["flight"] = shot.flight
+    if shot.derived is not None:
+        data["derived"] = shot.derived
     return data
 
 
@@ -1174,13 +1182,26 @@ def _flight_payload(trajectory: Trajectory, carry_yards: float | None = None) ->
     }
 
 
-def _attach_mock_flight(shot: Shot) -> None:
+def _attach_mock_flight(shot: Shot) -> Trajectory | None:
     """Give a mock shot a display flight that lands at its displayed carry."""
     conditions = resolve_launch(shot)
     if conditions is None:
-        return
+        return None
     trajectory = simulate(conditions, air_density=air_density)
     shot.flight = _flight_payload(trajectory, carry_yards=shot.estimated_carry_yards)
+    return trajectory
+
+
+def _attach_derived_metrics(shot: Shot, trajectory: Trajectory | None) -> None:
+    """Attach the --derived-metrics block (rounded for display) and log it once."""
+    if not derived_metrics_enabled:
+        return
+    derived = derive_metrics(shot, trajectory)
+    for entry in derived.values():
+        if not isinstance(entry["value"], str):
+            entry["value"] = round(entry["value"], 2)
+    shot.derived = derived
+    logger.info("[SERVER] Derived metrics: %s", format_derived_for_log(derived))
 
 
 @app.route("/")
@@ -1984,6 +2005,16 @@ def on_radar_status(_state: str) -> None:
     socketio.emit("trigger_status", _get_trigger_status())
 
 
+def on_radar_health(payload: dict) -> None:
+    """Push a radar_health transition (--interference-check) to every client."""
+    socketio.emit("radar_health", payload)
+
+
+def _radar_health_snapshot() -> dict | None:
+    radar_health = getattr(monitor, "radar_health", None)
+    return radar_health.snapshot() if radar_health is not None else None
+
+
 def _current_club_id() -> str:
     """Club id the kiosk should restore after a reload."""
     if monitor is None:
@@ -2127,6 +2158,9 @@ def handle_connect(auth=None, *_args):
     if monitor:
         _reply("session_state", _session_state_payload(include_runtime_meta=True))
         _reply("trigger_status", _get_trigger_status())
+    radar_health = _radar_health_snapshot()
+    if radar_health is not None:
+        _reply("radar_health", radar_health)
     if update_service is not None:
         update_service.client_connected(_current_sid(), _client_is_kiosk())
 
@@ -2533,8 +2567,32 @@ def handle_shutdown(*_args):
 
 def on_shot_processing(state: str) -> None:
     """Forward the rolling-buffer processing lifecycle to the UI."""
+    global _shot_processing_state  # pylint: disable=global-statement
+    _shot_processing_state = state
     _note_shot_activity()
     socketio.emit("shot_processing", {"state": state})
+
+
+def _shot_in_progress() -> bool:
+    """A capture is being processed or a detected shot awaits finalization."""
+    if _shot_processing_state in ("capturing", "calculating"):
+        return True
+    with _shot_finalization_condition:
+        return bool(_shot_finalization_order) or _shot_finalization_running
+
+
+def _launch_monitor_ready_state() -> tuple[bool, bool]:
+    """(LaunchMonitorIsReady, LaunchMonitorBallDetected) for --gspro-ready-signals.
+
+    Ready means the radar is connected (or the monitor is a mock) and no shot
+    is in flight. Ball detected mirrors a camera runtime's ``ball_in_zone``
+    when it exposes one, else mirrors ready.
+    """
+    radar_ok = monitor is not None and (mock_mode or _get_trigger_status()["radar_connected"])
+    is_ready = radar_ok and not _shot_in_progress()
+    ball_in_zone = getattr(camera_capture_runtime, "ball_in_zone", None)
+    ball_detected = ball_in_zone if isinstance(ball_in_zone, bool) else is_ready
+    return is_ready, ball_detected
 
 
 def _note_shot_activity() -> None:
@@ -3849,6 +3907,7 @@ def _finalize_shot_detected(
     # back to the table estimator otherwise (either ballistics disabled or
     # angle missing → resolve_launch returns None). This is the only place
     # that writes carry_spin_adjusted for a live shot.
+    trajectory: Trajectory | None = None
     if shot.mode != "mock":
         conditions = resolve_launch(shot) if ballistics_enabled else None
         if conditions is not None:
@@ -3891,7 +3950,8 @@ def _finalize_shot_detected(
                 "" if shot.spin_rpm and shot.spin_rpm > 0 else " avg",
             )
     else:
-        _attach_mock_flight(shot)
+        trajectory = _attach_mock_flight(shot)
+    _attach_derived_metrics(shot, trajectory)
     if shot.spin_rejection_reason:
         logger.info(
             "[SERVER] Spin unavailable: %s (snr=%s, candidate=%s rpm)",
@@ -4187,6 +4247,8 @@ def on_shot_detected(shot: Shot) -> None:
 
 def _handle_shot_detected(shot: Shot) -> None:
     """Publish OPS metrics promptly, then enrich optional hardware data."""
+    global _shot_processing_state  # pylint: disable=global-statement
+    _shot_processing_state = None
     _note_shot_activity()
     _assign_shot_number(shot)
     active_profile = get_profile_store().get_active()
@@ -4357,6 +4419,7 @@ def start_monitor(
     radar_auto_reconnect: bool = False,
     ball_marker: str = "none",
     spin_octave_check: bool = False,
+    interference_check: bool = False,
 ):
     """
     Start the monitor in launch monitor or swing speed mode.
@@ -4370,6 +4433,7 @@ def start_monitor(
         radar_auto_reconnect: Re-detect the OPS243 after a serial error
         ball_marker: Rolling-buffer spin ball marker mode (none, dot, rct)
         spin_octave_check: Correct rolling-buffer ~2x/~0.5x spin picks
+        interference_check: Track the OPS243 noise floor and emit radar_health
     """
     global monitor, mock_mode, mock_swing_speed_mode, debug_mode, radar_config
 
@@ -4403,6 +4467,7 @@ def start_monitor(
             radar_auto_reconnect=radar_auto_reconnect,
             ball_marker=ball_marker,
             spin_octave_check=spin_octave_check,
+            interference_check=interference_check,
             **(trigger_kwargs or {}),
         )
         logger.info(
@@ -4507,6 +4572,7 @@ def start_monitor(
             diagnostic_callback=on_trigger_diagnostic,
             processing_callback=on_shot_processing,
             radar_status_callback=on_radar_status,
+            radar_health_callback=on_radar_health,
         )
         if iwr6843_runtime is not None:
             iwr6843_runtime.capture_monitor.arm()
@@ -5167,6 +5233,33 @@ def main():
         ),
     )
     parser.add_argument(
+        "--derived-metrics",
+        action="store_true",
+        help=(
+            "Add a display-only 'derived' block to UI shot payloads: smash factor, "
+            "face/path/loft estimates, apex, hang time, curve, roll and shot shape "
+            "(see src/openflight/derived_metrics.py). Default off"
+        ),
+    )
+    parser.add_argument(
+        "--interference-check",
+        action="store_true",
+        help=(
+            "Track the OPS243 noise floor from every rolling-buffer dump and emit a "
+            "radar_health event when interference starts or clears "
+            "(see src/openflight/rolling_buffer/radar_health.py). Default off"
+        ),
+    )
+    parser.add_argument(
+        "--gspro-ready-signals",
+        action="store_true",
+        help=(
+            "Make simulator heartbeats report live LaunchMonitorIsReady (radar connected "
+            "and no shot in flight) and LaunchMonitorBallDetected flags instead of the "
+            "static ready/no-ball values. Default off"
+        ),
+    )
+    parser.add_argument(
         "--log-retention-days",
         type=float,
         default=90,
@@ -5656,6 +5749,8 @@ def main():
     spin_axis_model = args.spin_axis_model
     global show_normalized_carry
     show_normalized_carry = args.show_normalized_carry
+    global derived_metrics_enabled
+    derived_metrics_enabled = args.derived_metrics
     global inclinometer_roll_compensation_enabled
     inclinometer_roll_compensation_enabled = args.inclinometer_roll_compensation
     global radar_auto_reconnect_enabled
@@ -5938,6 +6033,7 @@ def main():
             radar_auto_reconnect=args.radar_auto_reconnect,
             ball_marker=args.ball_marker,
             spin_octave_check=args.spin_octave_check,
+            interference_check=args.interference_check,
         )
     except Exception:
         monitor_recovery = (
@@ -5967,7 +6063,10 @@ def main():
         startup_status.start("simulators", "Connecting golf simulators")
     sim_cfgs = load_sim_config() if args.sim else []
     sim_connectors = build_connectors(
-        sim_cfgs, on_status=_sim_on_status, on_inbound=_sim_on_inbound
+        sim_cfgs,
+        on_status=_sim_on_status,
+        on_inbound=_sim_on_inbound,
+        ready_state=_launch_monitor_ready_state if args.gspro_ready_signals else None,
     )
     for connector in sim_connectors:
         connector.start()

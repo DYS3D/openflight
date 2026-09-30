@@ -6,7 +6,7 @@ transport changes.
 """
 
 import logging
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from openflight.sim.config import ConnectorConfig
 from openflight.sim.transport import DEFAULT_BACKOFF, Codec, TcpSimClient
@@ -105,7 +105,10 @@ class SimConnector:
         self._client.send_raw(self.codec.build_shot(resolved))
 
 
-def _codec_for(cfg: "ConnectorConfig") -> Codec:
+ReadyState = Callable[[], Tuple[bool, bool]]
+
+
+def _codec_for(cfg: "ConnectorConfig", ready_state: Optional[ReadyState] = None) -> Codec:
     """Instantiate the codec for a connector type. Import is local to avoid an
     import cycle (the codec imports sim.types/resolver).
 
@@ -123,6 +126,7 @@ def _codec_for(cfg: "ConnectorConfig") -> Codec:
         units=cfg.units,
         name=cfg.type,
         omit_unsupported_fields=cfg.omit_unsupported_fields,
+        ready_state=ready_state,
     )
 
 
@@ -131,9 +135,15 @@ def build_connector(
     on_status: Optional[Callable[[str, StatusEvent], None]] = None,
     on_inbound: Optional[Callable[[str, InboundEvent], None]] = None,
     backoff_seconds=DEFAULT_BACKOFF,
+    ready_state: Optional[ReadyState] = None,
 ) -> SimConnector:
-    """Build a single connector from a resolved ConnectorConfig."""
-    codec = _codec_for(cfg)
+    """Build a single connector from a resolved ConnectorConfig.
+
+    ``ready_state`` (default None) makes heartbeats report live
+    ``LaunchMonitorIsReady`` / ``LaunchMonitorBallDetected`` flags; see
+    ``GSProCodec``.
+    """
+    codec = _codec_for(cfg, ready_state=ready_state)
     return SimConnector(
         codec=codec,
         host=cfg.host,
@@ -150,11 +160,16 @@ def build_connectors(
     on_status: Optional[Callable[[str, StatusEvent], None]] = None,
     on_inbound: Optional[Callable[[str, InboundEvent], None]] = None,
     backoff_seconds=DEFAULT_BACKOFF,
+    ready_state: Optional[ReadyState] = None,
 ) -> List[SimConnector]:
     """Build every connector in a resolved config list."""
     return [
         build_connector(
-            cfg, on_status=on_status, on_inbound=on_inbound, backoff_seconds=backoff_seconds
+            cfg,
+            on_status=on_status,
+            on_inbound=on_inbound,
+            backoff_seconds=backoff_seconds,
+            ready_state=ready_state,
         )
         for cfg in cfgs
     ]

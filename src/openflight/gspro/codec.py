@@ -5,7 +5,7 @@ state.py behind the protocol-neutral Codec interface the transport expects.
 Spec: https://gsprogolf.com/GSProConnectV1.html
 """
 
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from openflight.gspro.messages import (
     BallData,
@@ -58,6 +58,11 @@ class GSProCodec:
     is. ``BallData`` is untouched either way: every key there is spec-required
     except ``CarryDistance``, which OpenFlight sends on purpose (see
     ``gspro.messages`` for the spec's required/optional list).
+
+    ``ready_state`` (default None) changes only the heartbeat: when set it is
+    called per beat and returns ``(LaunchMonitorIsReady,
+    LaunchMonitorBallDetected)``; None keeps the static legacy flags
+    (ready, no ball). Shot payloads always send both flags true.
     """
 
     def __init__(
@@ -66,11 +71,13 @@ class GSProCodec:
         units: str = "Yards",
         name: str = "gspro",
         omit_unsupported_fields: bool = False,
+        ready_state: Optional[Callable[[], Tuple[bool, bool]]] = None,
     ):
         self.name = name
         self.device_id = device_id
         self.units = units
         self.omit_unsupported_fields = omit_unsupported_fields
+        self.ready_state = ready_state
 
     def _club_data(self, resolved: ResolvedShot) -> Tuple[ClubData, bool]:
         """(ClubData, ContainsClubData) for the shot, per ``omit_unsupported_fields``."""
@@ -132,7 +139,16 @@ class GSProCodec:
         return []
 
     def heartbeat_bytes(self) -> Optional[bytes]:
-        return build_heartbeat(self.device_id, self.units, shot_number=0)
+        if self.ready_state is None:
+            return build_heartbeat(self.device_id, self.units, shot_number=0)
+        is_ready, ball_detected = self.ready_state()
+        return build_heartbeat(
+            self.device_id,
+            self.units,
+            shot_number=0,
+            is_ready=bool(is_ready),
+            ball_detected=bool(ball_detected),
+        )
 
     def on_connect_bytes(self) -> Optional[bytes]:
         return None

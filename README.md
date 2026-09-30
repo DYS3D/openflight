@@ -103,6 +103,16 @@ cd openflight
 The script installs everything and walks you through the one-time hardware
 configuration (radar flash setup, legacy K-LD7 device naming, auto-start, and
 optional cloud sync) with prompts. It's safe to re-run any time.
+
+Prefer no prompts? The one-command installer sets up packages, Node.js, uv, the
+UI build, serial permissions, udev rules, the GPIO UART (`--uart`), and the
+boot-time kiosk, then runs a self-test:
+
+```bash
+./scripts/setup/install-pi.sh --uart --lan --altitude-ft 850   # flags optional
+uv run python scripts/hardware-test/self_test.py               # after rebooting
+./scripts/setup/flash-iwr6843.sh                               # optional TI radar firmware
+```
 See the **[Raspberry Pi Setup Guide](docs/setup/raspberry-pi.md)** for details and troubleshooting. Touchscreen installations can use the **[Startup Splash Screen](docs/setup/splash-screen.md)** guide to install a terminal-free desktop launcher with immediate startup progress.
 
 ### 4. Hit balls

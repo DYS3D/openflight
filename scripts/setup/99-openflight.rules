@@ -1,0 +1,10 @@
+# OpenFlight serial devices. Installed by scripts/setup/install-pi.sh.
+# The application still auto-detects ports; these give stable names and make
+# every radar usable by members of the dialout group.
+
+# OPS243-A over USB (STMicroelectronics CDC ACM).
+SUBSYSTEM=="tty", KERNEL=="ttyACM*", ATTRS{idVendor}=="0483", GROUP="dialout", MODE="0660", SYMLINK+="ops243"
+
+# IWR6843LEVM Silicon Labs CP2105: interface 00 is the Enhanced UART the
+# OpenFlight firmware and the ROM bootloader use.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea70", ENV{ID_USB_INTERFACE_NUM}=="00", GROUP="dialout", MODE="0660", SYMLINK+="iwr6843"

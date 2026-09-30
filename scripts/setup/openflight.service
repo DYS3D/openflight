@@ -14,7 +14,9 @@ Type=simple
 User=coleman
 WorkingDirectory=/home/coleman/openflight
 Environment=DISPLAY=:0
-ExecStart=/home/coleman/openflight/scripts/start-kiosk.sh
+# Optional site settings, e.g. OPENFLIGHT_ARGS="--host 0.0.0.0 --altitude-ft 850".
+EnvironmentFile=-/etc/default/openflight
+ExecStart=/home/coleman/openflight/scripts/start-kiosk.sh $OPENFLIGHT_ARGS
 Restart=on-failure
 RestartSec=5
 # Exit 3 means another OpenFlight instance already owns the kiosk (see

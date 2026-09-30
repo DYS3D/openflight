@@ -22,6 +22,47 @@ Make sure you have all the hardware. See the **[Parts List](../get-started/parts
 **Optional (deprecated):**
 - K-LD7 + FTDI adapter (×2) — for launch angle and club path (see [Parts List](../get-started/parts.md)). **Deprecated** — superseded by a more capable radar chip; don't buy for a new build. Supported for existing builds only.
 
+## One-command install
+
+On a freshly flashed Raspberry Pi OS (64-bit), this does the dependency and
+service setup below without prompts — system packages (including Node.js 22 and uv), Python
+and UI dependencies, `dialout`/`gpio`/`i2c` group membership, udev rules for the
+OPS243-A and IWR6843, the boot-time kiosk service, desktop autologin, and a
+self-test:
+
+```bash
+git clone https://github.com/open-flight/openflight.git
+cd openflight
+./scripts/setup/install-pi.sh
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--uart` | OPS243-A is on the GPIO UART: enables UART0, removes the serial console, and passes `--radar-port /dev/ttyAMA0` |
+| `--lan` | Serve the read-only [TV display](../using/display.md) to other devices |
+| `--altitude-ft N`, `--temperature-f N` | Site conditions for the [ballistic model](../how-it-works/ballistics.md#site-conditions) |
+| `--server-args "..."` | Any other server flags (e.g. `--iwr6843`) |
+| `--no-service`, `--no-kiosk` | Skip the boot service or the autologin/screen-blanking changes |
+| `--dry-run` | Print every change without making it |
+
+Site settings are stored in `/etc/default/openflight` (`OPENFLIGHT_ARGS=...`);
+edit it and `sudo systemctl restart openflight` to change them later.
+
+Reboot afterwards so group and UART changes apply, then check the hardware:
+
+```bash
+uv run python scripts/hardware-test/self_test.py          # add --ops-port /dev/ttyAMA0 for UART
+```
+
+The self-test reuses the [diagnostic checks](#troubleshooting) for the radars and
+adds install checks (UI build, service, udev rules, permissions, disk space, LAN
+token permissions, IWR6843 firmware). To flash the IWR6843 with the validated
+release image, run `./scripts/setup/flash-iwr6843.sh`; it stops OpenFlight,
+finds the CP2105 port, and runs the guided [flashing tool](../iwr6843/flashing.md).
+
+The one-time OPS243-A [rolling-buffer flash setup](rolling-buffer.md) is still
+manual because it needs a power cycle.
+
 ## Setup
 
 ### 1. Install Raspberry Pi OS and Dependencies

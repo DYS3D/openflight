@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 import numpy as np
@@ -17,6 +17,45 @@ class MultitaperEstimate:
     spin_rpm: float
     peak_to_floor: float
     fade_hz: float
+    # Kept so the processor's octave check can compare alternate peaks.
+    spectrum: MultitaperSpectrum | None = field(default=None, compare=False, repr=False)
+
+
+@dataclass(frozen=True, eq=False)
+class MultitaperSpectrum:
+    """Fade-removed envelope spectrum that spin candidates are picked from."""
+
+    frequencies: np.ndarray
+    power: np.ndarray
+    coherent_power: np.ndarray
+    valid: np.ndarray
+    evidence_band: np.ndarray
+    natural_resolution_hz: float
+    fade_hz: float
+
+    def estimate_at(self, peak_index: int) -> MultitaperEstimate:
+        """Candidate at ``peak_index`` with its multitaper peak-to-floor evidence."""
+        frequencies = self.frequencies
+        power = self.power
+        exclusion = (
+            np.abs(frequencies - frequencies[peak_index]) <= 1.5 * self.natural_resolution_hz
+        )
+        floor_values = power[self.evidence_band & ~exclusion]
+        if not floor_values.size:
+            floor_values = power[self.valid]
+        floor = float(np.median(floor_values))
+        peak_region = self.valid & (
+            np.abs(frequencies - frequencies[peak_index]) <= self.natural_resolution_hz
+        )
+        ratio = float(np.max(power[peak_region]) / max(floor, np.finfo(float).tiny))
+        spin_hz = float(frequencies[peak_index])
+        return MultitaperEstimate(
+            spin_hz=spin_hz,
+            spin_rpm=spin_hz * 60.0,
+            peak_to_floor=ratio,
+            fade_hz=self.fade_hz,
+            spectrum=self,
+        )
 
 
 def repair_clipped_iq(
@@ -164,20 +203,16 @@ def estimate_multitaper_spin(
     coherent_power = np.abs(np.fft.rfft(values * np.hanning(len(values)), fft_size)) ** 2
     peak_index = int(valid_indices[np.argmax(coherent_power[valid])])
     natural_resolution_hz = sample_rate_hz / len(values)
-    exclusion = np.abs(frequencies - frequencies[peak_index]) <= 1.5 * natural_resolution_hz
     evidence_band = (frequencies >= max(20.0, low_hz - 4.0 * natural_resolution_hz)) & (
         frequencies <= high_hz + 4.0 * natural_resolution_hz
     )
-    floor_values = power[evidence_band & ~exclusion]
-    if not floor_values.size:
-        floor_values = power[valid]
-    floor = float(np.median(floor_values))
-    peak_region = valid & (np.abs(frequencies - frequencies[peak_index]) <= natural_resolution_hz)
-    ratio = float(np.max(power[peak_region]) / max(floor, np.finfo(float).tiny))
-    spin_hz = float(frequencies[peak_index])
-    return MultitaperEstimate(
-        spin_hz=spin_hz,
-        spin_rpm=spin_hz * 60.0,
-        peak_to_floor=ratio,
+    spectrum = MultitaperSpectrum(
+        frequencies=frequencies,
+        power=power,
+        coherent_power=coherent_power,
+        valid=valid,
+        evidence_band=evidence_band,
+        natural_resolution_hz=natural_resolution_hz,
         fade_hz=fade_hz,
     )
+    return spectrum.estimate_at(peak_index)

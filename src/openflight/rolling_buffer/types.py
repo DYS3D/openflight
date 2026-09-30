@@ -11,6 +11,26 @@ from typing import List, Optional
 
 from ..launch_monitor import SPIN_CONFIDENCE_RELIABLE
 
+BALL_MARKERS = ("none", "dot", "rct")
+
+
+def spin_method_name(
+    estimator: str,
+    ball_marker: str = "none",
+    octave_correction: Optional[str] = None,
+) -> str:
+    """Spin method label: the estimator plus its ball-marker and octave tags.
+
+    Untagged when no marker is set and no octave correction was applied, so
+    default-configuration shots keep their existing method names.
+    """
+    parts = [estimator]
+    if ball_marker != "none":
+        parts.append(f"marker_{ball_marker}")
+    if octave_correction:
+        parts.append(f"octave_{octave_correction}")
+    return "+".join(parts)
+
 
 @dataclass
 class IQCapture:
@@ -241,7 +261,9 @@ class SpinResult:
         confidence: Quality score from 0-1 (high SNR, valid range = high confidence)
         snr: Signal-to-noise ratio of the spin peak
         quality: Human-readable quality assessment
-        method: Estimator that produced the result.
+        method: Estimator that produced the result, with "+marker_<dot|rct>"
+            and "+octave_<halved|doubled>" tags when those options applied
+            (see spin_method_name).
         multipath_fade_hz: Fitted two-ray fade frequency removed before
             estimating spin, when applicable.
         modulation_depth: Envelope std/mean inside the ball window. <0.005
@@ -290,6 +312,16 @@ class SpinResult:
     def is_reliable(self) -> bool:
         """Whether spin detection is considered reliable."""
         return self.confidence >= SPIN_CONFIDENCE_RELIABLE and self.quality in ("high", "medium")
+
+    @property
+    def estimator(self) -> str:
+        """The estimator name without ball-marker or octave tags."""
+        return self.method.split("+", 1)[0]
+
+    @property
+    def octave_corrected(self) -> bool:
+        """Whether the octave check moved the pick to half or double."""
+        return any(tag.startswith("octave_") for tag in self.method.split("+")[1:])
 
     @classmethod
     def no_spin_detected(

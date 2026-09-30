@@ -1071,6 +1071,7 @@ def _session_start_config() -> dict:
     """Return hardware configuration recorded at session start."""
     config = radar_config.copy()
     config["radar_auto_reconnect"] = radar_auto_reconnect_enabled
+    config["spin"] = dict(spin_runtime_config)
     config["iwr6843"] = dict(iwr6843_runtime_config)
     config["camera_capture"] = dict(camera_capture_config)
     config["inclinometer"] = dict(inclinometer_runtime_config)
@@ -2269,6 +2270,8 @@ radar_config = {
 }
 # --radar-auto-reconnect: off keeps the capture loops retrying a dead port.
 radar_auto_reconnect_enabled = False
+# --ball-marker / --spin-octave-check, recorded with the session metadata.
+spin_runtime_config: dict = {"ball_marker": "none", "octave_check": False}
 
 # Inclusive bounds for UI-tunable radar settings. The OPS243-A only needs
 # golf-plausible speeds; anything outside these is a client bug or abuse and
@@ -4098,6 +4101,8 @@ def start_monitor(
     swing_speed_kwargs: Optional[dict] = None,
     ops_baud: Optional[int] = None,
     radar_auto_reconnect: bool = False,
+    ball_marker: str = "none",
+    spin_octave_check: bool = False,
 ):
     """
     Start the monitor in launch monitor or swing speed mode.
@@ -4109,6 +4114,8 @@ def start_monitor(
         debug: Enable verbose debug output
         ops_baud: Target UART baud when the OPS243 is on the GPIO header
         radar_auto_reconnect: Re-detect the OPS243 after a serial error
+        ball_marker: Rolling-buffer spin ball marker mode (none, dot, rct)
+        spin_octave_check: Correct rolling-buffer ~2x/~0.5x spin picks
     """
     global monitor, mock_mode, mock_swing_speed_mode, debug_mode, radar_config
 
@@ -4140,6 +4147,8 @@ def start_monitor(
             sample_rate_ksps=sample_rate_ksps,
             ops_baud=ops_baud,
             radar_auto_reconnect=radar_auto_reconnect,
+            ball_marker=ball_marker,
+            spin_octave_check=spin_octave_check,
             **(trigger_kwargs or {}),
         )
         logger.info(
@@ -5142,6 +5151,31 @@ def main():
             "spin_rpm_measured for offline scoring"
         ),
     )
+    from .rolling_buffer.types import BALL_MARKERS
+
+    parser.add_argument(
+        "--ball-marker",
+        choices=BALL_MARKERS,
+        default="none",
+        help=(
+            "Ball carries a once-per-revolution conductive mark: 'dot' (metal "
+            "foil dot) or 'rct' (Titleist RCT). OPS spin then uses the gated "
+            "envelope estimator, prefers the 1x line over its 2x harmonic and "
+            "may reach trusted confidence when its SNR, persistence and "
+            "club-plausibility checks pass. Default 'none' keeps the "
+            "experimental multitaper spin"
+        ),
+    )
+    parser.add_argument(
+        "--spin-octave-check",
+        action="store_true",
+        help=(
+            "Compare OPS spin with the club/ball-speed spin prior; a pick at "
+            "~2x (or, without --ball-marker, ~0.5x) the prior moves to a "
+            "supporting half (double) candidate and is tagged octave_halved "
+            "(octave_doubled) in spin_method. Off by default"
+        ),
+    )
     parser.add_argument(
         "--kld7-mount-tilt",
         type=float,
@@ -5311,6 +5345,11 @@ def main():
     calculated_spin_enabled = args.calculated_spin
     global radar_auto_reconnect_enabled
     radar_auto_reconnect_enabled = args.radar_auto_reconnect
+    global spin_runtime_config
+    spin_runtime_config = {
+        "ball_marker": args.ball_marker,
+        "octave_check": args.spin_octave_check,
+    }
     ballistics_enabled = args.ballistics
     battery_provider = args.battery
     profile_store = ProfileStore(args.profiles_path)
@@ -5580,6 +5619,8 @@ def main():
             swing_speed_kwargs=swing_speed_kwargs,
             ops_baud=args.ops_baud,
             radar_auto_reconnect=args.radar_auto_reconnect,
+            ball_marker=args.ball_marker,
+            spin_octave_check=args.spin_octave_check,
         )
     except Exception:
         monitor_recovery = (

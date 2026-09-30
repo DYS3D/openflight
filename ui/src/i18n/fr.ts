@@ -344,6 +344,8 @@ export const fr: Messages = {
   'level.empty': 'Aucune donnée de niveau',
   'level.emptyDetail': 'Lancez le serveur avec --inclinometer --level-warning-deg pour activer le niveau',
 
+  'camera.showBallZone': 'Afficher la zone de balle',
+
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',
   'display.streamAlt': 'Flux caméra OpenFlight',

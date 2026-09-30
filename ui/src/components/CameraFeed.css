@@ -560,3 +560,36 @@
   width: 3px;
   transform: translateX(-50%);
 }
+
+/* Ball zone: translucent target box toggled from the Camera panel */
+.camera-feed__ball-zone {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 212, 0, 0.9);
+  border-radius: 4px;
+  background: rgba(255, 212, 0, 0.18);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.camera-feed__ball-zone-line {
+  position: absolute;
+  background: rgba(255, 212, 0, 0.9);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+
+.camera-feed__ball-zone-line--h {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.camera-feed__ball-zone-line--v {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+}

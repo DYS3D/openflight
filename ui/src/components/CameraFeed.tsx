@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { useCameraPointerDragScroll } from '../hooks/useCameraPointerDragScroll';
 import type { CameraAutoExposureStatus, CameraCaptureSettings } from '../stores/useCameraStore';
 import { verticalViewTargets } from '../utils/cameraView';
+import { ballZoneRect } from '../utils/ballZone';
 import { getServerOrigin } from '../utils/serverOrigin';
 import './CameraFeed.css';
 import { accessHeaders } from '../utils/accessToken';
@@ -10,6 +11,24 @@ interface CameraFeedProps {
   captureSettings: CameraCaptureSettings;
   captureSettingsError: string | null;
   onUpdateCaptureSettings: (settings: Partial<CameraCaptureSettings>) => void;
+  /** Draws the translucent ball-zone box over the preview. Off unless the panel toggles it. */
+  showBallZone?: boolean;
+}
+
+/** Translucent box plus crosshair over the preview marking where the ball should sit. */
+export function BallZoneOverlay({ settings }: { settings: CameraCaptureSettings }) {
+  const zone = ballZoneRect(settings);
+  return (
+    <div
+      className="camera-feed__ball-zone"
+      data-testid="ball-zone"
+      aria-hidden="true"
+      style={{ left: `${zone.left}%`, top: `${zone.top}%`, width: `${zone.width}%`, height: `${zone.height}%` }}
+    >
+      <span className="camera-feed__ball-zone-line camera-feed__ball-zone-line--h" />
+      <span className="camera-feed__ball-zone-line camera-feed__ball-zone-line--v" />
+    </div>
+  );
 }
 
 interface CaptureSettingsPanelProps {
@@ -204,7 +223,12 @@ function CaptureSettingsPanel({ settings, exposureQuality, error, onUpdate }: Ca
  * still refreshed every 5 s from the concurrent preview stream. The raw
  * rolling buffer keeps running, so shots are never missed while viewing.
  */
-export function CameraFeed({ captureSettings, captureSettingsError, onUpdateCaptureSettings }: CameraFeedProps) {
+export function CameraFeed({
+  captureSettings,
+  captureSettingsError,
+  onUpdateCaptureSettings,
+  showBallZone = false,
+}: CameraFeedProps) {
   useCameraPointerDragScroll();
   const [previewState, setPreviewState] = useState<PreviewState>('checking');
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
@@ -307,6 +331,7 @@ export function CameraFeed({ captureSettings, captureSettingsError, onUpdateCapt
                   />
                 </svg>
                 <div className="camera-feed__center-cross" aria-hidden="true" />
+                {showBallZone ? <BallZoneOverlay settings={captureSettings} /> : null}
                 <div className="camera-feed__overlay">
                   <div className="camera-feed__status">Rolling buffer remains armed</div>
                 </div>

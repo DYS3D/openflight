@@ -343,6 +343,8 @@ export const es: Messages = {
   'level.empty': 'Sin datos de nivel',
   'level.emptyDetail': 'Inicia el servidor con --inclinometer --level-warning-deg para activar el nivel',
 
+  'camera.showBallZone': 'Mostrar zona de la bola',
+
   'display.tvAria': 'Modo pantalla TV',
   'display.streamUnavailable': 'Transmisión de cámara no disponible',
   'display.streamAlt': 'Transmisión de cámara OpenFlight',

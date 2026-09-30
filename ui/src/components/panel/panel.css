@@ -1194,6 +1194,25 @@
   min-height: 0;
 }
 
+.camera-panel__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding: 0 26px;
+}
+
+.camera-panel__switch {
+  justify-content: flex-start;
+  gap: var(--space-sm);
+  min-width: 44px;
+}
+
+.camera-panel__body--capture .camera-feed {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
 /* ----------------------------------------------------------- level panel -- */
 
 .level-panel__body {

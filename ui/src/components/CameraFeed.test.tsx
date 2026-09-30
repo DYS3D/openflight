@@ -2,7 +2,7 @@ import { renderToString } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { CameraCaptureSettings } from '../stores/useCameraStore';
 import { verticalViewTargets } from '../utils/cameraView';
-import { CameraFeed } from './CameraFeed';
+import { BallZoneOverlay, CameraFeed } from './CameraFeed';
 
 const captureSettings: CameraCaptureSettings = {
   available: true,
@@ -103,5 +103,29 @@ describe('CameraFeed', () => {
     expect(html).toContain('Radar fallback active');
     expect(html).toContain('Preview and raw clips continue recording');
     expect(html).toContain('Armed');
+  });
+
+  it('never draws the ball zone unless asked', () => {
+    const html = renderToString(
+      <CameraFeed captureSettings={captureSettings} captureSettingsError={null} onUpdateCaptureSettings={vi.fn()} />
+    );
+
+    expect(html).not.toContain('camera-feed__ball-zone');
+  });
+
+  it('positions the ball zone box and crosshair from the alignment settings', () => {
+    const html = renderToString(<BallZoneOverlay settings={captureSettings} />);
+
+    expect(html).toContain('camera-feed__ball-zone');
+    expect(html).toContain('left:42%;top:49%;width:12%;height:12%');
+    expect(html).toContain('camera-feed__ball-zone-line--h');
+    expect(html).toContain('camera-feed__ball-zone-line--v');
+    expect(html).toContain('aria-hidden="true"');
+  });
+
+  it('falls back to the fixed ball guide when settings carry no alignment', () => {
+    const html = renderToString(<BallZoneOverlay settings={{ available: true }} />);
+
+    expect(html).toContain('left:44%;top:72%;width:12%;height:12%');
   });
 });

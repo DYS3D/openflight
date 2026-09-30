@@ -340,6 +340,8 @@ export const en = {
   'level.empty': 'No level data',
   'level.emptyDetail': 'Start the server with --inclinometer --level-warning-deg to enable the level tool',
 
+  'camera.showBallZone': 'Show ball zone',
+
   'display.tvAria': 'TV display mode',
   'display.streamUnavailable': 'Camera stream unavailable',
   'display.streamAlt': 'OpenFlight camera stream',

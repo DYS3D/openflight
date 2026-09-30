@@ -4,6 +4,7 @@ WebSocket server for OpenFlight UI.
 Provides real-time shot data to the web frontend via Flask-SocketIO.
 """
 
+import copy
 import json
 import logging
 import math
@@ -3629,6 +3630,9 @@ def _run_gated_stage(
 
     staged_shot = replace(shot)
     staged_shot.pipeline_marks = dict(shot.pipeline_marks or {})
+    # _level_iwr_angles writes into this dict in place; a late stage must not
+    # reach the finalized shot through the shared reference.
+    staged_shot.inclinometer = copy.deepcopy(shot.inclinometer)
     result: dict[str, float | None] = {}
 
     def worker() -> None:

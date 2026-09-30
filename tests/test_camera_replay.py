@@ -166,6 +166,86 @@ def test_prepare_rejects_unknown_id(tmp_path):
         manager.prepare("not-registered")
 
 
+def test_register_reports_unarchived_capture_cleanly(tmp_path):
+    """With --no-camera-archive-frames there is no frames.npz to replay."""
+    capture_dir = tmp_path / "camera_20260825_120000_001"
+    capture_dir.mkdir()
+    manager = CameraReplayManager(tmp_path, runner=_successful_runner([]))
+
+    with pytest.raises(ValueError, match="no frames archive"):
+        manager.register(capture_dir, {"frame_count": 6, "pre_trigger_frames": 4})
+
+    assert manager._entries == {}
+
+
+def test_register_defers_archive_check_while_background_write_is_pending(tmp_path):
+    capture_dir = tmp_path / "camera_20260825_120000_001"
+    capture_dir.mkdir()
+    archive_ready = threading.Event()
+    calls = []
+    manager = CameraReplayManager(tmp_path, runner=_successful_runner(calls))
+
+    replay = manager.register(
+        capture_dir,
+        {"frame_count": 6, "pre_trigger_frames": 4},
+        archive_ready=archive_ready,
+    )
+    assert replay["frame_count"] == 6
+
+    prepared = {}
+    preparer = threading.Thread(
+        target=lambda: prepared.setdefault("result", manager.prepare(replay["id"]))
+    )
+    preparer.start()
+    time.sleep(0.05)
+    assert calls == []
+
+    frames = np.arange(6 * 4 * 6, dtype=np.uint8).reshape(6, 4, 6)
+    np.savez(capture_dir / "frames.npz", frames=frames, pre_trigger_count=np.int32(4))
+    archive_ready.set()
+    preparer.join(timeout=2.0)
+
+    assert prepared["result"].video_path == capture_dir / "replay.mp4"
+    assert len(calls) == 1
+    assert calls[0][1] == frames.tobytes()
+
+
+def test_prepare_reports_archive_still_pending_after_timeout(tmp_path, monkeypatch):
+    from openflight.camera import replay as replay_module
+
+    monkeypatch.setattr(replay_module, "ARCHIVE_WAIT_TIMEOUT_S", 0.05)
+    capture_dir = tmp_path / "camera_20260825_120000_001"
+    capture_dir.mkdir()
+    calls = []
+    manager = CameraReplayManager(tmp_path, runner=_successful_runner(calls))
+    replay = manager.register(
+        capture_dir,
+        {"frame_count": 6, "pre_trigger_frames": 4},
+        archive_ready=threading.Event(),
+    )
+
+    with pytest.raises(ReplayPreparationError, match="still being archived"):
+        manager.prepare(replay["id"])
+
+    assert calls == []
+
+
+def test_prepare_reports_failed_background_archive(tmp_path):
+    capture_dir = tmp_path / "camera_20260825_120000_001"
+    capture_dir.mkdir()
+    archive_ready = threading.Event()
+    archive_ready.set()
+    manager = CameraReplayManager(tmp_path, runner=_successful_runner([]))
+    replay = manager.register(
+        capture_dir,
+        {"frame_count": 6, "pre_trigger_frames": 4},
+        archive_ready=archive_ready,
+    )
+
+    with pytest.raises(ReplayPreparationError, match="could not be loaded"):
+        manager.prepare(replay["id"])
+
+
 def test_register_rejects_capture_outside_configured_root(tmp_path):
     output_root = tmp_path / "camera"
     output_root.mkdir()

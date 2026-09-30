@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 PLAYBACK_FPS = 60
 ENCODE_TIMEOUT_S = 30.0
+ARCHIVE_WAIT_TIMEOUT_S = 10.0
 
 
 class ReplayNotFoundError(LookupError):
@@ -48,6 +49,7 @@ class _ReplayEntry:
     replay_id: str
     capture_path: Path
     payload: dict[str, object]
+    archive_ready: threading.Event | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -73,12 +75,23 @@ class CameraReplayManager:
         self._lock = threading.Lock()
         self._encode_semaphore = threading.BoundedSemaphore(value=1)
 
-    def register(self, capture_path: str | Path, metadata: dict) -> dict[str, object]:
-        """Advertise an existing raw capture without doing any video work."""
+    def register(
+        self,
+        capture_path: str | Path,
+        metadata: dict,
+        *,
+        archive_ready: threading.Event | None = None,
+    ) -> dict[str, object]:
+        """Advertise a raw capture without doing any video work.
+
+        ``archive_ready`` marks a capture whose frames.npz is still being
+        written in the background; its presence is then checked at prepare
+        time instead of here.
+        """
         resolved = Path(capture_path).expanduser().resolve()
         if not resolved.is_relative_to(self.output_root):
             raise ValueError("camera capture is outside camera output directory")
-        if not (resolved / "frames.npz").is_file():
+        if archive_ready is None and not (resolved / "frames.npz").is_file():
             raise ValueError("camera capture has no frames archive")
 
         frame_count = self._positive_int(metadata.get("frame_count"), "frame_count")
@@ -114,6 +127,7 @@ class CameraReplayManager:
                 replay_id=replay_id,
                 capture_path=resolved,
                 payload=payload,
+                archive_ready=archive_ready,
             )
             self._ids_by_capture[resolved] = replay_id
             return dict(payload)
@@ -130,6 +144,10 @@ class CameraReplayManager:
                 raise ReplayPreparationError("Camera replay storage is unavailable") from error
             if cached:
                 return PreparedCameraReplay(video_path=video_path, payload=dict(entry.payload))
+            if entry.archive_ready is not None and not entry.archive_ready.wait(
+                ARCHIVE_WAIT_TIMEOUT_S
+            ):
+                raise ReplayPreparationError("Camera replay frames are still being archived")
 
             # Loading the archive is included in the manager-wide slot so two
             # manual requests cannot spike Pi memory before FFmpeg starts.

@@ -84,7 +84,7 @@
 
   .nav__button {
     padding: var(--space-xs) var(--space-sm);
-    min-height: 38px;
+    min-height: 44px;
     font-size: 0.75rem;
   }
 

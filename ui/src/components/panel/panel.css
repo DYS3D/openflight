@@ -1013,7 +1013,7 @@
 
 .shots-panel__field input,
 .shots-panel__field select {
-  height: 34px;
+  height: 44px;
   padding: 0 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -1038,7 +1038,7 @@
 }
 
 .shots-panel__field--diff strong {
-  height: 34px;
+  height: 44px;
   display: flex;
   align-items: center;
   font-size: 1.0625rem;

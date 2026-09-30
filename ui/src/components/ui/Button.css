@@ -28,9 +28,3 @@
 .ui-button--block {
   width: 100%;
 }
-
-@media (max-height: 500px) {
-  .ui-button {
-    min-height: 38px;
-  }
-}

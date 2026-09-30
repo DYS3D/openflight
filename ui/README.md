@@ -43,15 +43,18 @@ npm run dev
 See the [root README](../README.md#getting-started) for full-stack options.
 
 The Vite server runs on port `5173`. When served there, the UI assumes the
-backend is at `http://localhost:8080`. Point it elsewhere with
-`VITE_SOCKET_URL`:
+backend is on the same host at port `VITE_SERVER_PORT` (default `8080`;
+`scripts/start-kiosk.sh` exports it from `--web-port`). Point it at a
+different host with `VITE_SOCKET_URL`:
 
 ```bash
-VITE_SOCKET_URL="http://localhost:8081" npm run dev
+VITE_SERVER_PORT=8081 npm run dev
+VITE_SOCKET_URL="http://raspberrypi.local:8080" npm run dev
 ```
 
-`/api/*` requests from the Vite origin are proxied to `http://localhost:8080`
-(so shutdown works under `npm run dev` / `dev:mock`).
+`/api/*` requests from the Vite origin are proxied to
+`http://localhost:$VITE_SERVER_PORT` (so shutdown works under `npm run dev` /
+`dev:mock`).
 
 ## Scripts
 
@@ -72,7 +75,7 @@ VITE_SOCKET_URL="http://localhost:8081" npm run dev
 The app is entirely client-side. Everything flows through one socket connection.
 
 - **`utils/serverOrigin.ts`** resolves the backend origin: `VITE_SOCKET_URL` if
-  set, otherwise `http://localhost:8080` when running on the Vite dev port
+  set, otherwise port `VITE_SERVER_PORT` (default `8080`) on the page's host when running on the Vite dev port
   (`5173`), otherwise the page's own origin (the production case, where the
   backend serves the built UI).
 - **`services/socketService.ts`** owns the connection. It receives events like

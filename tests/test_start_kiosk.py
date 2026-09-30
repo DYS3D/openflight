@@ -256,6 +256,13 @@ def test_ui_is_ensured_before_the_kiosk_browser_launches():
     assert ensure_call < splash_call
 
 
+def test_ui_build_receives_the_server_port():
+    script = _script()
+    export_idx = script.index('\nexport VITE_SERVER_PORT="$WEB_PORT"\n')
+    ensure_call = script.index("\nensure_kiosk_ui\n")
+    assert export_idx < ensure_call
+
+
 def _read_kiosk_browser_helper() -> str:
     return (REPO_ROOT / "scripts/kiosk-browser.sh").read_text(encoding="utf-8")
 

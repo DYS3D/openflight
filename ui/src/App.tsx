@@ -9,7 +9,8 @@ import { useProfileStore } from './stores/useProfileStore';
 import { useHeroMetricStore } from './stores/useHeroMetricStore';
 import { useCameraReplayController } from './hooks/useCameraReplayController';
 import { socketService } from './services/socketService';
-import { DebugPanel } from './components/DebugPanel';
+import { DebugView } from './components/DebugView';
+import { IWR6843Alert } from './components/IWR6843Alert';
 import { DisplayMode } from './components/DisplayMode';
 import { SimShotBadges } from './components/SimShotBadges';
 import { ShotProcessingArea } from './components/ShotProcessingArea';
@@ -24,7 +25,6 @@ import {
   SimulateBubble,
   MenuSheet,
   PanelFooter,
-  PanelHeader,
   PanelAction,
   PickerOverlay,
   ShotsPanel,
@@ -82,25 +82,7 @@ function AppContent() {
   const { heroMetricId, setHeroMetricId } = useHeroMetricStore(
     useShallow((state) => ({ heroMetricId: state.heroMetricId, setHeroMetricId: state.setHeroMetricId }))
   );
-  const {
-    debugReadings,
-    debugShotLogs,
-    radarConfig,
-    triggerDiagnostics,
-    triggerStatus,
-    iwr6843Alert,
-    dismissIWR6843Alert,
-  } = useDebugStore(
-    useShallow((state) => ({
-      debugReadings: state.debugReadings,
-      debugShotLogs: state.debugShotLogs,
-      radarConfig: state.radarConfig,
-      triggerDiagnostics: state.triggerDiagnostics,
-      triggerStatus: state.triggerStatus,
-      iwr6843Alert: state.iwr6843Alert,
-      dismissIWR6843Alert: state.dismissIWR6843Alert,
-    }))
-  );
+  const triggerMode = useDebugStore((state) => state.triggerStatus.mode);
 
   const [currentView, setCurrentView] = useState<PanelView>('live');
   const [selectedClub, setSelectedClub] = useState('driver');
@@ -128,7 +110,7 @@ function AppContent() {
 
   const { isLaunchDaddyMode, isExploding, triggerExplosion } = useLaunchDaddy();
   const isDisplayRoute = typeof window !== 'undefined' && window.location.pathname.replace(/\/$/, '') === '/display';
-  const isSwingSpeedMode = triggerStatus.mode === 'swing-speed';
+  const isSwingSpeedMode = triggerMode === 'swing-speed';
   const activeImplementLabel = isSwingSpeedMode
     ? getTrainingImplementLabel(selectedTrainingImplement)
     : getClubName(selectedClub);
@@ -259,27 +241,11 @@ function AppContent() {
     </PanelAction>
   );
 
-  const debugRecordAction = (
-    <PanelAction variant="secondary" onClick={() => socketService.toggleDebug()}>
-      {debugMode ? t('app.stopRecording') : t('app.record')}
-    </PanelAction>
-  );
-
   return (
     <div className={`panel-app ${isLaunchDaddyMode ? 'app--launch-daddy' : ''} ${isExploding ? 'app--exploding' : ''}`}>
       <LaunchDaddyOverlay />
 
-      {iwr6843Alert && (
-        <div className="iwr-alert" role="alert">
-          <div>
-            <strong>{t('live.tiRadarFailed')}</strong>
-            <span>{t('live.tiRadarDetail', { reason: iwr6843Alert.reason })}</span>
-          </div>
-          <button type="button" onClick={dismissIWR6843Alert} aria-label={t('live.dismissAlert')}>
-            {t('live.dismiss')}
-          </button>
-        </div>
-      )}
+      <IWR6843Alert />
 
       {showShutdown ? (
         <ShutdownDialog state={shutdownState} onConfirm={handleShutdown} onCancel={closeShutdown} />
@@ -356,28 +322,7 @@ function AppContent() {
             onUpdateCaptureSettings={(settings) => socketService.setCameraCaptureSettings(settings)}
           />
         )}
-        {currentView === 'debug' && (
-          <div className="panel">
-            <PanelHeader
-              title={t('nav.debug')}
-              subtitle={debugMode ? t('app.debugRecording') : t('app.debugIdle')}
-              actions={debugRecordAction}
-            />
-            <div className="panel__body panel-app__debug">
-              <DebugPanel
-                enabled={debugMode}
-                readings={debugReadings}
-                shotLogs={debugShotLogs}
-                radarConfig={radarConfig}
-                mockMode={mockMode}
-                onToggle={() => socketService.toggleDebug()}
-                onUpdateConfig={(config) => socketService.setRadarConfig(config)}
-                triggerDiagnostics={triggerDiagnostics}
-                triggerStatus={triggerStatus}
-              />
-            </div>
-          </div>
-        )}
+        {currentView === 'debug' && <DebugView />}
         {mockMode && currentView === 'live' ? (
           <SimulateBubble
             label={isSwingSpeedMode ? t('app.simulateSwing') : t('app.simulateShot')}

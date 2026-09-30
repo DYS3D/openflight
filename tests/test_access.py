@@ -41,6 +41,17 @@ class TestHostAllowed:
         monkeypatch.setattr(access.socket, "gethostname", lambda: "golfpi")
         assert access.host_is_allowed("golfpi:8080")
 
+    @pytest.mark.parametrize("host", ["golfpi.lan:8080", "golfpi.home", "golfpi.localdomain"])
+    def test_own_hostname_with_router_domain_is_allowed(self, monkeypatch, host):
+        monkeypatch.setattr(access.socket, "gethostname", lambda: "golfpi")
+        assert access.host_is_allowed(host)
+
+    def test_other_names_under_a_router_domain_are_refused(self, monkeypatch):
+        monkeypatch.setattr(access.socket, "gethostname", lambda: "golfpi")
+        assert not access.host_is_allowed("golfpi-evil.example")
+        assert not access.host_is_allowed("notgolfpi.lan")
+        assert not access.host_is_allowed("golfpi.attacker.example")
+
     @pytest.mark.parametrize("host", ["evil.example", "evil.example:8080", "", None])
     def test_rebinding_style_hosts_are_refused(self, host):
         assert not access.host_is_allowed(host)

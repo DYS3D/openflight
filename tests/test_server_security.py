@@ -73,6 +73,28 @@ class TestHttpAccess:
         )
         assert response.status_code == 403
 
+    def test_cross_site_post_from_kiosk_browser_is_refused(self, access, monkeypatch):
+        """A foreign page open in the kiosk browser must not shut the device down."""
+        monkeypatch.setattr(access.threading, "Thread", pytest.fail)
+        response = access.app.test_client().post(
+            "/api/shutdown", headers={"Origin": "https://evil.example"}
+        )
+        assert response.status_code == 403
+
+    def test_same_origin_post_from_kiosk_is_allowed(self, access, monkeypatch):
+        class FakeThread:
+            def __init__(self, **_kwargs):
+                pass
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(access.threading, "Thread", FakeThread)
+        response = access.app.test_client().post(
+            "/api/shutdown", headers={"Origin": "http://localhost"}
+        )
+        assert response.status_code == 200
+
     def test_untrusted_host_header_is_rejected(self, access):
         response = access.app.test_client().get(
             "/api/camera/exposure-quality", headers={"Host": "evil.example"}

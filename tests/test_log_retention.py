@@ -40,23 +40,41 @@ def test_old_sessions_are_removed_with_their_sidecars(tmp_path):
 
 def test_capture_files_are_aged_out_and_empty_dirs_removed(tmp_path):
     dump = _write(tmp_path / "iwr6843" / "iwr6843_1_001.l3dump", age_days=120)
-    frames = _write(tmp_path / "range" / "camera" / "camera_1_001" / "frames.npz", age_days=120)
+    shot_dir = tmp_path / "range" / "camera" / "camera_1_001"
+    frames = _write(shot_dir / "frames.npz", age_days=120)
+    replay = _write(shot_dir / "replay.mp4", age_days=120)
     keep = _write(tmp_path / "range" / "camera" / "camera_2_001" / "frames.npz", age_days=2)
 
     removed = prune_logs(tmp_path, max_age_days=90, max_total_mb=0, now=NOW)
 
-    assert set(removed) == {dump, frames}
-    assert not frames.parent.exists()
+    assert set(removed) == {dump, frames, replay}
+    assert not shot_dir.exists()
     assert keep.exists()
     assert (tmp_path / "iwr6843").is_dir()
 
 
 def test_unrelated_files_are_never_touched(tmp_path):
+    """--log-dir pointed at a broad directory must not reach user files."""
     notes = _write(tmp_path / "my_notes.txt", age_days=1000)
-    other = _write(tmp_path / "photos" / "img.jpg", age_days=1000)
-    prune_logs(tmp_path, max_age_days=1, max_total_mb=0.000001, now=NOW)
-    assert notes.exists()
-    assert other.exists()
+    photo = _write(tmp_path / "Pictures" / "camera" / "camera_roll" / "img.jpg", age_days=1000)
+    source = _write(
+        tmp_path / "openflight" / "src" / "openflight" / "camera" / "capture.py", age_days=1000
+    )
+    other_dump = _write(tmp_path / "iwr6843" / "notes.txt", age_days=1000)
+
+    removed = prune_logs(tmp_path, max_age_days=1, max_total_mb=0.000001, now=NOW)
+
+    assert removed == []
+    for path in (notes, photo, source, other_dump):
+        assert path.exists()
+
+
+def test_protected_captures_are_kept(tmp_path):
+    dump = _write(tmp_path / "iwr6843" / "iwr6843_1_001.l3dump", age_days=200)
+    removed = prune_logs(
+        tmp_path, max_age_days=90, max_total_mb=0, protect=lambda p: p == dump, now=NOW
+    )
+    assert removed == []
 
 
 def test_size_budget_removes_oldest_first(tmp_path):

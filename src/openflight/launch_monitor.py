@@ -224,7 +224,7 @@ class Shot:
     # Raw radar-measured spin, kept when --calculated-spin rewrites
     # spin_rpm with the kinematic estimate (for offline scoring)
     spin_rpm_measured: Optional[float] = None
-    spin_source: Optional[str] = None  # "measured", "calculated", or None
+    spin_source: Optional[str] = None  # "measured", "calculated", "mock", or None
     spin_method: Optional[str] = None
     spin_result_quality: Optional[str] = None
     spin_multipath_fade_hz: Optional[float] = None

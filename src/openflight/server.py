@@ -220,6 +220,12 @@ def _reject_untrusted_host():
     """Block DNS-rebinding requests that reach the server under a foreign name."""
     if not host_is_allowed(request.host, allowed_extra_hosts):
         return jsonify({"error": "Host not allowed"}), 421
+    # A cross-site page (even one open in the kiosk browser) can send a simple
+    # POST with no preflight; refuse state changes from foreign origins.
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not origin_is_allowed(
+        request.headers.get("Origin"), request.host, allowed_extra_origins
+    ):
+        return jsonify({"error": "Origin not allowed"}), 403
     return None
 
 
@@ -3549,10 +3555,7 @@ def _finalize_shot_detected(
                 "club": shot_data["club"],
             }
 
-            if debug_log_file:
-                debug_log_file.write(json.dumps(debug_log_entry) + "\n")
-                debug_log_file.flush()
-
+            _write_debug_entry(debug_log_entry)
             socketio.emit("debug_shot", debug_log_entry)
         except Exception as e:
             print(f"[WARN] Debug logging error: {e}")
@@ -4098,25 +4101,18 @@ def _prune_session_logs(log_dir: Path, *, max_age_days: float, max_total_mb: flo
     from .cloud import spool
     from .log_retention import prune_logs
 
-    cloud_active = False
     try:
         from .cloud.config import load_config
 
         config = load_config()
-        cloud_active = bool(config and config.is_active())
     except Exception:  # pylint: disable=broad-exception-caught
-        cloud_active = False
-
-    def awaiting_upload(session: Path) -> bool:
-        return cloud_active and not spool.is_pushed(session) and not spool.is_parked(session)
+        config = None
 
     try:
-        removed = prune_logs(
-            log_dir,
-            max_age_days=max_age_days,
-            max_total_mb=max_total_mb,
-            protect=awaiting_upload,
-        )
+        guard = {}
+        if config is not None and config.is_active():
+            guard["protect"] = spool.retention_guard(log_dir, raw_uploads=config.upload_raw)
+        removed = prune_logs(log_dir, max_age_days=max_age_days, max_total_mb=max_total_mb, **guard)
     except OSError as error:
         logger.warning("[RETENTION] Log pruning failed: %s", error)
         return
@@ -4301,6 +4297,7 @@ class MockLaunchMonitor:
             club=self._current_club,
             spin_rpm=spin_rpm,
             spin_confidence=random.choice(defaults.spin_confidence_choices),
+            spin_source="mock",
             launch_angle_vertical=round(launch_v, 1),
             launch_angle_horizontal=round(launch_h, 1),
             launch_angle_confidence=launch_confidence,

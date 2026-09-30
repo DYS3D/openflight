@@ -57,6 +57,13 @@ describe('shot provenance', () => {
     expect(isSpinEstimated(makeShot({ spin_rpm: null, spin_source: 'calculated' }))).toBe(false);
   });
 
+  it('treats mock data from older payloads as estimated', () => {
+    const shot = makeShot({ angle_source: 'mock', spin_source: 'mock' });
+    expect(isVerticalLaunchEstimated(shot)).toBe(true);
+    expect(isHorizontalLaunchEstimated(shot)).toBe(true);
+    expect(isSpinEstimated(shot)).toBe(true);
+  });
+
   it('flags kinematically calculated spin', () => {
     expect(isSpinEstimated(makeShot({ spin_source: 'calculated' }))).toBe(true);
     expect(isSpinEstimated(makeShot({ spin_source: 'measured' }))).toBe(false);

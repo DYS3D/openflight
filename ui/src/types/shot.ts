@@ -31,7 +31,7 @@ export interface Shot {
   launch_angle_horizontal_confidence?: number | null;
   launch_angle_vertical_source?: string | null;
   launch_angle_horizontal_source?: string | null;
-  angle_source: 'radar' | 'camera' | 'estimated' | null;
+  angle_source: 'radar' | 'camera' | 'estimated' | 'mock' | null;
   club_angle_deg: number | null;
   club_path_deg: number | null;
   experimental_attack_angle_deg?: number | null;
@@ -56,7 +56,7 @@ export interface Shot {
   spin_rpm: number | null;
   spin_confidence: number | null;
   spin_quality: SpinQuality | null;
-  spin_source: 'measured' | 'calculated' | null;
+  spin_source: 'measured' | 'calculated' | 'mock' | null;
   spin_method?: string | null;
   spin_multipath_fade_hz?: number | null;
   carry_spin_adjusted: number | null;

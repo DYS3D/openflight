@@ -24,15 +24,16 @@ SPIN_MODEL_RPM: Mapping[ClubType, float] = MappingProxyType(
     {club: physics.typical_spin_rpm for club, physics in CLUB_PHYSICS.items()}
 )
 
-# Sources that mean "modeled, not observed" on a Shot's per-axis angle fields.
+# Sources that mean "modeled, not observed".
 _ESTIMATED_ANGLE_SOURCES = frozenset({"estimated", "mock"})
+_MODELLED_SPIN_SOURCES = frozenset({"calculated", "mock"})
 
 
 def _resolve_total_spin(shot: Shot) -> Tuple[float, str]:
     """High-confidence spin if present, else the per-club model.
 
-    Kinematically calculated spin (spin_source == "calculated") is a model
-    output, so it is used but tagged "estimated".
+    Kinematically calculated or mock spin is a model output, so it is used
+    but tagged "estimated".
     """
     if (
         shot.spin_rpm is not None
@@ -40,7 +41,7 @@ def _resolve_total_spin(shot: Shot) -> Tuple[float, str]:
         and shot.spin_confidence is not None
         and shot.spin_confidence >= SPIN_CONFIDENCE_HIGH
     ):
-        provenance = "estimated" if shot.spin_source == "calculated" else "measured"
+        provenance = "estimated" if shot.spin_source in _MODELLED_SPIN_SOURCES else "measured"
         return float(shot.spin_rpm), provenance
     return get_club_physics(shot.club).typical_spin_rpm, "estimated"
 

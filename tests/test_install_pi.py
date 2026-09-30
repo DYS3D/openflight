@@ -44,6 +44,28 @@ class TestUartBootConfig:
         assert text.count("dtparam=uart0=on") == 1
         assert "\n[all]\n# OpenFlight UART" in text
 
+    def test_pi4_moves_bluetooth_off_the_header_uart(self, tmp_path):
+        config = tmp_path / "config.txt"
+        config.write_text("")
+        _call(INSTALLER, 'update_uart_boot_config "$1" 4', str(config))
+        text = config.read_text()
+        assert "dtoverlay=disable-bt" in text
+        assert "dtparam=uart0=on" not in text
+
+    @pytest.mark.parametrize(
+        ("model", "generation"),
+        [
+            ("Raspberry Pi 5 Model B Rev 1.0", "5"),
+            ("Raspberry Pi 4 Model B Rev 1.4", "4"),
+            ("Some Other Board", "0"),
+        ],
+    )
+    def test_pi_generation(self, tmp_path, model, generation):
+        model_file = tmp_path / "model"
+        model_file.write_bytes(model.encode() + b"\0")
+        result = _call(INSTALLER, 'pi_generation "$1"', str(model_file))
+        assert result.stdout.strip() == generation
+
     def test_does_not_duplicate_existing_settings(self, tmp_path):
         config = tmp_path / "config.txt"
         config.write_text("enable_uart=1\n")

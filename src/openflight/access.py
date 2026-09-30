@@ -19,6 +19,9 @@ from urllib.parse import urlsplit
 TOKEN_ENV = "OPENFLIGHT_AUTH_TOKEN"
 DEFAULT_TOKEN_PATH = Path.home() / ".config" / "openflight" / "auth_token"
 TOKEN_HEADER = "X-OpenFlight-Token"
+# Home-router search domains. Only this device's own name is accepted under
+# them; a public domain would let DNS rebinding reach the server.
+LOCAL_DOMAIN_SUFFIXES = (".local", ".lan", ".home", ".home.arpa", ".localdomain", ".internal")
 
 
 def is_loopback_address(address: Optional[str]) -> bool:
@@ -57,7 +60,8 @@ def host_is_allowed(host_header: Optional[str], extra_hosts: Iterable[str] = ())
     """Reject Host names an attacker could rebind to this device via DNS.
 
     IP literals, localhost, mDNS ``.local`` names, and this machine's hostname
-    are what a real kiosk, tablet, or TV uses to reach OpenFlight.
+    (bare or with a home-router domain such as ``.lan``) are what a real
+    kiosk, tablet, or TV uses to reach OpenFlight.
     """
     if not host_header:
         return False
@@ -70,7 +74,8 @@ def host_is_allowed(host_header: Optional[str], extra_hosts: Iterable[str] = ())
         _is_ip_literal(hostname)
         or hostname == "localhost"
         or hostname.endswith(".local")
-        or hostname in (local_name, f"{local_name}.local")
+        or hostname == local_name
+        or any(hostname == f"{local_name}{suffix}" for suffix in LOCAL_DOMAIN_SUFFIXES)
         or hostname in allowed
     )
 
@@ -80,7 +85,11 @@ def origin_is_allowed(
     host_header: Optional[str],
     extra_origins: Iterable[str] = (),
 ) -> bool:
-    """Same-origin, loopback (kiosk and Vite dev server), or explicitly configured."""
+    """Same-origin, loopback, or explicitly configured.
+
+    Loopback covers the kiosk and a Vite dev server on the same machine; a dev
+    server reached over the LAN needs ``--cors-origin``.
+    """
     if not origin:
         # Non-browser clients (curl, the kiosk's shutdown hook) send no Origin.
         return True

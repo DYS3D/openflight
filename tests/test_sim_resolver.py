@@ -165,3 +165,8 @@ def test_fallback_spin_matches_the_ballistics_table():
         r = resolve_shot(_shot(club=club), PlayerState())
         assert r.total_spin_rpm == CLUB_TYPICAL_SPIN_RPM[club], club
         assert SPIN_MODEL_RPM[club] == CLUB_TYPICAL_SPIN_RPM[club], club
+
+
+def test_mock_spin_is_tagged_estimated():
+    shot = _shot(spin_rpm=2700.0, spin_confidence=0.9, spin_source="mock")
+    assert resolve_shot(shot, PlayerState()).provenance["total_spin"] == "estimated"

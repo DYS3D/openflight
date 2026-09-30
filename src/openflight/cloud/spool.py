@@ -24,7 +24,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 PUSHED_SUFFIX = ".pushed"
 PARKED_SUFFIX = ".parked"
@@ -263,3 +263,34 @@ def summarize(log_dir: Path) -> Dict[str, int]:
         "pending": pending,
         "captures_pending": captures_pending,
     }
+
+
+def retention_guard(log_dir: Path, *, raw_uploads: bool) -> Callable[[Path], bool]:
+    """Predicate for log retention: True for files the uploader still needs.
+
+    Keeps sessions not yet pushed or parked, pushed sessions whose capture
+    queue is non-empty, and (with raw uploads) queued capture dumps. Dumps of
+    sessions not yet pushed are only listed once their session is filtered, so
+    every dump at least as new as the oldest unfinished session is kept too.
+    """
+    sessions = session_files(log_dir)
+    unfinished = {p for p in sessions if not is_pushed(p) and not is_parked(p)}
+    queued = {
+        Path(capture["path"])
+        for p in sessions
+        if is_pushed(p)
+        for capture in pending_captures(p)
+        if capture.get("path")
+    }
+    oldest_unfinished = min((p.stat().st_mtime for p in unfinished), default=None)
+
+    def guard(path: Path) -> bool:
+        if path.name.startswith("session_") and path.suffix == ".jsonl":
+            return path in unfinished or bool(pending_captures(path))
+        if not raw_uploads or path.suffix != ".l3dump":
+            return False
+        if path in queued:
+            return True
+        return oldest_unfinished is not None and path.stat().st_mtime >= oldest_unfinished
+
+    return guard

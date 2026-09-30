@@ -185,3 +185,48 @@ class TestAtomicMarkers:
             path.name + spool.PARKED_SUFFIX,
             path.name + spool.STATE_SUFFIX,
         ]
+
+
+class TestRetentionGuard:
+    def test_unfinished_sessions_are_protected(self, tmp_path):
+        pending = _session(tmp_path, "session_a.jsonl")
+        pushed = _session(tmp_path, "session_b.jsonl")
+        spool.mark_pushed(pushed, "sid", 1)
+        guard = spool.retention_guard(tmp_path, raw_uploads=False)
+        assert guard(pending)
+        assert not guard(pushed)
+
+    def test_pushed_session_with_queued_captures_is_protected(self, tmp_path):
+        dump = tmp_path / "iwr6843" / "iwr6843_1_001.l3dump"
+        dump.parent.mkdir()
+        dump.write_bytes(b"x")
+        pushed = _session(tmp_path, "session_b.jsonl")
+        spool.mark_pushed(pushed, "sid", 1, captures=[{"path": str(dump), "shot_number": 1}])
+
+        guard = spool.retention_guard(tmp_path, raw_uploads=True)
+
+        assert guard(pushed)
+        assert guard(dump)
+
+    def test_dumps_newer_than_an_unfinished_session_are_protected(self, tmp_path):
+        import os
+
+        pending = _session(tmp_path, "session_a.jsonl")
+        os.utime(pending, (1000, 1000))
+        old_dump = tmp_path / "old.l3dump"
+        old_dump.write_bytes(b"x")
+        os.utime(old_dump, (500, 500))
+        new_dump = tmp_path / "new.l3dump"
+        new_dump.write_bytes(b"x")
+        os.utime(new_dump, (2000, 2000))
+
+        guard = spool.retention_guard(tmp_path, raw_uploads=True)
+
+        assert guard(new_dump)
+        assert not guard(old_dump)
+
+    def test_dumps_are_not_protected_without_raw_uploads(self, tmp_path):
+        _session(tmp_path, "session_a.jsonl")
+        dump = tmp_path / "new.l3dump"
+        dump.write_bytes(b"x")
+        assert not spool.retention_guard(tmp_path, raw_uploads=False)(dump)

@@ -128,17 +128,33 @@ render_env_file() {
     printf 'OPENFLIGHT_ARGS="%s"\n' "$(server_args)"
 }
 
-# Idempotently enable the 40-pin header UART (UART0 -> /dev/ttyAMA0).
+# Idempotently put the 40-pin header UART on /dev/ttyAMA0. A Pi 5 needs UART0
+# switched on; a Pi 3/4 must move Bluetooth off the PL011 (disable-bt).
 update_uart_boot_config() {
-    local config="$1" lines=()
+    local config="$1" generation="${2:-5}" lines=()
     if grep -qF "$UART_MARKER" "$config" 2>/dev/null; then
         return 0
     fi
     grep -qE '^enable_uart=1' "$config" 2>/dev/null || lines+=("enable_uart=1")
-    grep -qE '^dtparam=uart0=on' "$config" 2>/dev/null || lines+=("dtparam=uart0=on")
+    if [ "$generation" -ge 5 ]; then
+        grep -qE '^dtparam=uart0=on' "$config" 2>/dev/null || lines+=("dtparam=uart0=on")
+    else
+        grep -qE '^dtoverlay=disable-bt' "$config" 2>/dev/null || lines+=("dtoverlay=disable-bt")
+    fi
     printf '\n[all]\n%s\n' "$UART_MARKER" >>"$config"
     if [ "${#lines[@]}" -gt 0 ]; then
         printf '%s\n' "${lines[@]}" >>"$config"
+    fi
+}
+
+# Raspberry Pi generation from the device-tree model (0 when unknown).
+pi_generation() {
+    local model_file="${1:-/proc/device-tree/model}" model
+    model="$(tr -d '\0' <"$model_file" 2>/dev/null || true)"
+    if [[ "$model" =~ Raspberry\ Pi\ ([0-9]+) ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo 0
     fi
 }
 
@@ -175,9 +191,9 @@ boot_file() {
 
 install_system_packages() {
     log "Installing system packages..."
+    run sudo apt-get update
     local chromium=chromium
     if ! apt-cache show chromium >/dev/null 2>&1; then chromium="chromium-browser"; fi
-    run sudo apt-get update
     run sudo apt-get install -y git curl ca-certificates python3 python3-venv python3-dev \
         build-essential swig liblgpio-dev ffmpeg avahi-daemon i2c-tools "$chromium"
 }
@@ -276,7 +292,12 @@ install_udev_rules() {
 
 configure_uart() {
     [ "$USE_UART" = true ] || return 0
-    local config cmdline
+    local config cmdline generation
+    generation="$(pi_generation)"
+    if [ "$generation" -eq 0 ]; then
+        warn "Unknown Pi model; assuming Pi 5 UART settings."
+        generation=5
+    fi
     config="$(boot_file config.txt)"
     cmdline="$(boot_file cmdline.txt)"
     log "Enabling the GPIO UART in $config and removing the serial console..."
@@ -287,7 +308,7 @@ configure_uart() {
         tmp_config="$(mktemp)"; tmp_cmdline="$(mktemp)"
         cp "$config" "$tmp_config"
         cp "$cmdline" "$tmp_cmdline"
-        update_uart_boot_config "$tmp_config"
+        update_uart_boot_config "$tmp_config" "$generation"
         strip_serial_console "$tmp_cmdline"
         if ! sudo cmp -s "$tmp_config" "$config" || ! sudo cmp -s "$tmp_cmdline" "$cmdline"; then
             sudo cp "$config" "$config.openflight.bak"
@@ -298,7 +319,10 @@ configure_uart() {
         fi
         rm -f "$tmp_config" "$tmp_cmdline"
     fi
-    run sudo systemctl disable --now serial-getty@ttyAMA0.service
+    run sudo systemctl disable --now serial-getty@ttyAMA0.service serial-getty@serial0.service
+    if [ "$generation" -lt 5 ]; then
+        run sudo systemctl disable hciuart.service
+    fi
 }
 
 install_service() {

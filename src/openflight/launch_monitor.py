@@ -309,6 +309,8 @@ class Shot:
     )
     spin_axis_deg: Optional[float] = None  # Spin axis tilt: 0=backspin, +right(fade), -left(draw)
     inclinometer: Optional[dict] = None  # Stable enclosure orientation used for this shot
+    # Downsampled simulated flight for UI display only; never written to session logs.
+    flight: Optional[dict] = field(default=None, repr=False, compare=False)
 
     @property
     def ball_speed_ms(self) -> float:

@@ -41,7 +41,13 @@ from .access import (
     add_access_args,
     is_loopback_address,
 )
-from .ballistics import AIR_DENSITY_STD, air_density_kg_m3, resolve_launch, simulate
+from .ballistics import (
+    AIR_DENSITY_STD,
+    Trajectory,
+    air_density_kg_m3,
+    resolve_launch,
+    simulate,
+)
 from .clubs import ClubType
 from .clubs.physics import (
     SHOT_SIMULATION_DEFAULTS,
@@ -1116,7 +1122,50 @@ def shot_to_dict(shot: Shot) -> dict:
         if data[field] is not None:
             data[field] = round(data[field], digits) if digits is not None else round(data[field])
     data["carry_range"] = [round(value) for value in data["carry_range"]]
+    if shot.flight is not None:
+        data["flight"] = shot.flight
     return data
+
+
+FLIGHT_MAX_POINTS = 40
+
+
+def _flight_payload(trajectory: Trajectory, carry_yards: float | None = None) -> dict:
+    """Downsample a simulated flight for the UI, in yards (x downrange, y +right, z up).
+
+    With ``carry_yards`` the downrange and lateral axes are scaled so the
+    landing point matches a carry the shot already displays.
+    """
+    scale = 1.0
+    if carry_yards is not None and trajectory.carry_yards > 0:
+        scale = carry_yards / trajectory.carry_yards
+    points = trajectory.points
+    if len(points) > FLIGHT_MAX_POINTS:
+        last = len(points) - 1
+        points = [
+            points[round(index * last / (FLIGHT_MAX_POINTS - 1))]
+            for index in range(FLIGHT_MAX_POINTS)
+        ]
+    return {
+        "points": [
+            [round(point.x * scale, 2), round(point.y * scale, 2), round(point.z, 2)]
+            for point in points
+        ],
+        "carry_yards": round(trajectory.carry_yards * scale, 1),
+        "lateral_yards": round(trajectory.lateral_yards * scale, 1),
+        "apex_yards": round(trajectory.apex_yards, 1),
+        "landing_angle_deg": round(trajectory.landing_angle_deg, 1),
+        "flight_time_s": round(trajectory.flight_time_s, 2),
+    }
+
+
+def _attach_mock_flight(shot: Shot) -> None:
+    """Give a mock shot a display flight that lands at its displayed carry."""
+    conditions = resolve_launch(shot)
+    if conditions is None:
+        return
+    trajectory = simulate(conditions, air_density=air_density)
+    shot.flight = _flight_payload(trajectory, carry_yards=shot.estimated_carry_yards)
 
 
 @app.route("/")
@@ -3646,6 +3695,7 @@ def _finalize_shot_detected(
         if conditions is not None:
             trajectory = simulate(conditions, air_density=air_density)
             shot.carry_spin_adjusted = trajectory.carry_yards
+            shot.flight = _flight_payload(trajectory)
             logger.info(
                 "[SERVER] Ballistic carry: %.0f yds (spin: %.0f rpm, source: %s)",
                 shot.carry_spin_adjusted,
@@ -3673,6 +3723,8 @@ def _finalize_shot_detected(
                 spin_for_carry,
                 "" if shot.spin_rpm and shot.spin_rpm > 0 else " avg",
             )
+    else:
+        _attach_mock_flight(shot)
     if shot.spin_rejection_reason:
         logger.info(
             "[SERVER] Spin unavailable: %s (snr=%s, candidate=%s rpm)",

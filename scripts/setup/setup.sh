@@ -22,17 +22,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-log()  { echo -e "${GREEN}[OpenFlight]${NC} $1"; }
-warn() { echo -e "${YELLOW}[OpenFlight]${NC} $1"; }
-error() { echo -e "${RED}[OpenFlight]${NC} $1"; }
-info() { echo -e "${BLUE}[OpenFlight]${NC} $1"; }
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
 INTERACTIVE=true
 DEPS_ONLY=false
@@ -152,13 +143,7 @@ if ! command -v npm &> /dev/null; then
     exit 1
 fi
 
-# Install uv if not present (for faster pip installs)
-if ! command -v uv &> /dev/null; then
-    log "Installing uv (fast Python package manager)..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    # Source the new path
-    export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-fi
+of_install_uv
 
 # Create virtual environment
 if [ ! -d .venv ]; then
@@ -168,6 +153,7 @@ if [ ! -d .venv ]; then
 fi
 
 # Activate venv
+# shellcheck source=/dev/null
 source .venv/bin/activate
 log "Activated virtual environment"
 
@@ -272,9 +258,7 @@ if [ "$PLATFORM" == "pi" ] && [ "$DEPS_ONLY" == "false" ] && [ "$INTERACTIVE" ==
     echo ""
     if confirm "Start OpenFlight automatically on boot?" "N"; then
         log "Installing systemd service for user '$USER'..."
-        sed -e "s|^User=.*|User=$USER|" \
-            -e "s|/home/coleman/openflight|$PROJECT_DIR|g" \
-            "$SCRIPT_DIR/openflight.service" | sudo tee /etc/systemd/system/openflight.service > /dev/null
+        of_render_unit "$SCRIPT_DIR/openflight.service" | sudo tee /etc/systemd/system/openflight.service > /dev/null
         sudo systemctl daemon-reload
         sudo systemctl enable openflight
         log "Service installed and enabled ✓ (starts on next boot)"
@@ -299,9 +283,7 @@ if [ "$PLATFORM" == "pi" ] && [ "$DEPS_ONLY" == "false" ] && [ "$INTERACTIVE" ==
     if confirm "Enable cloud sync for this Pi?" "N"; then
         log "Installing the cloud uploader timer (runs every ~10 min)..."
         for unit in openflight-cloud.service openflight-cloud.timer; do
-            sed -e "s|^User=.*|User=$USER|" \
-                -e "s|/home/coleman/openflight|$PROJECT_DIR|g" \
-                "$SCRIPT_DIR/$unit" | sudo tee "/etc/systemd/system/$unit" > /dev/null
+            of_render_unit "$SCRIPT_DIR/$unit" | sudo tee "/etc/systemd/system/$unit" > /dev/null
         done
         sudo systemctl daemon-reload
         sudo systemctl enable --now openflight-cloud.timer

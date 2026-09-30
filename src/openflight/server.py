@@ -49,6 +49,7 @@ from .ops243 import (
 )
 from .power import SUPPORTED_BATTERY_PROVIDERS, PowerMonitor, PowerStatus
 from .profiles import ProfileStore
+from .radar_timing import RadarTimingConfig, add_radar_timing_args
 from .rolling_buffer.monitor import estimate_carry_with_spin, get_optimal_spin_for_ball_speed
 from .session_logger import (
     SessionLogger,
@@ -4838,6 +4839,7 @@ def main():
         default=0.0,
         help="K-LD7 horizontal angle offset in degrees (default: 0.0)",
     )
+    add_radar_timing_args(parser)
     args = parser.parse_args()
     _apply_kld7_device_defaults(args)
 
@@ -4995,7 +4997,10 @@ def main():
 
     # Start the monitor
     # Build trigger-specific kwargs (pre_trigger_segments always passed)
-    trigger_kwargs = {"pre_trigger_segments": args.sound_pre_trigger}
+    trigger_kwargs = {
+        "pre_trigger_segments": args.sound_pre_trigger,
+        "radar_timing": RadarTimingConfig.from_args(args),
+    }
     swing_speed_kwargs = {
         "trigger_threshold_mph": args.swing_speed_threshold,
         "max_speed_mph": None if args.swing_speed_max <= 0 else args.swing_speed_max,

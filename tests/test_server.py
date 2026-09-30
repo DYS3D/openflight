@@ -4628,3 +4628,67 @@ class TestBallisticCarryPrecedence:
         resolved = server_module.resolve_shot(forwarded[0], server_module.SimPlayerState())
         assert resolved.carry_yards == pytest.approx(shot.carry_spin_adjusted)
         assert resolved.carry_yards > 135.0
+
+
+class _HaltMain(BaseException):
+    """Stops ``main()`` once the flags under test have been applied."""
+
+
+def _run_main_until_start_monitor(monkeypatch, flags: list[str]) -> dict:
+    """Run ``main()`` on a mock build and capture the ``start_monitor`` kwargs.
+
+    The globals ``main()`` assigns are monkeypatched to their current values
+    so they are restored after the test.
+    """
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(sys, "argv", ["openflight-server", "--mock", "--no-logging", *flags])
+    for name in (
+        "ball_speed_correction_enabled",
+        "ball_speed_correction_distance_ft",
+        "ball_speed_correction_ball_above_radar_ft",
+        "ballistics_enabled",
+        "air_density",
+        "calculated_spin_enabled",
+        "battery_provider",
+        "profile_store",
+        "_VERTICAL_RADAR_GATE_BYPASS",
+    ):
+        monkeypatch.setattr(server_module, name, getattr(server_module, name))
+    monkeypatch.setattr(server_module, "ProfileStore", MagicMock())
+    monkeypatch.setattr(server_module, "init_session_logger", lambda **_kwargs: None)
+    captured: dict = {}
+
+    def halt(**kwargs):
+        captured.update(kwargs)
+        raise _HaltMain()
+
+    monkeypatch.setattr(server_module, "start_monitor", halt)
+
+    with pytest.raises(_HaltMain):
+        server_module.main()
+
+    return captured
+
+
+class TestRadarTimingFlagsReachTheMonitor:
+    """The OPS243 timing group is registered on the server parser and its
+    parsed config rides to ``start_monitor`` with the trigger kwargs."""
+
+    @pytest.mark.parametrize(
+        ("flags", "expected"),
+        [
+            ([], {}),
+            (
+                ["--fast-clock-sync", "--rearm-after-handoff", "--clock-sync-samples", "12"],
+                {"fast_clock_sync": True, "rearm_after_handoff": True, "clock_sync_samples": 12},
+            ),
+        ],
+    )
+    def test_main_passes_radar_timing_to_start_monitor(self, monkeypatch, flags, expected):
+        from openflight.radar_timing import RadarTimingConfig
+
+        captured = _run_main_until_start_monitor(monkeypatch, flags)
+
+        assert captured["trigger_kwargs"]["radar_timing"] == RadarTimingConfig(**expected)
+        assert captured["trigger_kwargs"]["pre_trigger_segments"] == 16

@@ -170,6 +170,22 @@ class TestFlagOn:
             locked_server, LAN, headers={"Origin": "https://evil.example"}, auth={"token": "s3cret"}
         ).is_connected()
 
+    def test_ui_shell_loads_without_token_but_api_and_socket_do_not(
+        self, locked_server, monkeypatch
+    ):
+        """A phone must be able to load the page and hand the token to the socket."""
+        monkeypatch.setattr(
+            locked_server, "_react_app_dir", lambda: locked_server.FRONTEND_SOURCE_DIR
+        )
+        client = locked_server.app.test_client()
+        for path in ("/", "/display", "/index.html"):
+            response = client.get(path, environ_base={"REMOTE_ADDR": LAN})
+            assert response.status_code != 401, path
+        assert _http(locked_server, LAN).status_code == 401
+        post = client.post("/api/shutdown", environ_base={"REMOTE_ADDR": LAN})
+        assert post.status_code == 401
+        assert not _socket(locked_server, LAN).is_connected()
+
     def test_allowed_origin_is_served(self, locked_server):
         response = _http(
             locked_server,
@@ -189,6 +205,19 @@ class TestRateLimit:
         codes = [_http(open_server, LAN).status_code for _ in range(6)]
         assert codes[:4] == [404] * 4 and codes[4:] == [429, 429]
         assert all(_http(open_server, "127.0.0.1").status_code == 404 for _ in range(10))
+
+    def test_fractional_limit_still_admits_one_request(self, open_server, monkeypatch):
+        monkeypatch.setattr(open_server, "request_rate_limit_per_s", 0.4)
+        assert not open_server._rate_limited(LAN, now=100.0)
+        assert open_server._rate_limited(LAN, now=100.1)
+
+    def test_idle_ips_are_forgotten(self, open_server, monkeypatch):
+        monkeypatch.setattr(open_server, "request_rate_limit_per_s", 1.0)
+        monkeypatch.setattr(open_server, "RATE_LIMIT_MAX_TRACKED_IPS", 2)
+        for index in range(3):
+            open_server._rate_limited(f"10.0.0.{index}", now=100.0)
+        open_server._rate_limited("10.0.0.9", now=200.0)
+        assert set(open_server._rate_buckets) == {"10.0.0.9"}
 
     def test_window_expires(self, open_server, monkeypatch):
         monkeypatch.setattr(open_server, "request_rate_limit_per_s", 1.0)

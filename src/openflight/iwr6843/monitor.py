@@ -27,9 +27,12 @@ logger = logging.getLogger(__name__)
 
 _GRACEFUL_DUMP_SHUTDOWN_S = 12.0
 # Each capture holds a ~768 KiB dump. Unclaimed ones (false triggers, shots
-# whose OPS side never arrived) must not accumulate for a whole session.
+# whose OPS side never arrived) must not accumulate for a whole session. The
+# age limit must exceed how long a real shot can legitimately wait: the
+# server's enrichment queue (two waiting shots, 20 s deadline each) can hold a
+# valid capture for ~40 s before capture_for_shot() asks for it.
 _MAX_PENDING_CAPTURES = 4
-_MAX_PENDING_CAPTURE_AGE_S = 5.0
+_MAX_PENDING_CAPTURE_AGE_S = 60.0
 
 
 def tx_order_from_config(config_path: str | Path) -> str:

@@ -11,6 +11,7 @@ from openflight.iwr6843.calibration import Calibration
 from openflight.iwr6843.club import ClubPathResult, ClubWindowPolicy, estimate_club_path
 from openflight.iwr6843.estimator_worker import EstimatorWorker, EstimatorWorkerError
 from openflight.iwr6843.lcmf import (
+    PRODUCTION_ANGLE_STEP_DEG,
     LCMFResult,
     PreparedLCMFCapture,
     estimate_lcmf_v1,
@@ -149,9 +150,9 @@ class IWR6843Runtime:
     # After any worker failure they run inline for the rest of the session.
     estimator_process: bool = False
     estimator_timeout_s: float = 30.0
-    # Launch-angle search grid. 0.5 is the exhaustive production sweep; None
-    # selects the coarse-to-fine search (--iwr6843-fast-angle-search).
-    angle_grid_step_deg: float | None = 0.5
+    # Launch-angle search grid. The exhaustive production sweep by default;
+    # None selects the coarse-to-fine search (--iwr6843-fast-angle-search).
+    angle_grid_step_deg: float | None = PRODUCTION_ANGLE_STEP_DEG
     _estimator_worker: EstimatorWorker | None = field(default=None, init=False, repr=False)
     _estimator_worker_lock: threading.Lock = field(
         default_factory=threading.Lock, init=False, repr=False

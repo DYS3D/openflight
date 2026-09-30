@@ -15,7 +15,7 @@ from openflight.iwr6843.calibration_session import (
     clone_calibration,
     estimated_track_start_range_m,
 )
-from openflight.iwr6843.lcmf import LCMFResult, estimate_lcmf_v1
+from openflight.iwr6843.lcmf import PRODUCTION_ANGLE_STEP_DEG, LCMFResult, estimate_lcmf_v1
 from openflight.iwr6843.shot import process_dump
 
 
@@ -169,7 +169,7 @@ def replay_capture(
     net_range_m: float | None,
     tx_order: str,
     tdm_sign_policy: str = "positive",
-    grid_step_deg: float | None = None,
+    grid_step_deg: float | None = PRODUCTION_ANGLE_STEP_DEG,
     estimator=estimate_lcmf_v1,
 ) -> ReplayRecord:
     """Run LCMF-v1 on one saved dump."""

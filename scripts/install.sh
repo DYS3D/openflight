@@ -432,9 +432,11 @@ device_token() {
         run uv --directory "$PROJECT_DIR" run python -m openflight.access print-token
         return 0
     fi
-    local token
-    if token="$(uv --directory "$PROJECT_DIR" run python -m openflight.access print-token)"; then
-        log "Device token (also in ~/.config/openflight/token): $token"
+    # The token is never echoed: stdout is tee'd into the install log, which
+    # is not private. Print the path and let the user read the 0600 file.
+    if uv --directory "$PROJECT_DIR" run python -m openflight.access print-token >/dev/null; then
+        log "Device token created in ~/.config/openflight/token (mode 0600)."
+        log "Show it with: cat ~/.config/openflight/token"
         log "Only needed if you start the server with --auth-required; see docs/setup/hardware-validation.md"
     else
         warn "Could not create the device token; run: uv run python -m openflight.access print-token"

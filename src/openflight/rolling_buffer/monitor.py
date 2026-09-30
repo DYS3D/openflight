@@ -572,8 +572,14 @@ class RollingBufferMonitor:
                             else "N/A",
                         )
 
-                    # Deliver the shot to the UI before the (large) raw-capture
-                    # and trigger-event session writes.
+                    # The trigger event is small and creates the UI history row
+                    # that later IWR6843/camera status updates attach to, so it
+                    # goes first; the large raw-capture write waits until the
+                    # shot has reached the UI.
+                    self._record_accepted_trigger(
+                        processed, shot, trigger_diagnostic, trigger_latency_ms
+                    )
+                    trigger_event_recorded = True
                     try:
                         if self._shot_callback:
                             callback_start = time.time()
@@ -596,10 +602,7 @@ class RollingBufferMonitor:
                             )
                     finally:
                         self._finish_deferred_rearm()
-                        self._persist_accepted_shot(
-                            capture, processed, shot, trigger_diagnostic, trigger_latency_ms
-                        )
-                        trigger_event_recorded = True
+                        self._log_accepted_capture(capture, processed, shot, trigger_latency_ms)
                 else:
                     self._notify_processing("failed")
                     logger.info(
@@ -714,15 +717,14 @@ class RollingBufferMonitor:
             self._set_radar_state(RADAR_STATE_CONNECTED)
             return
 
-    def _persist_accepted_shot(
+    def _log_accepted_capture(
         self,
         capture: IQCapture,
         processed: ProcessedCapture,
         shot: Shot,
-        trigger_diagnostic: dict,
         trigger_latency_ms: float,
     ) -> None:
-        """Log raw I/Q data and the accepted trigger event to the session logger."""
+        """Log the raw I/Q capture of an accepted shot for offline analysis."""
         session_logger = get_session_logger()
         if session_logger:
             # Log raw I/Q data for offline analysis
@@ -801,6 +803,14 @@ class RollingBufferMonitor:
                 spin_rejection_reason=shot.spin_rejection_reason,
             )
 
+    def _record_accepted_trigger(
+        self,
+        processed: ProcessedCapture,
+        shot: Shot,
+        trigger_diagnostic: dict,
+        trigger_latency_ms: float,
+    ) -> None:
+        """Persist and publish the accepted trigger outcome (creates the UI row)."""
         self._record_trigger_event(
             trigger_diagnostic,
             accepted=True,

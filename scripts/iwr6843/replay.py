@@ -54,8 +54,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--grid-step-deg",
         type=float,
-        default=None,
-        help="Exhaustive LCMF angle grid step; omit for the production coarse-to-fine search",
+        default=0.5,
+        help=(
+            "Exhaustive LCMF angle grid step (default 0.5, the server's production sweep); "
+            "pass 0 for the coarse-to-fine search behind --iwr6843-fast-angle-search"
+        ),
     )
     parser.add_argument("--out", type=Path, default=None, help="Optional CSV or JSONL output path")
     parser.add_argument(
@@ -141,7 +144,7 @@ def main() -> int:
             net_range_m=args.net_m,
             tx_order=tx_order,
             tdm_sign_policy=args.tdm_sign_policy,
-            grid_step_deg=args.grid_step_deg,
+            grid_step_deg=args.grid_step_deg or None,
         )
         for replay_input in replay_inputs
     ]

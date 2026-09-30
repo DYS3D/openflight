@@ -10,6 +10,7 @@ import math
 import os
 import queue
 import random
+import signal
 import statistics
 import sys
 import threading
@@ -100,6 +101,7 @@ request_rate_limit_per_s: float = 0.0
 _rate_buckets: dict[str, list[float]] = {}
 _rate_lock = threading.Lock()
 RATE_LIMIT_BURST_S = 2.0
+RATE_LIMIT_MAX_TRACKED_IPS = 1024
 
 
 def _request_token(auth=None) -> Optional[str]:
@@ -115,7 +117,18 @@ def _request_token(auth=None) -> Optional[str]:
     return request.args.get(TOKEN_QUERY_PARAM)
 
 
-def _access_refusal(auth=None) -> Optional[tuple[str, int]]:
+def _serves_ui_shell() -> bool:
+    """GETs that only load the UI itself (index, display page, built assets).
+
+    They carry no device state, so a phone can open the page and hand the
+    token to the socket; every /api route and the socket stay gated.
+    """
+    if request.method not in ("GET", "HEAD"):
+        return False
+    return not request.path.startswith("/api/") and not request.path.startswith("/socket.io")
+
+
+def _access_refusal(auth=None, *, allow_ui_shell: bool = False) -> Optional[tuple[str, int]]:
     """Why the current request must be refused under --auth-required, or None."""
     if not access_policy.enabled:
         return None
@@ -124,6 +137,8 @@ def _access_refusal(auth=None) -> Optional[tuple[str, int]]:
     if access_policy.client_is_exempt(request.remote_addr):
         return None
     if access_policy.token_ok(_request_token(auth)):
+        return None
+    if allow_ui_shell and _serves_ui_shell():
         return None
     return "Device token required", 401
 
@@ -134,8 +149,11 @@ def _rate_limited(remote_addr: Optional[str], now: Optional[float] = None) -> bo
         return False
     now = time.monotonic() if now is None else now
     key = remote_addr or "?"
-    cap = int(request_rate_limit_per_s * RATE_LIMIT_BURST_S)
+    cap = max(1, int(request_rate_limit_per_s * RATE_LIMIT_BURST_S))
     with _rate_lock:
+        if len(_rate_buckets) > RATE_LIMIT_MAX_TRACKED_IPS:
+            for stale in [k for k, ts in _rate_buckets.items() if not ts or now - ts[-1] > 60]:
+                del _rate_buckets[stale]
         window = [t for t in _rate_buckets.get(key, []) if now - t < RATE_LIMIT_BURST_S]
         if len(window) >= cap:
             _rate_buckets[key] = window
@@ -152,7 +170,7 @@ def _enforce_access_and_limits():
     cap = app.config.get("MAX_CONTENT_LENGTH")
     if cap and (request.content_length or 0) > cap:
         return jsonify({"error": "Request body too large"}), 413
-    refusal = _access_refusal()
+    refusal = _access_refusal(allow_ui_shell=True)
     if refusal is not None:
         message, status = refusal
         return jsonify({"error": message}), status
@@ -548,6 +566,26 @@ def _cleanup_hardware_for_shutdown() -> bool:
         _run_shutdown_step(f"simulator connector stop ({connector.name})", connector.stop)
 
     return True
+
+
+def _handle_termination_signal(signum, _frame) -> None:
+    """Flush the session log and stop hardware when systemd sends SIGTERM.
+
+    Python's default SIGTERM action kills the process without running
+    finally blocks or atexit hooks, which would drop the session-log lines
+    still queued on the writer thread.
+    """
+    logger.info("[SERVER] Received signal %s; shutting down", signum)
+    threading.Thread(target=_shutdown_process_after_delay, args=(0.0,), daemon=True).start()
+
+
+def install_signal_handlers() -> None:
+    """Route SIGTERM through the same cleanup path as /api/shutdown."""
+    try:
+        signal.signal(signal.SIGTERM, _handle_termination_signal)
+    except ValueError:
+        # Not the main thread (tests, embedded use): the default action stays.
+        logger.debug("[SERVER] Signal handlers can only be installed from the main thread")
 
 
 def _shutdown_process_after_delay(delay_s: float = 0.5) -> None:
@@ -1231,6 +1269,7 @@ def init_iwr6843(
     global iwr6843_runtime, iwr6843_runtime_config  # pylint: disable=global-statement
     try:
         from .iwr6843 import Calibration
+        from .iwr6843.lcmf import PRODUCTION_ANGLE_STEP_DEG
         from .iwr6843.monitor import IWR6843CaptureMonitor, tx_order_from_config
         from .iwr6843.runtime import IWR6843Runtime
 
@@ -1280,7 +1319,7 @@ def init_iwr6843(
             # in multipath and collapse the eight-element vertical channel.
             tdm_sign_policy="positive",
             estimator_process=estimator_process,
-            angle_grid_step_deg=None if fast_angle_search else 0.5,
+            angle_grid_step_deg=None if fast_angle_search else PRODUCTION_ANGLE_STEP_DEG,
         )
         iwr6843_runtime_config = {
             "enabled": True,
@@ -5499,6 +5538,7 @@ def main():
         logger.info("Request rate limit: %.0f/s per non-loopback IP", request_rate_limit_per_s)
     startup_status.start("server", "Starting OpenFlight server")
 
+    install_signal_handlers()
     try:
         # Note: Flask debug mode (reloader) is disabled to prevent duplicate processes
         # fighting over the serial port. OpenFlight --debug enables verbose logging only.

@@ -274,3 +274,48 @@ class TestStartupRetentionCoversDebugLogs:
         server_module._prune_session_logs(sessions, max_age_days=30, max_total_mb=0)
 
         assert not old_debug.exists()
+
+
+class TestSigtermShutdown:
+    def test_sigterm_runs_the_cleanup_path(self, monkeypatch):
+        import signal
+
+        calls = []
+        started = []
+
+        class FakeThread:
+            def __init__(self, target=None, args=(), daemon=None):
+                started.append((target, args))
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(server_module.threading, "Thread", FakeThread)
+        monkeypatch.setattr(
+            server_module,
+            "_cleanup_hardware_for_shutdown",
+            lambda: calls.append("cleanup") or False,
+        )
+
+        server_module._handle_termination_signal(signal.SIGTERM, None)
+
+        assert started and started[0][0] is server_module._shutdown_process_after_delay
+        started[0][0](*started[0][1])
+        assert calls == ["cleanup"]
+
+    def test_install_signal_handlers_registers_sigterm(self, monkeypatch):
+        import signal
+
+        registered = {}
+        monkeypatch.setattr(
+            server_module.signal, "signal", lambda num, fn: registered.update({num: fn})
+        )
+        server_module.install_signal_handlers()
+        assert registered[signal.SIGTERM] is server_module._handle_termination_signal
+
+    def test_install_signal_handlers_tolerates_non_main_thread(self, monkeypatch):
+        def refuse(*_a):
+            raise ValueError("signal only works in main thread")
+
+        monkeypatch.setattr(server_module.signal, "signal", refuse)
+        server_module.install_signal_handlers()  # must not raise

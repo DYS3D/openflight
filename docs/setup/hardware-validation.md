@@ -113,20 +113,25 @@ The clock-sync and re-arm timing used to be constants. They are now
 
 - [ ] **Baseline.** With the flag off, a phone on the LAN can open
       `http://<pi>:8080/` and GSPro can connect, exactly as before.
-- [ ] **Token.** The installer printed the token; it is also in
-      `~/.config/openflight/token` (mode 0600) or from
+- [ ] **Token.** The installer created `~/.config/openflight/token` (mode
+      0600; it is deliberately not echoed into the install log). Read it with
+      `cat ~/.config/openflight/token` or
       `uv run python -m openflight.access print-token`. Enable the flag and
       restart.
 - [ ] **Kiosk exempt.** The touchscreen UI on the Pi keeps working with no
       prompt (loopback needs no token).
-- [ ] **Phone/TV.** `http://<pi>:8080/?token=<token>` works from a phone;
-      without the token the page loads but the socket is rejected and REST
-      calls return 401. Bookmark the token URL on each device.
+- [ ] **Phone/TV.** `http://<pi>:8080/?token=<token>` works from a phone
+      (the UI remembers the token in that browser). Without it the page and
+      its assets still load but the socket is rejected and every `/api`
+      call returns 401, so the display stays empty. Bookmark the token URL
+      on each device.
 - [ ] **GSPro / OpenGolfSim.** Simulator connections are outbound from the Pi
       and are not affected. Confirm shots still arrive.
 - [ ] **Origins.** Opening the UI by the Pi's hostname, `<hostname>.local`
       and its IP all work. Any other name needs `--allowed-origin`; a browser
-      tab on another site cannot call the API (403).
+      tab on another site cannot call the API (403). If you put a reverse
+      proxy on the Pi, every client arrives from loopback and is exempt —
+      don't combine the two.
 
 ## 5. Web server limits
 
@@ -165,16 +170,19 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
       a few seconds longer while the worker starts, and `sudo systemctl stop
       openflight` must exit cleanly with no orphaned `python` process.
 - [ ] **`--iwr6843-fast-angle-search`.** Replay your recorded IWR dumps with
-      and without the flag; angles must agree within 0.25° with identical
-      status. `tests/test_iwr6843_real_captures.py` does this automatically
+      `scripts/iwr6843/replay.py` (default 0.5° sweep) and with
+      `--grid-step-deg 0` (coarse-to-fine); angles must agree within 0.25°
+      with identical status. `tests/test_iwr6843_real_captures.py` does this automatically
       when `session_logs/session_20260725_140533_range.jsonl` and
       `session_logs/iwr/` are present.
 - [ ] **`--camera-frames-in-memory`** (with `--camera-capture`). Shot display
       latency should drop; replay must still work once the background archive
       finishes; `--no-camera-archive-frames` removes replay entirely.
 - [ ] **Session log ordering.** `shot_detected` now precedes
-      `rolling_buffer_capture` in the JSONL; confirm your own analysis
-      scripts key on type and shot number, not position.
+      `rolling_buffer_capture` in the JSONL (the `trigger_event` still comes
+      first); confirm your own analysis scripts key on type and shot number,
+      not position. Session lines are written by a background thread; a
+      `systemctl stop` now flushes them via the SIGTERM handler.
 - [ ] **`--radar-log`.** The `radar_raw_*.log` file is now only written with
       this flag. Confirm it appears when set and not otherwise.
 - [ ] **Log retention** (`--log-retention-days 90 --log-max-mb 8192`, on by

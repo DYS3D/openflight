@@ -14,6 +14,7 @@ import {
 import type { DebugReading, RadarConfig, DebugShotLog, SimShotInfo, SimStatus } from '../types/socket';
 import type { PowerStatus } from '../types/power';
 import { getServerOrigin } from '../utils/serverOrigin';
+import { getAccessToken } from '../utils/accessToken';
 import { handleShotMessage, handleShotUpdate, type ShotMessage, type ShotUpdateMessage } from './handleShotMessage';
 import { ingestSessionClub } from './sessionClubSync';
 import { remainingShotsAfterClear } from './sessionClear';
@@ -29,8 +30,12 @@ class SocketService {
   connect() {
     if (this.socket) return;
 
+    // Only used when the server runs with --auth-required; loopback (the
+    // kiosk) never needs it and the token is null unless ?token= was given.
+    const token = getAccessToken();
     this.socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
+      auth: token ? { token } : undefined,
     });
 
     this.setupListeners();

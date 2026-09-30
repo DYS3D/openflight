@@ -4,6 +4,7 @@ import type { CameraAutoExposureStatus, CameraCaptureSettings } from '../stores/
 import { verticalViewTargets } from '../utils/cameraView';
 import { getServerOrigin } from '../utils/serverOrigin';
 import './CameraFeed.css';
+import { accessHeaders } from '../utils/accessToken';
 
 interface CameraFeedProps {
   captureSettings: CameraCaptureSettings;
@@ -221,7 +222,7 @@ export function CameraFeed({ captureSettings, captureSettingsError, onUpdateCapt
 
     const refresh = async () => {
       try {
-        const response = await fetch(`${PREVIEW_URL}?t=${Date.now()}`, { cache: 'no-store' });
+        const response = await fetch(`${PREVIEW_URL}?t=${Date.now()}`, { cache: 'no-store', headers: accessHeaders() });
         if (cancelled) return;
         if (response.status === 404) {
           setPreviewState('unavailable');
@@ -237,7 +238,10 @@ export function CameraFeed({ captureSettings, captureSettingsError, onUpdateCapt
         setPreviewSrc(nextUrl);
         setLastUpdated(new Date());
         setPreviewState('available');
-        const qualityResponse = await fetch(`${EXPOSURE_QUALITY_URL}?t=${Date.now()}`, { cache: 'no-store' });
+        const qualityResponse = await fetch(`${EXPOSURE_QUALITY_URL}?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: accessHeaders(),
+        });
         if (qualityResponse.ok && !cancelled) {
           setExposureQuality(await qualityResponse.json());
         }

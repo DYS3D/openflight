@@ -60,11 +60,13 @@ CHANNEL_SPREAD_MAX_DEG = 8.0
 # corroborated one. Policy, not measurement.
 SINGLE_CHANNEL_CONFIDENCE_FACTOR = 0.7
 
-# Launch-angle search. The default is coarse-to-fine: a 2 deg sweep of the
-# whole range, then 0.25 deg steps within +/-1 deg of the coarse minimum. An
-# explicit ``grid_step_deg`` restores the exhaustive sweep (0.5 deg was the
-# previous production grid).
+# Launch-angle search. The production default is the exhaustive 0.5 deg sweep
+# the estimator was validated with. ``grid_step_deg=None`` opts into the
+# coarse-to-fine search (a 2 deg sweep of the whole range, then 0.25 deg steps
+# within +/-1 deg of the coarse minimum), which the server exposes as
+# --iwr6843-fast-angle-search until it has been checked on real captures.
 ANGLE_SEARCH_RANGE_DEG = (-5.0, 45.0)
+PRODUCTION_ANGLE_STEP_DEG = 0.5
 COARSE_ANGLE_STEP_DEG = 2.0
 FINE_ANGLE_STEP_DEG = 0.25
 FINE_ANGLE_HALF_WIDTH_DEG = 1.0
@@ -834,7 +836,7 @@ def estimate_lcmf_v1(
     net_range_m: float | None = None,
     tx_order: str = "normal",
     tdm_sign_policy: str = "positive",
-    grid_step_deg: float | None = None,
+    grid_step_deg: float | None = PRODUCTION_ANGLE_STEP_DEG,
     horizontal_phase_reference_rad: float | None = None,
     track_override: BallTrack | None = None,
     track_override_scope: str = "burst",
@@ -846,8 +848,9 @@ def estimate_lcmf_v1(
     independently selected range walk. Normal production calls leave it
     unset and retain the frozen LCMF-v1 behavior.
 
-    ``grid_step_deg`` selects an exhaustive angle sweep at that step; the
-    default ``None`` runs the coarse-to-fine search (see ``_search_angle``).
+    ``grid_step_deg`` selects an exhaustive angle sweep at that step (the
+    default 0.5 deg production grid); ``None`` runs the coarse-to-fine search
+    (see ``_search_angle``).
     """
     if ball_speed_mph <= 0:
         raise ValueError("ball_speed_mph must be positive")

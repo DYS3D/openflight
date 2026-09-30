@@ -1261,7 +1261,10 @@ class TestRollingBufferShotDeliveryOrder:
             monkeypatch, lambda _shot, events: events.append("shot_callback")
         )
 
-        assert events == ["shot_callback", "rolling_buffer_capture", "trigger_event"]
+        # The trigger event creates the UI history row that later hardware
+        # status updates attach to, so it must precede the shot callback; only
+        # the large raw-capture write is deferred.
+        assert events == ["trigger_event", "shot_callback", "rolling_buffer_capture"]
 
     def test_capture_is_still_logged_when_shot_callback_fails(self, monkeypatch):
         def failing_callback(_shot, events):
@@ -1270,7 +1273,7 @@ class TestRollingBufferShotDeliveryOrder:
 
         events, session_log = self._run_one_capture(monkeypatch, failing_callback)
 
-        assert events == ["shot_callback", "rolling_buffer_capture", "trigger_event"]
+        assert events == ["trigger_event", "shot_callback", "rolling_buffer_capture"]
         assert session_log.log_trigger_event.call_args.kwargs["accepted"] is True
 
 

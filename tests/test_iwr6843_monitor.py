@@ -380,7 +380,7 @@ def _wait_for_pending_count(monitor, count: int) -> None:
 
 
 def _expired_capture(sequence: int) -> IWR6843Capture:
-    completed = time.time() - 6.0
+    completed = time.time() - 61.0
     return IWR6843Capture(
         sequence=sequence,
         trigger_timestamp=completed - 5.0,
@@ -404,7 +404,7 @@ def test_unclaimed_captures_are_bounded_to_the_newest_four(tmp_path):
     monitor.stop()
 
 
-def test_lookup_drops_captures_unclaimed_for_more_than_five_seconds(tmp_path):
+def test_lookup_drops_captures_unclaimed_for_more_than_a_minute(tmp_path):
     monitor = _started_monitor(tmp_path)
     with monitor._condition:  # pylint: disable=protected-access
         monitor._captures.append(_expired_capture(sequence=1))  # pylint: disable=protected-access
@@ -414,7 +414,26 @@ def test_lookup_drops_captures_unclaimed_for_more_than_five_seconds(tmp_path):
     monitor.stop()
 
 
-def test_append_drops_captures_unclaimed_for_more_than_five_seconds(tmp_path):
+def test_captures_waiting_behind_a_slow_enrichment_are_kept(tmp_path):
+    """A capture 30 s old is still a valid match for a queued OPS shot."""
+    monitor = _started_monitor(tmp_path)
+    completed = time.time() - 30.0
+    waiting = IWR6843Capture(
+        sequence=7,
+        trigger_timestamp=completed - 5.0,
+        completed_timestamp=completed,
+        dump_duration_s=5.0,
+        raw=_raw_dump(),
+        path=None,
+    )
+    with monitor._condition:  # pylint: disable=protected-access
+        monitor._captures.append(waiting)  # pylint: disable=protected-access
+
+    assert monitor.capture_for_shot(None, timeout_s=0.05) is waiting
+    monitor.stop()
+
+
+def test_append_drops_captures_unclaimed_for_more_than_a_minute(tmp_path):
     monitor = _started_monitor(tmp_path)
     with monitor._condition:  # pylint: disable=protected-access
         monitor._captures.append(_expired_capture(sequence=99))  # pylint: disable=protected-access

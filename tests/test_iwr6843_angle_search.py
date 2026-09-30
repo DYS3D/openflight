@@ -119,8 +119,8 @@ def test_coarse_to_fine_matches_exhaustive_on_range_snapshot_shots(cal, launch_d
     prepared = prepare_lcmf_capture(raw)
     kwargs = {"ball_speed_mph": 45.0 * 2.23694, "club": "9i", "prepared": prepared}
 
-    exhaustive = estimate_lcmf_v1(raw, cal, grid_step_deg=0.5, **kwargs)
-    coarse_to_fine = estimate_lcmf_v1(raw, cal, **kwargs)
+    exhaustive = estimate_lcmf_v1(raw, cal, **kwargs)  # production default
+    coarse_to_fine = estimate_lcmf_v1(raw, cal, grid_step_deg=None, **kwargs)
 
     assert exhaustive.accepted
     _assert_equivalent(exhaustive, coarse_to_fine)
@@ -141,12 +141,12 @@ def test_coarse_to_fine_matches_exhaustive_and_does_less_work_on_raw_adc(cal, mo
     monkeypatch.setattr(lcmf, "_frame_objective", counting)
 
     start = time.perf_counter()
-    exhaustive = estimate_lcmf_v1(raw, cal, grid_step_deg=0.5, **kwargs)
+    exhaustive = estimate_lcmf_v1(raw, cal, **kwargs)  # production default
     exhaustive_s = time.perf_counter() - start
     exhaustive_evaluations = len(evaluations)
     evaluations.clear()
     start = time.perf_counter()
-    coarse_to_fine = estimate_lcmf_v1(raw, cal, **kwargs)
+    coarse_to_fine = estimate_lcmf_v1(raw, cal, grid_step_deg=None, **kwargs)
     coarse_to_fine_s = time.perf_counter() - start
 
     assert exhaustive.accepted

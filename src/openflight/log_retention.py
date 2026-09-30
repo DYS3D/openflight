@@ -48,6 +48,21 @@ def _stat_unit(paths: Iterable[Path], protected: bool = False) -> Optional[_Unit
     return unit if unit.files else None
 
 
+# Files the --debug toggle writes into ~/openflight_logs.
+DEBUG_LOG_GLOBS = ("debug_*.jsonl", "radar_raw_*.log")
+
+
+def _collect_debug_units(log_dir: Path, protect: Callable[[Path], bool]) -> List[_Unit]:
+    units: List[_Unit] = []
+    for pattern in DEBUG_LOG_GLOBS:
+        for path in log_dir.glob(pattern):
+            if path.is_file() and not path.is_symlink():
+                unit = _stat_unit([path], protected=protect(path))
+                if unit:
+                    units.append(unit)
+    return units
+
+
 def _collect_units(log_dir: Path, protect: Callable[[Path], bool]) -> List[_Unit]:
     units: List[_Unit] = []
     for session in log_dir.glob("session_*.jsonl"):
@@ -102,24 +117,28 @@ def prune_logs(
     max_total_mb: float,
     protect: Callable[[Path], bool] = lambda _path: False,
     now: Optional[float] = None,
+    kind: str = "session",
 ) -> List[Path]:
     """Delete expired or over-budget logs; returns the removed paths.
 
     A limit of 0 disables it. ``protect`` marks files (a session JSONL or a
     capture) that must be kept regardless, e.g. still queued for cloud upload.
+    ``kind`` is "session" for ~/openflight_sessions or "debug" for the
+    --debug toggle's ~/openflight_logs.
     """
     log_dir = Path(log_dir)
     if not log_dir.is_dir() or (max_age_days <= 0 and max_total_mb <= 0):
         return []
     now = time.time() if now is None else now
-    units = sorted(_collect_units(log_dir, protect), key=lambda unit: unit.mtime)
-    removed: List[Path] = []
+    collect = _collect_debug_units if kind == "debug" else _collect_units
+    units = sorted(collect(log_dir, protect), key=lambda unit: unit.mtime)
     remaining: List[_Unit] = []
+    doomed: List[tuple[_Unit, str]] = []
 
     cutoff = now - max_age_days * 86_400
     for unit in units:
         if max_age_days > 0 and unit.mtime < cutoff and not unit.protected:
-            removed.extend(_delete(unit))
+            doomed.append((unit, f"older than {max_age_days:g} days"))
         else:
             remaining.append(unit)
 
@@ -131,10 +150,30 @@ def prune_logs(
                 break
             if unit.protected:
                 continue
-            removed.extend(_delete(unit))
+            doomed.append((unit, f"over the {max_total_mb:g} MB budget"))
             total -= unit.size
 
-    _remove_empty_camera_shot_dirs(log_dir)
-    if removed:
-        logger.info("[RETENTION] Removed %d old log file(s) from %s", len(removed), log_dir)
+    if not doomed:
+        return []
+
+    # Never delete silently: name every file first so the terminal log shows
+    # exactly what went and why before the first unlink.
+    total_bytes = sum(unit.size for unit, _ in doomed)
+    logger.warning(
+        "[RETENTION] Deleting %d file(s), %.1f MB, from %s:",
+        sum(len(unit.files) for unit, _ in doomed),
+        total_bytes / (1024 * 1024),
+        log_dir,
+    )
+    for unit, reason in doomed:
+        for path in unit.files:
+            logger.warning("[RETENTION]   %s (%s)", path.relative_to(log_dir), reason)
+
+    removed: List[Path] = []
+    for unit, _ in doomed:
+        removed.extend(_delete(unit))
+
+    if kind == "session":
+        _remove_empty_camera_shot_dirs(log_dir)
+    logger.info("[RETENTION] Removed %d old log file(s) from %s", len(removed), log_dir)
     return removed

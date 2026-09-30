@@ -15,6 +15,7 @@ from openflight.ops243 import Direction
 @pytest.fixture
 def debug_home(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(server_module, "DEBUG_LOG_DIR", tmp_path / "openflight_logs")
     yield tmp_path
     server_module.stop_debug_logging()
 
@@ -255,3 +256,21 @@ class TestSetClubPayload:
             assert emitted == []
         else:
             assert emitted == [("club_changed", {"club": "driver"})]
+
+
+class TestStartupRetentionCoversDebugLogs:
+    def test_prune_session_logs_also_prunes_the_debug_dir(self, debug_home, monkeypatch):
+        import os
+
+        sessions = debug_home / "openflight_sessions"
+        sessions.mkdir()
+        debug_dir = server_module.DEBUG_LOG_DIR
+        debug_dir.mkdir()
+        old_debug = debug_dir / "debug_20200101_000000_000000.jsonl"
+        old_debug.write_text("{}")
+        os.utime(old_debug, (1_000_000, 1_000_000))
+        monkeypatch.setattr("openflight.cloud.config.load_config", lambda: None)
+
+        server_module._prune_session_logs(sessions, max_age_days=30, max_total_mb=0)
+
+        assert not old_debug.exists()

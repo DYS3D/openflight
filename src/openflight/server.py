@@ -103,6 +103,8 @@ mock_swing_speed_mode: bool = False
 debug_log_file = None
 debug_log_path: Optional[Path] = None
 _debug_raw_handler: Optional[logging.Handler] = None
+# Where the --debug toggle writes debug_*.jsonl and radar_raw_*.log.
+DEBUG_LOG_DIR = Path.home() / "openflight_logs"
 # Guards debug_log_file/_debug_raw_handler: readings are written from the radar
 # thread while a socket handler may be opening or closing the file.
 _debug_log_lock = threading.RLock()
@@ -1611,7 +1613,7 @@ def start_debug_logging():
     """Start logging raw readings to a file."""
     global debug_log_file, debug_log_path, _debug_raw_handler  # pylint: disable=global-statement
 
-    log_dir = Path.home() / "openflight_logs"
+    log_dir = DEBUG_LOG_DIR
     log_dir.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
@@ -4055,11 +4057,14 @@ def _prune_session_logs(log_dir: Path, *, max_age_days: float, max_total_mb: flo
         if config is not None and config.is_active():
             guard["protect"] = spool.retention_guard(log_dir, raw_uploads=config.upload_raw)
         removed = prune_logs(log_dir, max_age_days=max_age_days, max_total_mb=max_total_mb, **guard)
+        removed += prune_logs(
+            DEBUG_LOG_DIR, max_age_days=max_age_days, max_total_mb=max_total_mb, kind="debug"
+        )
     except OSError as error:
         logger.warning("[RETENTION] Log pruning failed: %s", error)
         return
     if removed:
-        logger.info("Log retention: removed %s old file(s) from %s", len(removed), log_dir)
+        logger.info("Log retention: removed %s old file(s)", len(removed))
 
 
 def _fire_cloud_push(session_logger):

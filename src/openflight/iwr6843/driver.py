@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import glob
 import logging
+import os
 import time
 
 import serial
@@ -24,6 +25,8 @@ from openflight.iwr6843.dump import HEADER, MAGIC, parse_header, payload_nbytes
 
 BAUD = 1_041_667
 _PORT_GLOBS = ("/dev/ttyUSB*", "/dev/tty.SLAB_USBtoUART*")
+# udev symlink to the CP2105 Enhanced interface (scripts/setup/99-openflight.rules).
+STABLE_CLI_PORT = "/dev/openflight-iwr-cli"
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,17 @@ def open_port(port: str, baud: int = BAUD, timeout: float = 0.3) -> serial.Seria
     ser.rts = False
     ser.open()
     return ser
+
+
+def _candidate_ports() -> list[str]:
+    """Serial ports to probe, the udev stable name first when it exists."""
+    candidates: list[str] = []
+    for pattern in _PORT_GLOBS:
+        candidates.extend(sorted(glob.glob(pattern)))
+    if os.path.exists(STABLE_CLI_PORT):
+        target = os.path.realpath(STABLE_CLI_PORT)
+        candidates = [STABLE_CLI_PORT] + [c for c in candidates if os.path.realpath(c) != target]
+    return candidates
 
 
 class IWR6843Radar:
@@ -52,9 +66,7 @@ class IWR6843Radar:
     @staticmethod
     def detect_port(baud: int = BAUD) -> str | None:
         """First serial port whose CLI answers `help` with our commands."""
-        candidates: list[str] = []
-        for pattern in _PORT_GLOBS:
-            candidates.extend(sorted(glob.glob(pattern)))
+        candidates = _candidate_ports()
         for cand in candidates:
             try:
                 ser = open_port(cand, baud)

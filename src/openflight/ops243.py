@@ -35,6 +35,7 @@ Speed limits by sample rate:
 
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -191,6 +192,9 @@ class OPS243Radar:
     # Common USB identifiers for OPS243
     VENDOR_IDS = [0x0483]  # STMicroelectronics
 
+    # udev symlink from scripts/setup/99-openflight.rules (scripts/install.sh).
+    STABLE_PORT = "/dev/openflight-ops243"
+
     def __init__(
         self,
         port: Optional[str] = None,
@@ -242,6 +246,10 @@ class OPS243Radar:
             # Also check description for OmniPreSense
             elif port.description and "OmniPreSense" in port.description:
                 ports.append(port.device)
+        stable = OPS243Radar.STABLE_PORT
+        if os.path.exists(stable):
+            target = os.path.realpath(stable)
+            ports = [stable] + [p for p in ports if os.path.realpath(p) != target]
         return ports
 
     def connect(self, timeout: float = DEFAULT_TIMEOUT) -> bool:

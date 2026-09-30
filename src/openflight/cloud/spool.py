@@ -17,7 +17,6 @@ never re-read just to find its dumps.
 Originals are never moved or modified.
 """
 
-import fcntl
 import json
 import os
 import time
@@ -25,6 +24,11 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional
+
+try:
+    import fcntl
+except ImportError:  # Windows: only for running the server on a dev PC
+    fcntl = None  # type: ignore[assignment]
 
 PUSHED_SUFFIX = ".pushed"
 PARKED_SUFFIX = ".parked"
@@ -107,6 +111,10 @@ def push_lock(log_dir: Path) -> Iterator[bool]:
     """
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
+    if fcntl is None:
+        # No flock on Windows; a dev PC never runs the timer and the kiosk together.
+        yield True
+        return
     with open(log_dir / LOCK_FILENAME, "a", encoding="utf-8") as handle:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

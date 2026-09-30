@@ -342,3 +342,25 @@ class TestPushConcurrency:
                 assert acquired is False
         finally:
             holder.wait(timeout=10)
+
+
+def test_spool_imports_and_locks_without_fcntl(tmp_path):
+    """Windows has no fcntl; the server imports spool at startup, so it must load."""
+    import subprocess
+    import sys
+
+    script = (
+        "import sys\n"
+        "import openflight.cloud  # pyserial's POSIX backend needs the real fcntl\n"
+        "sys.modules.pop('openflight.cloud.spool', None)\n"
+        "sys.modules['fcntl'] = None\n"
+        "from openflight.cloud import spool\n"
+        "assert spool.fcntl is None\n"
+        "with spool.push_lock(sys.argv[1]) as ok:\n"
+        "    print(ok)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "True"

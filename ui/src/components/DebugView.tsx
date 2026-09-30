@@ -27,7 +27,7 @@ export function DebugView() {
         title={t('nav.debug')}
         subtitle={debugMode ? t('app.debugRecording') : t('app.debugIdle')}
         actions={
-          <PanelAction variant="secondary" onClick={() => socketService.toggleDebug()}>
+          <PanelAction variant="secondary" onClick={() => socketService.setDebugEnabled(!debugMode)}>
             {debugMode ? t('app.stopRecording') : t('app.record')}
           </PanelAction>
         }
@@ -39,7 +39,7 @@ export function DebugView() {
           shotLogs={debugShotLogs}
           radarConfig={radarConfig}
           mockMode={mockMode}
-          onToggle={() => socketService.toggleDebug()}
+          onToggle={() => socketService.setDebugEnabled(!debugMode)}
           onUpdateConfig={(config) => socketService.setRadarConfig(config)}
           triggerDiagnostics={triggerDiagnostics}
           triggerStatus={triggerStatus}

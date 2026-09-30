@@ -183,8 +183,8 @@ export class MockSession {
     return this.shots.length < before;
   }
 
-  toggleDebug(): boolean {
-    this.debugMode = !this.debugMode;
+  toggleDebug(enabled?: boolean): boolean {
+    this.debugMode = typeof enabled === 'boolean' ? enabled : !this.debugMode;
     return this.debugMode;
   }
 

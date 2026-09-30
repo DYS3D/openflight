@@ -235,8 +235,8 @@ class SocketService {
     this.socket?.emit('delete_shot', { timestamp });
   }
 
-  toggleDebug() {
-    this.socket?.emit('toggle_debug');
+  setDebugEnabled(enabled: boolean) {
+    this.socket?.emit('toggle_debug', { enabled });
   }
 
   setRadarConfig(config: Partial<RadarConfig>) {

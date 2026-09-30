@@ -9,6 +9,16 @@ export interface CameraReplay {
   display_mirror_horizontal: boolean;
 }
 
+/** Simulated ball flight, in yards: x downrange, y lateral (+right), z height. */
+export interface ShotFlight {
+  points: [number, number, number][];
+  carry_yards: number;
+  lateral_yards: number;
+  apex_yards: number;
+  landing_angle_deg: number;
+  flight_time_s: number;
+}
+
 export interface Shot {
   mode?: 'rolling-buffer' | 'mock' | 'swing-speed';
   shot_number?: number | null;
@@ -66,6 +76,7 @@ export interface Shot {
   training_implement?: string;
   training_implement_label?: string;
   camera_replay?: CameraReplay | null;
+  flight?: ShotFlight | null;
 }
 
 export interface SessionStats {

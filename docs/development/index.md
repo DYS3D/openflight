@@ -22,6 +22,10 @@ is not part of the production path.
 
     Experimental vision work. Disabled in the production kiosk.
 
+- :material-clipboard-check-outline: **[Plan-mode review prompt](plan-mode-prompt.md)**
+
+    Prompt for reviewing an implementation plan with a coding agent.
+
 </div>
 
 ## Contributing

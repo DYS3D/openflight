@@ -130,79 +130,10 @@ particular, contributors remain responsible for every submitted line, must be
 able to explain the change, must disclose substantive AI assistance, and must
 not present generated claims as human testing or investigation.
 
-# Codex Prompt for Plan Mode
+## Plan Mode
 
-Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
-
-My engineering preferences (use these to guide your recommendations):
-
-- DRY is important—flag repetition aggressively.
-- Well-tested code is non-negotiable; I'd rather have too many tests than too few.
-- I want code that's "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity).
-- I err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
-- Bias toward explicit over clever.
-
-## 1. Architecture review
-
-Evaluate:
-
-- Overall system design and component boundaries.
-- Dependency graph and coupling concerns.
-- Data flow patterns and potential bottlenecks.
-- Scaling characteristics and single points of failure.
-- Security architecture (auth, data access, API boundaries).
-
-## 2. Code quality review
-
-Evaluate:
-
-- Code organization and module structure.
-- DRY violations—be aggressive here.
-- Error handling patterns and missing edge cases (call these out explicitly).
-- Technical debt hotspots.
-- Areas that are over-engineered or under-engineered relative to my preferences.
-
-## 3. Test review
-
-Evaluate:
-
-- Test coverage gaps (unit, integration, e2e).
-- Test quality and assertion strength.
-- Missing edge case coverage—be thorough.
-- Untested failure modes and error paths.
-
-## 4. Performance review
-
-Evaluate:
-
-- N+1 queries and database access patterns.
-- Memory-usage concerns.
-- Caching opportunities.
-- Slow or high-complexity code paths.
-
-**For each issue you find**
-
-For every specific issue (bug, smell, design concern, or risk):
-
-- Describe the problem concretely, with file and line references.
-- Present 2–3 options, including "do nothing" where that's reasonable.
-- For each option, specify: implementation effort, risk, impact on other code, and maintenance burden.
-- Give me your recommended option and why, mapped to my preferences above.
-- Then explicitly ask whether I agree or want to choose a different direction before proceeding.
-
-**Workflow and interaction**
-
-- Do not assume my priorities on timeline or scale.
-- After each section, pause and ask for my feedback before moving on.
-
----
-
-BEFORE YOU START:
-Ask if I want one of two options:
-1/ BIG CHANGE: Work through this interactively, one section at a time (Architecture → Code Quality → Tests → Performance) with at most 4 top issues in each section.
-2/ SMALL CHANGE: Work through interactively ONE question per review section
-
-FOR EACH STAGE OF REVIEW: output the explanation and pros and cons of each stage's questions AND your opinionated recommendation and why, and then use AskUserQuestion. Also NUMBER issues and then give LETTERS for options and when using AskUserQuestion make sure each option clearly labels the issue NUMBER and option LETTER so the user doesn't get confused. Make the recommended option always the 1st option.
+To review a plan before implementing it, use the prompt in
+[docs/development/plan-mode-prompt.md](docs/development/plan-mode-prompt.md).
 
 ## Commands
 
@@ -234,6 +165,7 @@ Kiosk / touch conventions for agents: see `ui/AGENTS.md`.
 npm run dev      # Development server with hot reload
 npm run build    # Production build
 npm run lint     # ESLint
+npm run test     # Vitest unit tests
 ```
 
 ### Radar Setup (One-Time)
@@ -273,8 +205,11 @@ React UI (WebSocket) ──► Flask Server ──► RollingBufferMonitor ─�
                               │                │
                               │                └── SoundTrigger (SEN-14262 → HOST_INT)
                               │
-                              ├── KLD7Tracker (vertical, RADC → launch angle)
-                              ├── KLD7Tracker (horizontal, RADC → aim direction)
+                              ├── IWR6843Runtime (optional, 60 GHz → launch angle & club path)
+                              ├── KLD7Tracker (vertical/horizontal, deprecated)
+                              ├── Ballistics Simulator (RK4 trajectory & carry)
+                              ├── SimConnectors (GSPro, OpenGolfSim, PAR-TEE)
+                              ├── CloudSync (optional telemetry & session backup)
                               │
                               └── SessionLogger (JSONL files)
 ```
@@ -285,33 +220,38 @@ React UI (WebSocket) ──► Flask Server ──► RollingBufferMonitor ─�
 2. **OPS243Radar** (`ops243.py`) dumps rolling buffer I/Q data (4096 samples)
 3. **RollingBufferProcessor** (`rolling_buffer/processor.py`) runs FFT + mode-based speed extraction
 4. Creates `Shot` object with ball_speed, club_speed, spin, carry
-5. **KLD7Trackers** extract launch angle (vertical) and aim direction (horizontal) from RADC phase interferometry, filtered by OPS243 ball speed
-6. **Flask server** (`server.py`) emits WebSocket "shot" event
-7. **React UI** (`ui/src/`) renders shot data
+5. **IWR6843** (or legacy **KLD7Trackers**) extracts launch angle and club path from radar measurements
+6. **Ballistics engine** (`ballistics.py`) computes trajectory and carry distance
+7. **Flask server** (`server.py`) emits WebSocket "shot" event and forwards to connected simulator software
+8. **React UI** (`ui/src/`) renders shot data
 
 ### Key Modules
 
 - `ops243.py` - OPS243 radar driver, rolling buffer capture, I/Q processing
 - `clubs/` - Built-in club types and immutable physics defaults
 - `launch_monitor.py` - Shot dataclass and carry estimation
+- `ballistics.py` - Numerical ballistic trajectory simulation (drag + Magnus RK4)
+- `iwr6843/` - TI IWR6843 mmWave radar driver, L3 raw dump parser, LCMF-v1 launch angle & club path
+- `inclinometer.py` - LIS3DH accelerometer tilt compensation service
+- `sim/` - Simulator connectors (GSPro, OpenGolfSim, PAR-TEE) and network transports
+- `cloud/` - Telemetry, cloud configuration, session upload, and push error handling
 - `rolling_buffer/` - Trigger strategies, I/Q processor, spin detection
 - `kld7/` - K-LD7 angle radar (deprecated hardware): RADC streaming, phase interferometry, dual-radar support
 - `kld7/radc.py` - FFT, CFAR detection, per-bin angle extraction from raw ADC
-- `server.py` - Flask server, shot processing, K-LD7 correlation, carry estimation
+- `server.py` - Flask server, AppState runtime management, staged shot processing pipeline
 - `session_logger.py` - JSONL logging for post-session analysis
 
 ### Processing Mode
 
-**Rolling Buffer** is the default and only production mode. The OPS243-A continuously buffers I/Q data. When the sound trigger fires, the buffer is dumped and analyzed for ball speed, club speed, and spin rate. K-LD7 data is correlated via the OPS243 impact timestamp.
+**Rolling Buffer** is the default and only production mode. The OPS243-A continuously buffers I/Q data. When the sound trigger fires, the buffer is dumped and analyzed for ball speed, club speed, and spin rate. IWR6843 or legacy K-LD7 data is correlated via the OPS243 impact timestamp.
 
 ## Key Constants
 
 - Sample rate: 30,000 Hz
 - FFT window: 128 samples, zero-padded to 4096
-- CFAR threshold: SNR > 15.0
 - DC mask: 150 bins (~15 mph exclusion zone)
-- Shot timeout: 0.5 seconds
-- Min ball speed: 35 mph
+- Min ball speed: 15 mph (35 mph for speed-triggered mode)
+- K-LD7 OS-CFAR threshold factor: 8.0 (deprecated hardware)
 
 ## Session Logging
 
@@ -323,6 +263,7 @@ Logs written to `~/openflight_sessions/session_*.jsonl` with entry types:
 - `rolling_buffer_capture` - Raw I/Q samples (4096 each) for offline analysis
 - `kld7_buffer`, `iwr6843_capture`, `camera_capture` - Optional hardware evidence correlated by shot number
 - `connection`, `ops_clock_sync`, `config_change`, `power_status`, `error` - Runtime diagnostics
+- `sim_send`, `sim_status`, `sim_player` - Simulator connector traffic and status
 
 ## Sound Trigger Hardware
 

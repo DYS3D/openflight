@@ -550,15 +550,15 @@ class TestFastDsp:
 class _SlowIwrRuntime:
     """IWR6843 stand-in whose dump takes ``delay_s`` before reporting an angle."""
 
-    def __init__(self, delay_s: float):
+    def __init__(self, delay_s: float, horizontal_deg: float | None = None):
         self.delay_s = delay_s
+        self.horizontal_deg = horizontal_deg
         self.calls = 0
         self.finished = threading.Event()
 
     def process_shot(self, **_kwargs):
         self.calls += 1
         time.sleep(self.delay_s)
-        self.finished.set()
         measurement = SimpleNamespace(
             accepted=True,
             angle_deg=12.5,
@@ -567,9 +567,9 @@ class _SlowIwrRuntime:
             n_frames=20,
             component_std_deg=0.4,
             range_evidence=None,
-            horizontal_deg=None,
-            horizontal_confidence=None,
-            horizontal_status=None,
+            horizontal_deg=self.horizontal_deg,
+            horizontal_confidence=0.9 if self.horizontal_deg is not None else None,
+            horizontal_status="accepted" if self.horizontal_deg is not None else None,
             to_dict=lambda: {},
         )
         capture = SimpleNamespace(
@@ -582,6 +582,7 @@ class _SlowIwrRuntime:
             trigger_timestamp=None,
             temperature_report=None,
         )
+        self.finished.set()
         return SimpleNamespace(capture=capture, measurement=measurement, club_path=None)
 
 
@@ -769,6 +770,23 @@ class TestGatedPostprocessing:
 
         assert shot.launch_angle_vertical_source == "estimated"
         assert shot.iwr6843_status == "skipped_budget"
+
+    def test_late_stage_cannot_write_roll_compensation_into_the_finalized_shot(self, monkeypatch):
+        runtime = _SlowIwrRuntime(delay_s=0.2, horizontal_deg=3.0)
+        monkeypatch.setattr(server_module, "iwr6843_runtime", runtime)
+        monkeypatch.setattr(server_module, "gated_postprocessing", True)
+        monkeypatch.setattr(server_module, "inclinometer_roll_compensation_enabled", True)
+        shot = self._shot()
+        shot.inclinometer = {"applied": True, "roll_deg": 2.0}
+
+        on_shot_detected(shot)
+        _wait_for_shot_finalization_idle()
+        assert runtime.finished.wait(2.0)
+        server_module._gated_stage_threads["iwr6843"].join(2.0)
+
+        assert shot.iwr6843_status == "skipped_budget"
+        assert shot.inclinometer == {"applied": True, "roll_deg": 2.0}
+        assert self._final_shot()["inclinometer"] == {"applied": True, "roll_deg": 2.0}
 
     def test_gated_flag_default_is_off(self, monkeypatch):
         from tests.test_server import _run_main_until_start_monitor

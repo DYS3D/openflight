@@ -8,8 +8,11 @@ function readStoredUnitSystem(): UnitSystem {
     return 'imperial';
   }
 
-  const storedValue = window.localStorage.getItem(STORAGE_KEY);
-  return storedValue === 'metric' ? 'metric' : 'imperial';
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) === 'metric' ? 'metric' : 'imperial';
+  } catch {
+    return 'imperial';
+  }
 }
 
 interface UnitPreferenceState {
@@ -21,7 +24,12 @@ export const useUnitPreferenceStore = create<UnitPreferenceState>((set) => ({
   unitSystem: readStoredUnitSystem(),
   setUnitSystem: (unitSystem) => {
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(STORAGE_KEY, unitSystem);
+      try {
+        window.localStorage.setItem(STORAGE_KEY, unitSystem);
+      } catch {
+        // Storage can be unavailable (private mode, quota); the choice still
+        // applies for this session.
+      }
     }
 
     set({ unitSystem });

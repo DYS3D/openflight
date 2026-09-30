@@ -43,12 +43,11 @@
 
 .tv-display__club {
   font-weight: 700;
-  font-size: clamp(1.5rem, 5vh, 3.75rem);
+  /* The hero numbers take the width; club names wrap rather than clip. */
+  font-size: clamp(1.25rem, 3.4vw, 3.75rem);
   line-height: 1;
   text-transform: uppercase;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .tv-display__offline {

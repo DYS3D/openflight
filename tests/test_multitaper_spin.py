@@ -91,24 +91,39 @@ def test_process_capture_uses_multitaper_estimator(monkeypatch):
     assert processed.spin.spin_rpm > 0
 
 
+def _spy_fft_windows(monkeypatch, processor):
+    """Record the window start samples sent through the batched FFT."""
+    capture_window_readings = processor._capture_window_readings
+    window_magnitudes = processor._window_magnitudes
+    starts_seen = []
+    fft_rows = []
+
+    def spy_readings(capture, starts):
+        starts_seen.extend(starts)
+        return capture_window_readings(capture, starts)
+
+    def spy_magnitudes(i_blocks, q_blocks):
+        fft_rows.append(len(i_blocks))
+        return window_magnitudes(i_blocks, q_blocks)
+
+    monkeypatch.setattr(processor, "_capture_window_readings", spy_readings)
+    monkeypatch.setattr(processor, "_window_magnitudes", spy_magnitudes)
+    return starts_seen, fft_rows
+
+
+def _overlapping_window_count(processor, sample_count=4096):
+    return ((sample_count - processor.WINDOW_SIZE) // processor.STEP_SIZE_OVERLAP) + 1
+
+
 def test_process_capture_does_not_repeat_standard_fft_windows(monkeypatch):
     """Standard windows are a subset of the overlapping FFT timeline."""
     processor = RollingBufferProcessor()
-    process_block = processor._process_block
-    calls = 0
-
-    def count_process_block(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return process_block(*args, **kwargs)
-
-    monkeypatch.setattr(processor, "_process_block", count_process_block)
+    starts_seen, fft_rows = _spy_fft_windows(monkeypatch, processor)
 
     assert processor.process_capture(_modulated_capture()) is not None
-    expected_overlapping_windows = (
-        (4096 - processor.WINDOW_SIZE) // processor.STEP_SIZE_OVERLAP
-    ) + 1
-    assert calls == expected_overlapping_windows
+    expected_overlapping_windows = _overlapping_window_count(processor)
+    assert sum(fft_rows) == expected_overlapping_windows
+    assert len(set(starts_seen)) == len(starts_seen) == expected_overlapping_windows
 
 
 def test_multitaper_accepts_short_record_used_by_offline_scoring():

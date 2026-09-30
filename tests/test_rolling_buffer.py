@@ -1416,8 +1416,13 @@ class TestTriggerStrategyDiagnostics:
                     sample_rate_hz=56.0,
                 )
 
-        summary = trigger._summarize_capture_activity(StubProcessor(), object())
+        capture = IQCapture(
+            sample_time=0.0, trigger_time=0.0, i_samples=[2048] * 128, q_samples=[2048] * 128
+        )
+        summary = trigger._summarize_capture_activity(StubProcessor(), capture)
 
+        assert capture.standard_timeline is not None
+        assert capture.standard_timeline.readings[1].speed_mph == 68.0
         assert summary["total_readings"] == 3
         assert summary["outbound_readings"] == 2
         assert summary["inbound_readings"] == 1

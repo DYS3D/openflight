@@ -145,6 +145,8 @@ export const pt: Messages = {
   'practice.playAgain': 'Jogar de novo',
   'practice.historyAria': 'Pontos por tacada',
   'practice.scoring': 'Pontos pelo erro de carry: 5 até 3%, 4 até 6%, 3 até 10%, 2 até 15%, 1 até 20%',
+  'tv.aria': 'Tela de TV',
+  'tv.flight': 'Voo da bola',
 
   'shots.noShots': 'Ainda sem tacadas',
   'shots.noShotsDetail': 'As tacadas gravadas aparecem aqui',

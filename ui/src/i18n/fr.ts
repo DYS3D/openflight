@@ -145,6 +145,8 @@ export const fr: Messages = {
   'practice.playAgain': 'Rejouer',
   'practice.historyAria': 'Points par coup',
   'practice.scoring': 'Points selon l’écart de carry : 5 à 3 %, 4 à 6 %, 3 à 10 %, 2 à 15 %, 1 à 20 %',
+  'tv.aria': 'Affichage TV',
+  'tv.flight': 'Vol de la balle',
 
   'shots.noShots': 'Aucun coup pour l’instant',
   'shots.noShotsDetail': 'Les coups enregistrés apparaissent ici',

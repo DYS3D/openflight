@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { StatsPanel, type StatsView } from '../../../src/components/panel/StatsPanel';
+import { TvDisplay } from '../../../src/components/TvDisplay';
 import { makeTestFlight, makeTestShot } from '../../../src/test/shotFixtures';
 import { applyTheme } from '../../../src/theme/theme';
 import type { Shot } from '../../../src/types/shot';
@@ -47,15 +48,19 @@ const shots: Shot[] = BAG.flatMap(([club, carry], clubIndex) =>
 );
 
 createRoot(document.getElementById('root')!).render(
-  <div className="panel-app">
-    <main className="panel-app__main">
-      <StatsPanel
-        shots={shots}
-        activeClub="7-iron"
-        profileId="james"
-        profileName="James"
-        initialView={view as StatsView}
-      />
-    </main>
-  </div>
+  view === 'tv' ? (
+    <TvDisplay connected shots={shots} profileId="james" profileName="James" />
+  ) : (
+    <div className="panel-app">
+      <main className="panel-app__main">
+        <StatsPanel
+          shots={shots}
+          activeClub="7-iron"
+          profileId="james"
+          profileName="James"
+          initialView={view as StatsView}
+        />
+      </main>
+    </div>
+  )
 );

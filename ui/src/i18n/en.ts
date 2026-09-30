@@ -143,6 +143,8 @@ export const en = {
   'practice.playAgain': 'Play again',
   'practice.historyAria': 'Points per shot',
   'practice.scoring': 'Points from carry error: 5 within 3%, 4 within 6%, 3 within 10%, 2 within 15%, 1 within 20%',
+  'tv.aria': 'TV display',
+  'tv.flight': 'Ball flight',
 
   'shots.noShots': 'No shots yet',
   'shots.noShotsDetail': 'Recorded shots appear here',

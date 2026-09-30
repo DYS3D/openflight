@@ -145,6 +145,8 @@ export const es: Messages = {
   'practice.playAgain': 'Jugar de nuevo',
   'practice.historyAria': 'Puntos por golpe',
   'practice.scoring': 'Puntos según el error de carry: 5 a 3%, 4 a 6%, 3 a 10%, 2 a 15%, 1 a 20%',
+  'tv.aria': 'Pantalla de TV',
+  'tv.flight': 'Vuelo de la bola',
 
   'shots.noShots': 'Aún no hay golpes',
   'shots.noShotsDetail': 'Los golpes grabados aparecen aquí',

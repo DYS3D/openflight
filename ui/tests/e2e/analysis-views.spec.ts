@@ -78,3 +78,28 @@ for (const viewport of KIOSK_VIEWPORTS) {
     }
   });
 }
+
+for (const viewport of [
+  { width: 1920, height: 1080 },
+  { width: 1280, height: 720 },
+]) {
+  test(`lays the TV display out without overflow at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await gotoApp(page, `${FIXTURE}?view=tv`);
+
+    const display = page.getByRole('main', { name: 'TV display' });
+    await expect(display.locator('.flight-chart__latest')).toHaveCount(1);
+    await expect(display.locator('.tv-display__shot')).toHaveCount(5);
+
+    const overflow = await display.evaluate((root) => {
+      const pageOverflows = root.scrollHeight > root.clientHeight + 1 || root.scrollWidth > root.clientWidth + 1;
+      const widthOverflows = [
+        ...root.querySelectorAll<HTMLElement>('.tv-display__hero, .tv-display__shot, .chart-legend__item'),
+      ]
+        .filter((element) => element.scrollWidth > element.clientWidth + 1)
+        .map((element) => element.className);
+      return pageOverflows ? ['tv-display', ...widthOverflows] : widthOverflows;
+    });
+    expect(overflow).toEqual([]);
+  });
+}

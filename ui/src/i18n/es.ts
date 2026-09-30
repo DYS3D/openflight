@@ -345,6 +345,11 @@ export const es: Messages = {
 
   'camera.showBallZone': 'Mostrar zona de la bola',
 
+  'banner.radarInterference': 'Interferencia de radar detectada (ruido +{db} dB)',
+  'header.radarNoise': 'Ruido del radar',
+  'header.radarNoiseValue': '{noise} dB ({delta} frente a la base)',
+  'header.interference': 'Interferencia',
+
   'display.tvAria': 'Modo pantalla TV',
   'display.streamUnavailable': 'Transmisión de cámara no disponible',
   'display.streamAlt': 'Transmisión de cámara OpenFlight',

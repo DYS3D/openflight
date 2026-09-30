@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useDebugStore } from '../../stores/useDebugStore';
 import { useLaunchDaddyStore } from '../../stores/useLaunchDaddyStore';
 import { useSystemStore } from '../../stores/useSystemStore';
+import { useBannerStore } from '../../stores/useBannerStore';
 import { useI18n } from '../../i18n/useI18n';
 import { StatusMenu } from './StatusMenu';
 
@@ -60,6 +61,7 @@ export function PanelHeader({
   const storeRadarConnected = useDebugStore((state) => state.triggerStatus.radar_connected);
   const radarState = useDebugStore((state) => state.triggerStatus.radar_state);
   const iwr6843State = useDebugStore((state) => state.triggerStatus.iwr6843_state);
+  const radarHealth = useBannerStore((state) => state.radarHealth);
   const handleSecretTap = useLaunchDaddyStore((state) => state.handleSecretTap);
   const [internalOpen, setInternalOpen] = useState(false);
 
@@ -100,6 +102,7 @@ export function PanelHeader({
           radarConnected={radarConnected}
           radarState={radarConnectedProp === undefined ? radarState : undefined}
           iwr6843State={iwr6843State}
+          radarHealth={radarHealth}
           onClose={() => {
             if (statusMenuOpenProp === undefined) {
               setInternalOpen(false);

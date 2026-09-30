@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { LevelStatus } from '../types/socket';
+import type { LevelStatus, RadarHealth } from '../types/socket';
 
 export type SimNoticeInput =
   { kind: 'simSendFailed'; target: string; reason: string } | { kind: 'simShotDropped'; reason: string };
@@ -14,11 +14,13 @@ interface BannerState {
   levelWarning: LevelStatus | null;
   /** Latest `level_status`, level or not, for the Level tool. */
   levelStatus: LevelStatus | null;
+  radarHealth: RadarHealth | null;
   showNotice: (notice: SimNoticeInput) => void;
   dismissNotice: () => void;
   setReconnectAttempt: (attempt: number) => void;
   clearReconnect: () => void;
   setLevelStatus: (status: LevelStatus) => void;
+  setRadarHealth: (health: RadarHealth) => void;
 }
 
 let nextNoticeId = 1;
@@ -36,6 +38,7 @@ export const useBannerStore = create<BannerState>((set) => ({
   reconnectAttempt: null,
   levelWarning: null,
   levelStatus: null,
+  radarHealth: null,
   showNotice: (notice) => {
     cancelDismissTimer();
     set({ notice: { ...notice, id: nextNoticeId++ } });
@@ -51,4 +54,5 @@ export const useBannerStore = create<BannerState>((set) => ({
   setReconnectAttempt: (attempt) => set({ reconnectAttempt: attempt }),
   clearReconnect: () => set({ reconnectAttempt: null }),
   setLevelStatus: (status) => set({ levelWarning: status.level ? null : status, levelStatus: status }),
+  setRadarHealth: (health) => set({ radarHealth: health }),
 }));

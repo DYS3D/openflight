@@ -35,6 +35,14 @@
   pointer-events: none;
 }
 
+.status-banner--interference {
+  justify-content: center;
+  background: var(--color-danger);
+  color: var(--color-accent-fg);
+  /* Persistent and control-free: let taps reach the header underneath. */
+  pointer-events: none;
+}
+
 .status-banner--notice {
   background: var(--color-danger);
   color: var(--color-accent-fg);

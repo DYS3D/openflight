@@ -81,4 +81,10 @@ describe('useBannerStore', () => {
     expect(useBannerStore.getState().levelStatus).toEqual(flat);
   });
 
+  it('stores radar health as sent', () => {
+    expect(useBannerStore.getState().radarHealth).toBeNull();
+    const health = { interference: true, noise_floor_db: -58, baseline_db: -62, updated_at: '2026-09-30T10:00:00Z' };
+    useBannerStore.getState().setRadarHealth(health);
+    expect(useBannerStore.getState().radarHealth).toEqual(health);
+  });
 });

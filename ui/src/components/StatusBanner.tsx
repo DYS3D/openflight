@@ -1,6 +1,7 @@
 import { useShallow } from 'zustand/react/shallow';
 import { useBannerStore, type SimNotice } from '../stores/useBannerStore';
 import { useI18n, type MessageKey } from '../i18n/useI18n';
+import { radarNoiseDelta } from '../utils/radarHealth';
 import './StatusBanner.css';
 
 function noticeText(notice: SimNotice, t: (key: MessageKey, vars?: Record<string, string | number>) => string) {
@@ -12,16 +13,18 @@ function noticeText(notice: SimNotice, t: (key: MessageKey, vars?: Record<string
 
 export function StatusBanner() {
   const { t } = useI18n();
-  const { notice, reconnectAttempt, levelWarning, dismissNotice } = useBannerStore(
+  const { notice, reconnectAttempt, levelWarning, radarHealth, dismissNotice } = useBannerStore(
     useShallow((state) => ({
       notice: state.notice,
       reconnectAttempt: state.reconnectAttempt,
       levelWarning: state.levelWarning,
+      radarHealth: state.radarHealth,
       dismissNotice: state.dismissNotice,
     }))
   );
+  const interference = radarHealth?.interference ? radarHealth : null;
 
-  if (!notice && reconnectAttempt === null && !levelWarning) return null;
+  if (!notice && reconnectAttempt === null && !levelWarning && !interference) return null;
 
   return (
     <div className="status-banners">
@@ -36,6 +39,11 @@ export function StatusBanner() {
             pitch: levelWarning.pitch_deg.toFixed(1),
             roll: levelWarning.roll_deg.toFixed(1),
           })}
+        </div>
+      ) : null}
+      {interference ? (
+        <div className="status-banner status-banner--interference" role="status">
+          {t('banner.radarInterference', { db: radarNoiseDelta(interference).toFixed(1) })}
         </div>
       ) : null}
       {notice ? (

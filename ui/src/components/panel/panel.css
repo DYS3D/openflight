@@ -153,6 +153,10 @@
   color: var(--color-text);
 }
 
+.panel-header__status-value[data-state='interference'] {
+  color: var(--color-danger);
+}
+
 .panel-header__title {
   font-weight: 700;
   font-size: 0.75rem;

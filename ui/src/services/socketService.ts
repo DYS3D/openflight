@@ -21,7 +21,7 @@ import { ingestSessionClub } from './sessionClubSync';
 import { remainingShotsAfterClear } from './sessionClear';
 import { useProfileStore } from '../stores/useProfileStore';
 import type { ProfilesSnapshot } from '../types/profile';
-import type { LevelStatus } from '../types/socket';
+import type { LevelStatus, RadarHealth } from '../types/socket';
 
 const SOCKET_URL = getServerOrigin();
 
@@ -135,6 +135,10 @@ class SocketService {
 
     this.socket.on('level_status', (data: LevelStatus) => {
       useBannerStore.getState().setLevelStatus(data);
+    });
+
+    this.socket.on('radar_health', (data: RadarHealth) => {
+      useBannerStore.getState().setRadarHealth(data);
     });
 
     this.socket.on('sim_shot', (data: SimShotInfo) => {

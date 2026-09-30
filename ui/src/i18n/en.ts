@@ -342,6 +342,11 @@ export const en = {
 
   'camera.showBallZone': 'Show ball zone',
 
+  'banner.radarInterference': 'Radar interference detected (noise +{db} dB)',
+  'header.radarNoise': 'Radar noise',
+  'header.radarNoiseValue': '{noise} dB ({delta} vs baseline)',
+  'header.interference': 'Interference',
+
   'display.tvAria': 'TV display mode',
   'display.streamUnavailable': 'Camera stream unavailable',
   'display.streamAlt': 'OpenFlight camera stream',

@@ -346,6 +346,11 @@ export const fr: Messages = {
 
   'camera.showBallZone': 'Afficher la zone de balle',
 
+  'banner.radarInterference': 'Interférence radar détectée (bruit +{db} dB)',
+  'header.radarNoise': 'Bruit radar',
+  'header.radarNoiseValue': '{noise} dB ({delta} vs référence)',
+  'header.interference': 'Interférence',
+
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',
   'display.streamAlt': 'Flux caméra OpenFlight',

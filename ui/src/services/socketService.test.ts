@@ -186,4 +186,11 @@ describe('socketService', () => {
       expect(reload).not.toHaveBeenCalled();
     });
   });
+
+  it('stores radar_health in the banner store', () => {
+    const health = { interference: true, noise_floor_db: -58.5, baseline_db: -62, updated_at: '2026-09-30T10:00:00Z' };
+    fire(fake.handlers, 'radar_health', health);
+
+    expect(useBannerStore.getState().radarHealth).toEqual(health);
+  });
 });

@@ -111,3 +111,11 @@ export interface LevelStatus {
   level: boolean;
   threshold_deg: number;
 }
+
+/** `radar_health` from the server; never sent unless the radar reports noise levels. */
+export interface RadarHealth {
+  interference: boolean;
+  noise_floor_db: number;
+  baseline_db: number;
+  updated_at: string;
+}

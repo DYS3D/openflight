@@ -238,6 +238,30 @@ def test_ops_guided_estimator_prefers_dual_channel_corroboration():
     assert result.measurement.status == "accepted_ops_guided"
 
 
+def test_ops_guided_search_runs_lcmf_on_at_most_three_best_ranked_candidates():
+    """Each recovery pass is a full LCMF run; only the three best walks earn one."""
+    baseline = LCMFResult(status="accepted", angle_deg=6.8, track_speed_mph=130.0)
+    rejected = LCMFResult(status="rejected_track_quality")
+    candidates = [_candidate(speed) for speed in (110.0, 94.0, 101.0, 97.0, 100.0, 105.0)]
+
+    with (
+        patch(
+            "openflight.iwr6843.runtime.estimate_lcmf_v1",
+            side_effect=[baseline, rejected, rejected, rejected],
+        ) as estimate,
+        patch(
+            "openflight.iwr6843.runtime.find_recovery_candidates",
+            return_value=candidates,
+        ),
+    ):
+        _runtime().process_shot(impact_timestamp=1.0, ball_speed_mph=100.0, club="9i")
+
+    tried_speeds = [
+        round(call.kwargs["track_override"].speed_mph) for call in estimate.call_args_list[1:]
+    ]
+    assert tried_speeds == [100, 101, 97]
+
+
 def test_club_path_receives_ball_tdm_sign():
     seen = {}
 

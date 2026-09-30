@@ -34,7 +34,7 @@ _TDM_SIGN_BY_POLICY = {"positive": 1, "negative": -1, "auto": 1}
 # disagreement is unusual enough to justify a bounded alternate-track pass,
 # but not enough by itself to choose an angle.
 OPS_TRACK_SPEED_TOLERANCE_FRAC = 0.15
-OPS_GUIDED_MAX_CANDIDATES = 8
+OPS_GUIDED_MAX_CANDIDATES = 3
 OPS_GUIDED_MIN_LAUNCH_DEG = 2.0
 
 

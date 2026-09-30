@@ -14,16 +14,13 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest pyserial flask flask-socketio flask-cors numpy opencv-python supervision
-          pip install trackers@git+https://github.com/roboflow/trackers.git
-          pip install -e .
+        run: uv sync --all-extras
       - name: Run tests
-        run: |
-          pytest tests/ -v --tb=short
+        # Line coverage was 81% when this gate was added. Raise the floor as
+        # coverage improves; do not lower it to get a change through.
+        run: uv run pytest tests/ -v --tb=short --cov=openflight --cov-report=term --cov-fail-under=80

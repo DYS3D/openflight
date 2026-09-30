@@ -51,7 +51,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="positive",
         help="TDM sign policy; positive matches server LCMF-v1",
     )
-    parser.add_argument("--grid-step-deg", type=float, default=0.5)
+    parser.add_argument(
+        "--grid-step-deg",
+        type=float,
+        default=None,
+        help="Exhaustive LCMF angle grid step; omit for the production coarse-to-fine search",
+    )
     parser.add_argument("--out", type=Path, default=None, help="Optional CSV or JSONL output path")
     parser.add_argument(
         "--format",

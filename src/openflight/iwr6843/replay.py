@@ -169,7 +169,7 @@ def replay_capture(
     net_range_m: float | None,
     tx_order: str,
     tdm_sign_policy: str = "positive",
-    grid_step_deg: float = 0.5,
+    grid_step_deg: float | None = None,
     estimator=estimate_lcmf_v1,
 ) -> ReplayRecord:
     """Run LCMF-v1 on one saved dump."""

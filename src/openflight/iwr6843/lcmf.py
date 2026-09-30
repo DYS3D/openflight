@@ -9,6 +9,7 @@ them requires a new estimator version and independent validation.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -58,6 +59,15 @@ CHANNEL_SPREAD_MAX_DEG = 8.0
 # fallback-estimate confidence of 0.5 while marking it weaker than a
 # corroborated one. Policy, not measurement.
 SINGLE_CHANNEL_CONFIDENCE_FACTOR = 0.7
+
+# Launch-angle search. The default is coarse-to-fine: a 2 deg sweep of the
+# whole range, then 0.25 deg steps within +/-1 deg of the coarse minimum. An
+# explicit ``grid_step_deg`` restores the exhaustive sweep (0.5 deg was the
+# previous production grid).
+ANGLE_SEARCH_RANGE_DEG = (-5.0, 45.0)
+COARSE_ANGLE_STEP_DEG = 2.0
+FINE_ANGLE_STEP_DEG = 0.25
+FINE_ANGLE_HALF_WIDTH_DEG = 1.0
 
 
 @dataclass(frozen=True)
@@ -350,6 +360,55 @@ def _frame_objective(errors: np.ndarray, frames: np.ndarray, ceiling: float) -> 
     return float(np.mean(np.log(frame_errors)))
 
 
+def _search_angle(
+    objective_at: Callable[[float], float],
+    grid_step_deg: float | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Evaluate ``objective_at`` over a launch-angle grid.
+
+    Returns an ascending grid and its objective values for ``_refine_grid``
+    and ``grid_curvature``. With ``grid_step_deg`` set, the grid is the whole
+    search range at that step. Otherwise it is the fine window around the
+    minimum: when the fine minimum sits on a window edge that is not a
+    search-range limit, the window re-centers on it, so the returned minimum
+    is either interior or on a range limit -- exactly the cases the
+    exhaustive sweep distinguishes.
+    """
+    low, high = ANGLE_SEARCH_RANGE_DEG
+    if grid_step_deg is not None:
+        grid = np.arange(low, high + grid_step_deg / 2.0, grid_step_deg)
+        return grid, np.asarray([objective_at(float(angle)) for angle in grid])
+
+    values: dict[float, float] = {}
+
+    def evaluate(grid: np.ndarray) -> np.ndarray:
+        for angle in grid:
+            key = round(float(angle), 9)
+            if key not in values:
+                values[key] = objective_at(key)
+        return np.asarray([values[round(float(angle), 9)] for angle in grid])
+
+    coarse = np.arange(low, high + COARSE_ANGLE_STEP_DEG / 2.0, COARSE_ANGLE_STEP_DEG)
+    center = float(coarse[int(np.argmin(evaluate(coarse)))])
+    half_steps = int(round(FINE_ANGLE_HALF_WIDTH_DEG / FINE_ANGLE_STEP_DEG))
+    offsets = FINE_ANGLE_STEP_DEG * np.arange(-half_steps, half_steps + 1)
+    tolerance = 1e-9
+    # Each re-center moves to a strictly lower or equal-and-leftward minimum
+    # on a finite lattice; the bound only guards against a pathological tie.
+    max_recenters = int(np.ceil((high - low) / FINE_ANGLE_STEP_DEG))
+    for _ in range(max_recenters + 1):
+        fine = center + offsets
+        fine = fine[(fine >= low - tolerance) & (fine <= high + tolerance)]
+        objective = evaluate(fine)
+        index = int(np.argmin(objective))
+        on_window_edge = index in (0, len(fine) - 1)
+        on_range_limit = fine[index] <= low + tolerance or fine[index] >= high - tolerance
+        if not on_window_edge or on_range_limit or fine[index] == center:
+            break
+        center = float(fine[index])
+    return fine, objective
+
+
 def _refine_grid(grid_deg: np.ndarray, objective: np.ndarray) -> float:
     index = int(np.argmin(objective))
     if not 0 < index < len(grid_deg) - 1:
@@ -443,7 +502,7 @@ def _channel_estimates(
     cache: dict[str, np.ndarray],
     indices: np.ndarray,
     geometry: dict,
-    grid_deg: np.ndarray,
+    grid_step_deg: float | None,
 ) -> tuple[dict[str, float], dict[str, float | None]]:
     frames = cache["frame"][indices]
     if len(indices) < 12 or len(np.unique(frames)) < 3:
@@ -453,14 +512,15 @@ def _channel_estimates(
     estimates: dict[str, float] = {}
     evidence: dict[str, float | None] = {}
     for model in CHANNEL_MODELS:
-        objective = []
-        for angle_deg in grid_deg:
+
+        def objective_at(angle_deg: float, model: str = model) -> float:
             dictionary = _spatial_dictionary(
                 model, np.radians(angle_deg), range_m, geometry, geometry["tdm_tau_s"]
             )
             errors = leave_one_channel_out_error(vectors, dictionary)
-            objective.append(_frame_objective(errors, frames, 1e3))
-        objective = np.asarray(objective)
+            return _frame_objective(errors, frames, 1e3)
+
+        grid_deg, objective = _search_angle(objective_at, grid_step_deg)
         estimates[f"channel_{model}_deg"] = _refine_grid(grid_deg, objective)
         evidence[f"channel_{model}_deg"] = grid_curvature(objective)
     return estimates, evidence
@@ -573,7 +633,7 @@ def _fast_estimates(
     indices: np.ndarray,
     geometry: dict,
     cal: Calibration,
-    grid_deg: np.ndarray,
+    grid_step_deg: float | None,
     tx_order: str,
     tdm_sign: int,
 ) -> dict[str, float]:
@@ -614,8 +674,8 @@ def _fast_estimates(
 
     estimates: dict[str, float] = {}
     for model in FAST_MODELS:
-        objective = []
-        for angle_deg in grid_deg:
+
+        def objective_at(angle_deg: float, model: str = model) -> float:
             design = _fast_design(
                 model,
                 np.radians(angle_deg),
@@ -628,8 +688,10 @@ def _fast_estimates(
                 range_res_m=radar_geometry.range_res_m,
                 window=window,
             )
-            objective.append(_frame_objective(_fit_error(local_data, design), frames, 1.0))
-        estimates[f"fast_{model}_deg"] = _refine_grid(grid_deg, np.asarray(objective))
+            return _frame_objective(_fit_error(local_data, design), frames, 1.0)
+
+        grid_deg, objective = _search_angle(objective_at, grid_step_deg)
+        estimates[f"fast_{model}_deg"] = _refine_grid(grid_deg, objective)
     return estimates
 
 
@@ -772,7 +834,7 @@ def estimate_lcmf_v1(
     net_range_m: float | None = None,
     tx_order: str = "normal",
     tdm_sign_policy: str = "positive",
-    grid_step_deg: float = 0.5,
+    grid_step_deg: float | None = None,
     horizontal_phase_reference_rad: float | None = None,
     track_override: BallTrack | None = None,
     track_override_scope: str = "burst",
@@ -783,6 +845,9 @@ def estimate_lcmf_v1(
     ``track_override`` is an offline-research hook for evaluating an
     independently selected range walk. Normal production calls leave it
     unset and retain the frozen LCMF-v1 behavior.
+
+    ``grid_step_deg`` selects an exhaustive angle sweep at that step; the
+    default ``None`` runs the coarse-to-fine search (see ``_search_angle``).
     """
     if ball_speed_mph <= 0:
         raise ValueError("ball_speed_mph must be positive")
@@ -884,9 +949,8 @@ def estimate_lcmf_v1(
             "tx_order": tx_order,
             "tdm_tau_s": tdm_tau_s,
         }
-        grid_deg = np.arange(-5.0, 45.0 + grid_step_deg / 2.0, grid_step_deg)
         channel_components, channel_evidence = _channel_estimates(
-            cache, indices, model_geometry, grid_deg
+            cache, indices, model_geometry, grid_step_deg
         )
         # ``components`` is the diagnostic record for the session log;
         # ``channel_components`` is what the answer is allowed to rest on. The
@@ -904,7 +968,7 @@ def estimate_lcmf_v1(
                 indices,
                 model_geometry,
                 cal,
-                grid_deg,
+                grid_step_deg,
                 tx_order,
                 shot.tdm_sign_used,
             )

@@ -352,6 +352,9 @@ _shot_finalization_registered: dict[int, "_RegisteredShotFinalization"] = {}
 _shot_finalization_ready: dict[int, "_PendingShotFinalization"] = {}
 _shot_finalization_running = False
 _shot_finalization_worker: threading.Thread | None = None
+# Last rolling-buffer processing state ("capturing", "calculating", "failed");
+# cleared when the shot callback hands the shot to the server.
+_shot_processing_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2561,8 +2564,32 @@ def handle_shutdown(*_args):
 
 def on_shot_processing(state: str) -> None:
     """Forward the rolling-buffer processing lifecycle to the UI."""
+    global _shot_processing_state  # pylint: disable=global-statement
+    _shot_processing_state = state
     _note_shot_activity()
     socketio.emit("shot_processing", {"state": state})
+
+
+def _shot_in_progress() -> bool:
+    """A capture is being processed or a detected shot awaits finalization."""
+    if _shot_processing_state in ("capturing", "calculating"):
+        return True
+    with _shot_finalization_condition:
+        return bool(_shot_finalization_order) or _shot_finalization_running
+
+
+def _launch_monitor_ready_state() -> tuple[bool, bool]:
+    """(LaunchMonitorIsReady, LaunchMonitorBallDetected) for --gspro-ready-signals.
+
+    Ready means the radar is connected (or the monitor is a mock) and no shot
+    is in flight. Ball detected mirrors a camera runtime's ``ball_in_zone``
+    when it exposes one, else mirrors ready.
+    """
+    radar_ok = monitor is not None and (mock_mode or _get_trigger_status()["radar_connected"])
+    is_ready = radar_ok and not _shot_in_progress()
+    ball_in_zone = getattr(camera_capture_runtime, "ball_in_zone", None)
+    ball_detected = ball_in_zone if isinstance(ball_in_zone, bool) else is_ready
+    return is_ready, ball_detected
 
 
 def _note_shot_activity() -> None:
@@ -4165,6 +4192,8 @@ def on_shot_detected(shot: Shot) -> None:
 
 def _handle_shot_detected(shot: Shot) -> None:
     """Publish OPS metrics promptly, then enrich optional hardware data."""
+    global _shot_processing_state  # pylint: disable=global-statement
+    _shot_processing_state = None
     _note_shot_activity()
     _assign_shot_number(shot)
     active_profile = get_profile_store().get_active()
@@ -5157,6 +5186,15 @@ def main():
         ),
     )
     parser.add_argument(
+        "--gspro-ready-signals",
+        action="store_true",
+        help=(
+            "Make simulator heartbeats report live LaunchMonitorIsReady (radar connected "
+            "and no shot in flight) and LaunchMonitorBallDetected flags instead of the "
+            "static ready/no-ball values. Default off"
+        ),
+    )
+    parser.add_argument(
         "--log-retention-days",
         type=float,
         default=90,
@@ -5956,7 +5994,10 @@ def main():
         startup_status.start("simulators", "Connecting golf simulators")
     sim_cfgs = load_sim_config() if args.sim else []
     sim_connectors = build_connectors(
-        sim_cfgs, on_status=_sim_on_status, on_inbound=_sim_on_inbound
+        sim_cfgs,
+        on_status=_sim_on_status,
+        on_inbound=_sim_on_inbound,
+        ready_state=_launch_monitor_ready_state if args.gspro_ready_signals else None,
     )
     for connector in sim_connectors:
         connector.start()

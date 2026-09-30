@@ -102,7 +102,15 @@ def serialize_payload(payload: ShotPayload) -> bytes:
     return json.dumps(_drop_none(asdict(payload)), separators=(",", ":")).encode("utf-8")
 
 
-def build_heartbeat(device_id: str, units: str, shot_number: int) -> bytes:
+def build_heartbeat(
+    device_id: str,
+    units: str,
+    shot_number: int,
+    *,
+    is_ready: bool = True,
+    ball_detected: bool = False,
+) -> bytes:
+    """Heartbeat frame; the defaults are the static flags OpenFlight has always sent."""
     payload = ShotPayload(
         DeviceID=device_id,
         Units=units,
@@ -111,8 +119,8 @@ def build_heartbeat(device_id: str, units: str, shot_number: int) -> bytes:
         ShotDataOptions=ShotDataOptions(
             ContainsBallData=False,
             ContainsClubData=False,
-            LaunchMonitorIsReady=True,
-            LaunchMonitorBallDetected=False,
+            LaunchMonitorIsReady=is_ready,
+            LaunchMonitorBallDetected=ball_detected,
             IsHeartBeat=True,
         ),
     )

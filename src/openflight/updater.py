@@ -273,6 +273,15 @@ class Updater:
         ahead = int(self._git("rev-list", "--count", f"{upstream}..{head}") or 0)
         return head, upstream, behind, ahead
 
+    def read_local_version(self) -> None:
+        """Fill in the installed commit (no network), so the menu shows it before a check."""
+        try:
+            head = self._rev("HEAD")
+            self.status.current = short_sha(head)
+            self.status.current_date = self._git("log", "-1", "--format=%cs", head) or None
+        except UpdateError as error:
+            logger.warning("[UPDATE] Could not read the installed version: %s", error)
+
     def check(self) -> UpdateStatus:
         """Fetch the tracked branch and report whether an update is available."""
         if not self._lock.acquire(blocking=False):  # pylint: disable=consider-using-with

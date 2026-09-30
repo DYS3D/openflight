@@ -294,5 +294,7 @@ class TestMainFlag:
             config = service.updater.config
             assert config.project_dir == server_module.REPO_ROOT
             assert config.python_extras == ("camera",)
+            # The installed version is known before the first network check.
+            assert service.updater.status.current
         finally:
             server_module.update_service = None

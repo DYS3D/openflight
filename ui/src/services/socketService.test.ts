@@ -150,9 +150,20 @@ describe('socketService', () => {
       expect(useSystemStore.getState().updateError).toBeNull();
     });
 
-    it('reloads instead of resyncing when it reconnects after an update restart', () => {
+    it('reloads when the restarted server first speaks, even before connect fires', () => {
       const reload = vi.spyOn(socketService, 'reloadPage').mockImplementation(() => {});
       fire(fake.handlers, 'update_status', { enabled: true, state: 'restarting' });
+      fire(fake.handlers, 'disconnect');
+      // socket.io flushes buffered events from the new server before 'connect'.
+      fire(fake.handlers, 'update_status', { enabled: true, state: 'up_to_date' });
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(useSystemStore.getState().updateStatus?.state).toBe('restarting');
+    });
+
+    it('also reloads from the connect event when no status arrives first', () => {
+      const reload = vi.spyOn(socketService, 'reloadPage').mockImplementation(() => {});
+      fire(fake.handlers, 'update_status', { enabled: true, state: 'failed' });
+      fire(fake.handlers, 'disconnect');
       fire(fake.handlers, 'connect');
       expect(reload).toHaveBeenCalledTimes(1);
       expect(emit).not.toHaveBeenCalledWith('get_session');
@@ -160,6 +171,8 @@ describe('socketService', () => {
 
     it('does not reload on an ordinary reconnect', () => {
       const reload = vi.spyOn(socketService, 'reloadPage').mockImplementation(() => {});
+      fire(fake.handlers, 'update_status', { enabled: true, state: 'up_to_date' });
+      fire(fake.handlers, 'disconnect');
       fire(fake.handlers, 'update_status', { enabled: true, state: 'up_to_date' });
       fire(fake.handlers, 'connect');
       expect(reload).not.toHaveBeenCalled();

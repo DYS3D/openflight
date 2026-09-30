@@ -27,9 +27,12 @@ const SOCKET_URL = getServerOrigin();
 class SocketService {
   private socket: Socket | null = null;
   private sessionClearedListeners = new Set<() => void>();
+  /** Set when the socket drops while an update restart is under way. */
+  private reloadOnNextMessage = false;
 
   connect() {
     if (this.socket) return;
+    this.reloadOnNextMessage = false;
 
     // Only used when the server runs with --auth-required; loopback (the
     // kiosk) never needs it and the token is null unless ?token= was given.
@@ -56,7 +59,7 @@ class SocketService {
     this.socket.on('connect', () => {
       console.log('Connected to server');
       // Back after an update restart: load the new UI bundle.
-      if (shouldReloadAfterReconnect(useSystemStore.getState().updateStatus)) {
+      if (this.reloadOnNextMessage) {
         this.reloadPage();
         return;
       }
@@ -80,6 +83,7 @@ class SocketService {
 
     this.socket.on('disconnect', () => {
       console.log('Disconnected from server');
+      this.reloadOnNextMessage = shouldReloadAfterReconnect(useSystemStore.getState().updateStatus);
       useSystemStore.getState().setConnected(false);
       useShotStore.getState().finishShotProcessing();
     });
@@ -112,6 +116,11 @@ class SocketService {
     });
 
     this.socket.on('update_status', (data: UpdateStatus) => {
+      // socket.io delivers the restarted server's first events before 'connect'.
+      if (this.reloadOnNextMessage) {
+        this.reloadPage();
+        return;
+      }
       useSystemStore.getState().setUpdateStatus(data);
     });
 

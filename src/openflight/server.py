@@ -2493,6 +2493,7 @@ def init_update_service(args) -> UpdateService:
             log_dir=DEBUG_LOG_DIR,
         )
     )
+    updater.read_local_version()
     update_service = UpdateService(
         updater,
         emit=_emit_to,

@@ -113,6 +113,20 @@ def _updater(repos, tools, **config):
     )
 
 
+class TestLocalVersion:
+    def test_reads_head_without_fetching(self, repos, tools):
+        _git(repos.pi, "remote", "set-url", "origin", str(repos.pi.parent / "offline.git"))
+        updater = _updater(repos, tools)
+        updater.read_local_version()
+        assert updater.status.current == repos.pi_head()[:7]
+        assert updater.status.current_date and updater.status.state == upd.STATE_IDLE
+
+    def test_not_a_checkout_is_logged_not_raised(self, tmp_path, tools):
+        updater = upd.Updater(upd.UpdateConfig(project_dir=tmp_path), runner=tools)
+        updater.read_local_version()
+        assert updater.status.current is None
+
+
 class TestCheck:
     def test_up_to_date(self, repos, tools):
         status = _updater(repos, tools).check()

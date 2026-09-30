@@ -196,6 +196,8 @@ class RollingBufferMonitor:
         ops_baud: Optional[int] = None,
         radar_timing: Optional[RadarTimingConfig] = None,
         radar_auto_reconnect: bool = False,
+        ball_marker: str = "none",
+        spin_octave_check: bool = False,
         **trigger_kwargs,
     ):
         """
@@ -219,12 +221,20 @@ class RollingBufferMonitor:
                 back, then re-apply the rolling-buffer setup. Off by
                 default: the capture loop then keeps retrying the dead port
                 once a second as before.
+            ball_marker: Ball marker mode for spin ("none", "dot", "rct");
+                see RollingBufferProcessor.
+            spin_octave_check: Correct ~2x / ~0.5x spin picks against the
+                club/ball-speed prior; see RollingBufferProcessor.
             **trigger_kwargs: Arguments for trigger strategy
         """
         self.timing = ActiveRadarTiming(radar_timing)
         radar_kwargs = {} if ops_baud is None else {"uart_baud": ops_baud}
         self.radar = OPS243Radar(port=port, timing=self.timing, **radar_kwargs)
-        self.processor = RollingBufferProcessor(sample_rate=sample_rate_ksps * 1000)
+        self.processor = RollingBufferProcessor(
+            sample_rate=sample_rate_ksps * 1000,
+            ball_marker=ball_marker,
+            spin_octave_check=spin_octave_check,
+        )
         self.trigger_type = trigger_type
         self.sample_rate_ksps = sample_rate_ksps
         if trigger_type == "sound":
@@ -854,7 +864,7 @@ class RollingBufferMonitor:
 
         spin = processed.spin
         spin_rejection_reason = spin.rejection_reason if spin else None
-        is_ungated_multitaper = bool(spin is not None and spin.method == "multitaper_ungated")
+        is_ungated_multitaper = bool(spin is not None and spin.estimator == "multitaper_ungated")
         club_spin_rejection_reason = (
             None if is_ungated_multitaper else self._club_spin_rejection_reason(processed)
         )

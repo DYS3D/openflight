@@ -15,8 +15,9 @@ from numpy.lib.stride_tricks import sliding_window_view
 
 from ..clubs import ClubType
 from ..launch_monitor import SPIN_CONFIDENCE_HIGH
-from .multitaper import estimate_multitaper_spin, repair_clipped_iq
+from .multitaper import MultitaperEstimate, estimate_multitaper_spin, repair_clipped_iq
 from .types import (
+    BALL_MARKERS,
     ImpactEstimate,
     IQCapture,
     ProcessedCapture,
@@ -24,6 +25,7 @@ from .types import (
     SpeedTimeline,
     SpinCandidate,
     SpinResult,
+    spin_method_name,
 )
 
 logger = logging.getLogger("openflight.rolling_buffer.processor")
@@ -163,20 +165,48 @@ class RollingBufferProcessor:
     # (see spin_estimate.py), so its evidence score is scaled into a band well
     # below SPIN_CONFIDENCE_RELIABLE / SPIN_CONFIDENCE_HIGH: never trusted spin.
     MULTITAPER_MAX_CONFIDENCE = 0.2
+    # Octave (1x/2x) handling. A marked ball modulates the return once per
+    # revolution; an unmarked ball's symmetric seam can modulate it twice.
+    SPIN_OCTAVE_TOLERANCE = 0.08  # Half/double candidate within ±8% of the target
+    SPIN_OCTAVE_HIGH_RATIO = (1.7, 2.3)  # Pick/prior ratio read as a 2x error
+    SPIN_OCTAVE_LOW_RATIO = (0.43, 0.6)  # Pick/prior ratio read as a 0.5x error
 
     BALL_SPEED_MATCH_TOLERANCE_MPH = 3.0
     IMPACT_TRANSITION_MIN_DELTA_MPH = 15.0
     IMPACT_TRANSITION_MAX_GAP_MS = 25.0
 
-    def __init__(self, sample_rate: int = 30000):
+    def __init__(
+        self,
+        sample_rate: int = 30000,
+        ball_marker: str = "none",
+        spin_octave_check: bool = False,
+    ):
         """Initialize processor with pre-computed window function.
 
         Args:
             sample_rate: Sample rate in Hz (default 30000). Lower rates
                 extend the buffer duration at the cost of max detectable speed.
+            ball_marker: "dot" or "rct" when the ball carries a conductive
+                once-per-revolution mark. Spin then comes from the gated
+                envelope estimator, prefers the 1x line over its 2x harmonic,
+                and may reach the reliable confidence band. "none" (default)
+                keeps the ungated multitaper estimator.
+            spin_octave_check: Move a pick that is ~2x (or, without a marker,
+                ~0.5x) the club/ball-speed spin prior to a supported
+                half/double candidate.
         """
+        if ball_marker not in BALL_MARKERS:
+            raise ValueError(f"ball_marker must be one of {BALL_MARKERS}, got {ball_marker!r}")
         self.SAMPLE_RATE = sample_rate
         self.hanning_window = np.hanning(self.WINDOW_SIZE)
+        self.ball_marker = ball_marker
+        self.spin_octave_check = spin_octave_check
+        if ball_marker != "none" or spin_octave_check:
+            logger.info(
+                "[PROCESSOR] Spin options: ball_marker=%s, octave_check=%s",
+                ball_marker,
+                spin_octave_check,
+            )
 
     def parse_capture(
         self,
@@ -688,9 +718,10 @@ class RollingBufferProcessor:
         This is the live version of the best-performing TrackMan-scored
         offline track. Evidence is logged as confidence, but never used to
         suppress a bounded candidate. The result remains ``experimental`` so
-        it cannot drive spin-adjusted carry.
+        it cannot drive spin-adjusted carry. The evaluated estimator has no
+        spin prior; ``expected_spin_rpm`` is used only by the opt-in octave
+        check.
         """
-        del expected_spin_rpm  # The evaluated estimator intentionally has no spin prior.
         iq, clipped_fraction = repair_clipped_iq(
             np.asarray(capture.i_samples),
             np.asarray(capture.q_samples),
@@ -753,6 +784,10 @@ class RollingBufferProcessor:
                 method="multitaper_ungated",
             )
 
+        octave_correction = None
+        if self.spin_octave_check:
+            estimate, octave_correction = self._octave_check_multitaper(estimate, expected_spin_rpm)
+
         min_rpm, max_rpm = self.MULTITAPER_SPIN_RPM_BAND
         at_lower_rail = estimate.spin_rpm <= min_rpm + self.MULTITAPER_RAIL_MARGIN_RPM
         at_upper_rail = estimate.spin_rpm >= max_rpm - self.MULTITAPER_RAIL_MARGIN_RPM
@@ -782,7 +817,7 @@ class RollingBufferProcessor:
             confidence=confidence,
             snr=estimate.peak_to_floor,
             quality="experimental",
-            method="multitaper_ungated",
+            method=spin_method_name("multitaper_ungated", octave_correction=octave_correction),
             multipath_fade_hz=estimate.fade_hz,
             modulation_depth=modulation_depth,
             peak_freq_hz=estimate.spin_hz,
@@ -810,6 +845,7 @@ class RollingBufferProcessor:
         Primary: FFT on the envelope. Autocorrelation is used only to
         confirm marginal FFT picks, not to override a disagreeing FFT peak.
         """
+        method = spin_method_name("envelope_fft", self.ball_marker)
         i_data = np.array(capture.i_samples, dtype=np.float64)
         q_data = np.array(capture.q_samples, dtype=np.float64)
 
@@ -833,7 +869,7 @@ class RollingBufferProcessor:
         low = max(low, 0.001)
         high = min(high, 0.999)
         if low >= high:
-            return SpinResult.no_spin_detected("Ball Doppler outside filter range")
+            return SpinResult.no_spin_detected("Ball Doppler outside filter range", method=method)
 
         from scipy.signal import butter, sosfiltfilt  # pylint: disable=import-outside-toplevel
 
@@ -841,7 +877,7 @@ class RollingBufferProcessor:
             sos = butter(self.SPIN_BANDPASS_ORDER, [low, high], btype="band", output="sos")
             filtered = sosfiltfilt(sos, iq)
         except Exception as e:
-            return SpinResult.no_spin_detected(f"Bandpass filter failed: {e}")
+            return SpinResult.no_spin_detected(f"Bandpass filter failed: {e}", method=method)
 
         # Amplitude envelope
         envelope = np.abs(filtered)
@@ -865,7 +901,8 @@ class RollingBufferProcessor:
         if len(ball_envelope) < self.SPIN_MIN_SAMPLES:
             return SpinResult.no_spin_detected(
                 f"Ball signal too short ({len(ball_envelope)} samples, "
-                f"need {self.SPIN_MIN_SAMPLES})"
+                f"need {self.SPIN_MIN_SAMPLES})",
+                method=method,
             )
 
         # Check modulation depth before proceeding. Real seam modulation
@@ -884,6 +921,7 @@ class RollingBufferProcessor:
                 return SpinResult.no_spin_detected(
                     f"Modulation depth too low ({modulation_depth:.4f})",
                     modulation_depth=modulation_depth,
+                    method=method,
                 )
 
             # Flag weak modulation — above the noise floor (0.5%) but below
@@ -897,6 +935,7 @@ class RollingBufferProcessor:
             return SpinResult.no_spin_detected(
                 "Envelope variation too low",
                 modulation_depth=modulation_depth,
+                method=method,
             )
         # Detrend slow envelope drift (range falloff) so it cannot leak
         # into the low end of the seam band and shadow real driver spin.
@@ -918,6 +957,7 @@ class RollingBufferProcessor:
             return SpinResult.no_spin_detected(
                 "No valid seam frequencies in range",
                 modulation_depth=modulation_depth,
+                method=method,
             )
 
         valid_mag = magnitude[valid_mask]
@@ -941,6 +981,13 @@ class RollingBufferProcessor:
             leakage,
             expected_spin_rpm=expected_spin_rpm,
         )
+        if self.ball_marker != "none":
+            peak_idx = self._prefer_marker_fundamental(valid_mag, valid_freqs, peak_idx)
+        if self.spin_octave_check:
+            peak_idx, octave_correction = self._octave_corrected_pick(
+                valid_mag, valid_freqs, peak_idx, expected_spin_rpm
+            )
+            method = spin_method_name("envelope_fft", self.ball_marker, octave_correction)
         peak_freq = float(valid_freqs[peak_idx])
         peak_mag = float(valid_mag[peak_idx])
 
@@ -983,6 +1030,7 @@ class RollingBufferProcessor:
                 peak_freq_hz=peak_freq,
                 at_upper_rail=at_upper_rail,
                 candidates=spin_candidates,
+                method=method,
             )
 
         # Check minimum cycles in window
@@ -1026,6 +1074,7 @@ class RollingBufferProcessor:
                 seam_cycles=seam_cycles,
                 at_upper_rail=True,
                 candidates=spin_candidates,
+                method=method,
             )
 
         # Lower-rail picks sit where residual envelope drift leaks past
@@ -1053,6 +1102,7 @@ class RollingBufferProcessor:
                 seam_cycles=seam_cycles,
                 at_lower_rail=True,
                 candidates=spin_candidates,
+                method=method,
             )
 
         # --- Fallback: Autocorrelation for marginal FFT ---
@@ -1121,6 +1171,7 @@ class RollingBufferProcessor:
                 at_lower_rail=at_lower_rail,
                 at_upper_rail=at_upper_rail,
                 candidates=spin_candidates,
+                method=method,
             )
 
         if fft_snr < self.SPIN_SNR_MIN and not autocorr_confirmed:
@@ -1148,6 +1199,7 @@ class RollingBufferProcessor:
                         confidence=0.3,
                         snr=round(fft_snr, 2),
                         quality="low",
+                        method=method,
                         modulation_depth=modulation_depth,
                         peak_freq_hz=peak_freq,
                         seam_cycles=seam_cycles,
@@ -1193,6 +1245,7 @@ class RollingBufferProcessor:
                     else None
                 ),
                 phase_confirmed=False,
+                method=method,
             )
 
         if fft_snr >= self.SPIN_SNR_HIGH and seam_cycles >= 5:
@@ -1247,11 +1300,24 @@ class RollingBufferProcessor:
             if quality in ("high", "medium"):
                 quality = "low"
 
+        if self.ball_marker != "none" and not self._spin_is_plausible_for_club(
+            spin_rpm, expected_spin_rpm
+        ):
+            logger.info(
+                "[PROCESSOR] Marker spin %.0f RPM capped: implausible vs expected %s RPM",
+                spin_rpm,
+                round(expected_spin_rpm) if expected_spin_rpm else None,
+            )
+            confidence = min(confidence, 0.5)
+            if quality in ("high", "medium"):
+                quality = "low"
+
         return SpinResult(
             spin_rpm=round(spin_rpm),
             confidence=confidence,
             snr=round(fft_snr, 2),
             quality=quality,
+            method=method,
             modulation_depth=modulation_depth,
             peak_freq_hz=peak_freq,
             seam_cycles=seam_cycles,
@@ -1529,6 +1595,133 @@ class RollingBufferProcessor:
             return best_idx
 
         return strongest_idx
+
+    def _harmonic_peak_near(
+        self,
+        magnitude: np.ndarray,
+        freqs: np.ndarray,
+        target_hz: float,
+        reference_mag: float,
+    ) -> Optional[int]:
+        """Strongest local peak within SPIN_OCTAVE_TOLERANCE of ``target_hz``.
+
+        It must reach SPIN_PRIOR_MIN_RELATIVE_MAG of ``reference_mag`` (the
+        current pick): the strength a prior candidate needs to displace the
+        strongest envelope peak.
+        """
+        if reference_mag <= 0:
+            return None
+        from scipy.signal import find_peaks  # pylint: disable=import-outside-toplevel
+
+        peaks = find_peaks(magnitude)[0]
+        near = peaks[np.abs(freqs[peaks] - target_hz) <= self.SPIN_OCTAVE_TOLERANCE * target_hz]
+        strong = near[magnitude[near] >= self.SPIN_PRIOR_MIN_RELATIVE_MAG * reference_mag]
+        if strong.size == 0:
+            return None
+        return int(strong[np.argmax(magnitude[strong])])
+
+    def _prefer_marker_fundamental(
+        self,
+        magnitude: np.ndarray,
+        freqs: np.ndarray,
+        peak_idx: int,
+    ) -> int:
+        """Move a pick down to its visible half-frequency line for a marked ball.
+
+        A marker reflects once per revolution, so of a 1x/2x pair the lower
+        line is the spin.
+        """
+        fundamental_idx = self._harmonic_peak_near(
+            magnitude, freqs, freqs[peak_idx] / 2, magnitude[peak_idx]
+        )
+        if fundamental_idx is None:
+            return peak_idx
+        logger.info(
+            "[PROCESSOR] Marker spin: %.0f RPM line chosen over its 2x harmonic %.0f RPM "
+            "(relative magnitude %.2f)",
+            freqs[fundamental_idx] * 60,
+            freqs[peak_idx] * 60,
+            magnitude[fundamental_idx] / magnitude[peak_idx],
+        )
+        return fundamental_idx
+
+    def _octave_corrected_pick(
+        self,
+        magnitude: np.ndarray,
+        freqs: np.ndarray,
+        peak_idx: int,
+        expected_spin_rpm: Optional[float],
+    ) -> Tuple[int, Optional[str]]:
+        """Move a pick at ~2x (~0.5x) the spin prior to a supported half (double).
+
+        Returns the new index and "halved", "doubled" or None. Doubling is
+        off with a ball marker, whose strongest line is already 1x spin.
+        """
+        if expected_spin_rpm is None or expected_spin_rpm <= 0:
+            return peak_idx, None
+        pick_hz = float(freqs[peak_idx])
+        ratio = pick_hz * 60 / expected_spin_rpm
+        high_min, high_max = self.SPIN_OCTAVE_HIGH_RATIO
+        low_min, low_max = self.SPIN_OCTAVE_LOW_RATIO
+        if high_min <= ratio <= high_max:
+            target_hz, correction = pick_hz / 2, "halved"
+        elif self.ball_marker == "none" and low_min <= ratio <= low_max:
+            target_hz, correction = pick_hz * 2, "doubled"
+        else:
+            return peak_idx, None
+
+        corrected_idx = self._harmonic_peak_near(magnitude, freqs, target_hz, magnitude[peak_idx])
+        if corrected_idx is None:
+            logger.info(
+                "[PROCESSOR] Spin octave check: %.0f RPM is %.2fx the %.0f RPM prior; "
+                "no supporting candidate, kept",
+                pick_hz * 60,
+                ratio,
+                expected_spin_rpm,
+            )
+            return peak_idx, None
+        logger.info(
+            "[PROCESSOR] Spin octave check %s %.0f RPM -> %.0f RPM "
+            "(prior %.0f RPM, ratio %.2f, relative magnitude %.2f)",
+            correction,
+            pick_hz * 60,
+            freqs[corrected_idx] * 60,
+            expected_spin_rpm,
+            ratio,
+            magnitude[corrected_idx] / magnitude[peak_idx],
+        )
+        return corrected_idx, correction
+
+    def _octave_check_multitaper(
+        self,
+        estimate: MultitaperEstimate,
+        expected_spin_rpm: Optional[float],
+    ) -> Tuple[MultitaperEstimate, Optional[str]]:
+        """Apply the octave check to a multitaper pick using its spectrum."""
+        spectrum = estimate.spectrum
+        if spectrum is None:
+            return estimate, None
+        valid_indices = np.flatnonzero(spectrum.valid)
+        freqs = spectrum.frequencies[valid_indices]
+        magnitude = np.sqrt(spectrum.coherent_power[valid_indices])
+        pick = int(np.argmin(np.abs(freqs - estimate.spin_hz)))
+        corrected, correction = self._octave_corrected_pick(
+            magnitude, freqs, pick, expected_spin_rpm
+        )
+        if correction is None:
+            return estimate, None
+        return spectrum.estimate_at(int(valid_indices[corrected])), correction
+
+    def _spin_is_plausible_for_club(
+        self,
+        spin_rpm: float,
+        expected_spin_rpm: Optional[float],
+    ) -> bool:
+        """Whether spin is within SPIN_PRIOR_MAX_RELATIVE_ERROR of the club/ball-speed prior."""
+        if expected_spin_rpm is None or expected_spin_rpm <= 0:
+            return False
+        error = abs(spin_rpm - expected_spin_rpm) / expected_spin_rpm
+        return error <= self.SPIN_PRIOR_MAX_RELATIVE_ERROR
 
     def find_club_speed(
         self,
@@ -1968,7 +2161,13 @@ class RollingBufferProcessor:
             expected_spin_rpm = expected_spin_for_ball_speed(ball_speed_mph)
 
         # Spin detection via amplitude envelope demodulation on raw I/Q
-        spin = self.detect_spin_multitaper(
+        # A marker's once-per-revolution line usually sits in the 25-90 Hz
+        # band the multitaper fade regression removes along with its second
+        # harmonic, so marked balls use the gated envelope estimator.
+        spin_detector = self.detect_spin_multitaper
+        if self.ball_marker != "none":
+            spin_detector = self.detect_spin
+        spin = spin_detector(
             capture,
             ball_speed_mph,
             ball_timestamp_ms,

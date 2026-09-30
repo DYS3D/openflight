@@ -19,6 +19,10 @@ from openflight.iwr6843.dump import HEADER, parse_header, payload_nbytes
 logger = logging.getLogger(__name__)
 
 _GRACEFUL_DUMP_SHUTDOWN_S = 12.0
+# Each capture holds a ~768 KiB dump. Unclaimed ones (false triggers, shots
+# whose OPS side never arrived) must not accumulate for a whole session.
+_MAX_PENDING_CAPTURES = 4
+_MAX_PENDING_CAPTURE_AGE_S = 5.0
 
 
 def tx_order_from_config(config_path: str | Path) -> str:
@@ -92,7 +96,7 @@ class IWR6843CaptureMonitor:
         self._sequence = 0
         self._last_edge_timestamp = 0.0
         self._events: queue.Queue[float | None] = queue.Queue(maxsize=1)
-        self._captures: deque[IWR6843Capture] = deque()
+        self._captures: deque[IWR6843Capture] = deque(maxlen=_MAX_PENDING_CAPTURES)
         self._condition = threading.Condition()
         self._worker: threading.Thread | None = None
         self._trigger_observers = list(trigger_observers or [])
@@ -247,6 +251,12 @@ class IWR6843CaptureMonitor:
             )
             with self._condition:
                 self._capture_active = False
+                self._discard_expired_captures()
+                if len(self._captures) == self._captures.maxlen:
+                    logger.warning(
+                        "[IWR6843] Discarding unclaimed capture #%d: pending queue full",
+                        self._captures[0].sequence,
+                    )
                 self._captures.append(capture)
                 self._condition.notify_all()
             logger.info(
@@ -254,6 +264,17 @@ class IWR6843CaptureMonitor:
                 sequence,
                 f"{len(raw)} bytes" if raw is not None else error,
                 capture.dump_duration_s,
+            )
+
+    def _discard_expired_captures(self) -> None:
+        """Drop completed captures nobody claimed in time. Caller holds the lock."""
+        cutoff = time.time() - _MAX_PENDING_CAPTURE_AGE_S
+        while self._captures and self._captures[0].completed_timestamp < cutoff:
+            expired = self._captures.popleft()
+            logger.warning(
+                "[IWR6843] Discarding capture #%d unclaimed for over %.0fs",
+                expired.sequence,
+                _MAX_PENDING_CAPTURE_AGE_S,
             )
 
     def capture_for_shot(
@@ -266,6 +287,7 @@ class IWR6843CaptureMonitor:
         deadline = time.monotonic() + timeout_s
         with self._condition:
             while True:
+                self._discard_expired_captures()
                 if impact_timestamp is None and self._captures:
                     return self._captures.popleft()
 

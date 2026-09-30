@@ -223,6 +223,178 @@ def test_capture_persistence_uses_fast_uncompressed_npz(tmp_path, monkeypatch):
     assert saved.metadata["storage_format"] == "npz_uncompressed"
 
 
+def make_capture(frame_count: int = 4, pre_trigger_count: int = 3) -> TriggeredCapture:
+    """Create a small capture whose frames carry distinct pixel values."""
+    return TriggeredCapture(
+        frames=tuple(make_frame(index) for index in range(frame_count)),
+        pre_trigger_count=pre_trigger_count,
+        trigger_host_timestamp_ns=8_000_000,
+    )
+
+
+def test_default_settings_archive_synchronously_for_disk_readback(tmp_path):
+    """Today's path: frames.npz is complete before the capture is published."""
+    runtime = CameraCaptureRuntime(output_dir=tmp_path)
+    runtime._start_archive_writer()
+
+    saved = runtime._save_capture(1, 123.0, make_capture())
+
+    assert runtime.defers_archive_writes is False
+    assert runtime._archive_worker is None
+    assert saved.archive is None
+    assert saved.archive_ready is None
+    assert (saved.path / "frames.npz").is_file()
+    assert (saved.path / "trigger.pgm").is_file()
+    assert isinstance(saved.metadata["npz_bytes"], int)
+    assert saved.metadata["save_time_ms"] > 0
+    on_disk = json.loads((saved.path / "metadata.json").read_text())
+    assert on_disk["npz_bytes"] == saved.metadata["npz_bytes"]
+    assert on_disk["settings"]["archive_frames"] is True
+    assert on_disk["settings"]["frames_in_memory"] is False
+
+
+def test_frames_in_memory_publishes_capture_before_background_archive(tmp_path, monkeypatch):
+    runtime = CameraCaptureRuntime(
+        output_dir=tmp_path,
+        settings=CameraCaptureSettings(frames_in_memory=True),
+    )
+    release_write = threading.Event()
+    real_write = capture_runtime._write_archive_files
+
+    def blocked_write(*args, **kwargs):
+        assert release_write.wait(timeout=2.0)
+        real_write(*args, **kwargs)
+
+    monkeypatch.setattr(capture_runtime, "_write_archive_files", blocked_write)
+    runtime._start_archive_writer()
+
+    saved = runtime._save_capture(1, 123.0, make_capture())
+
+    assert runtime.defers_archive_writes is True
+    assert saved.valid
+    assert saved.archive is not None
+    assert saved.archive["frames"].shape == (4, 2, 3)
+    assert saved.path is not None and saved.path.is_dir()
+    assert not saved.archive_ready.is_set()
+    assert not (saved.path / "frames.npz").exists()
+    assert saved.metadata["capture_path"] == str(saved.path)
+    assert saved.metadata["storage_format"] == "npz_uncompressed"
+    assert saved.metadata["npz_bytes"] is None
+
+    release_write.set()
+    assert saved.archive_ready.wait(timeout=2.0)
+    assert (saved.path / "frames.npz").is_file()
+    assert (saved.path / "first.pgm").is_file()
+    on_disk = json.loads((saved.path / "metadata.json").read_text())
+    assert on_disk["npz_bytes"] == (saved.path / "frames.npz").stat().st_size
+    assert on_disk["save_time_ms"] >= saved.metadata["save_time_ms"]
+    runtime.stop()
+
+
+def test_in_memory_archive_is_identical_to_loaded_npz(tmp_path):
+    """Estimators must see exactly what a disk round trip would give them."""
+    runtime = CameraCaptureRuntime(
+        output_dir=tmp_path,
+        settings=CameraCaptureSettings(frames_in_memory=True),
+    )
+    runtime._start_archive_writer()
+
+    saved = runtime._save_capture(2, 456.5, make_capture(frame_count=5, pre_trigger_count=2))
+    assert saved.archive_ready.wait(timeout=2.0)
+    runtime.stop()
+
+    with np.load(saved.path / "frames.npz") as loaded:
+        assert set(loaded.files) == set(saved.archive)
+        for name in loaded.files:
+            from_disk = loaded[name]
+            in_memory = saved.archive[name]
+            assert isinstance(in_memory, np.ndarray), name
+            assert in_memory.dtype == from_disk.dtype, name
+            assert in_memory.shape == from_disk.shape, name
+            assert np.array_equal(in_memory, from_disk), name
+    assert int(saved.archive["pre_trigger_count"]) == 2
+    assert int(saved.archive["trigger_host_timestamp_ns"]) == 8_000_000
+    assert float(saved.archive["trigger_epoch_timestamp"]) == 456.5
+
+
+def test_archive_frames_off_keeps_capture_in_memory_only(tmp_path):
+    runtime = CameraCaptureRuntime(
+        output_dir=tmp_path,
+        settings=CameraCaptureSettings(frames_in_memory=True, archive_frames=False),
+    )
+    runtime._start_archive_writer()
+
+    saved = runtime._save_capture(1, 123.0, make_capture())
+
+    assert runtime.defers_archive_writes is False
+    assert runtime._archive_worker is None
+    assert saved.valid
+    assert saved.path is None
+    assert saved.archive_ready is None
+    assert saved.archive["frames"].shape == (4, 2, 3)
+    assert saved.metadata["capture_path"] is None
+    assert saved.metadata["storage_format"] == "none"
+    assert saved.metadata["npz_bytes"] is None
+    assert saved.metadata["frame_count"] == 4
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_stop_waits_for_background_archive_to_finish(tmp_path, monkeypatch):
+    runtime = CameraCaptureRuntime(
+        output_dir=tmp_path,
+        settings=CameraCaptureSettings(frames_in_memory=True),
+    )
+    write_started = threading.Event()
+    release_write = threading.Event()
+    stop_returned = threading.Event()
+    real_write = capture_runtime._write_archive_files
+
+    def blocked_write(*args, **kwargs):
+        write_started.set()
+        assert release_write.wait(timeout=2.0)
+        real_write(*args, **kwargs)
+
+    monkeypatch.setattr(capture_runtime, "_write_archive_files", blocked_write)
+    runtime._start_archive_writer()
+    saved = runtime._save_capture(1, 123.0, make_capture())
+    assert write_started.wait(timeout=2.0)
+
+    stopper = threading.Thread(target=lambda: (runtime.stop(), stop_returned.set()))
+    stopper.start()
+    assert stop_returned.wait(timeout=0.1) is False
+
+    release_write.set()
+    stopper.join(timeout=2.0)
+
+    assert stop_returned.is_set()
+    assert saved.archive_ready.is_set()
+    assert (saved.path / "frames.npz").is_file()
+    assert runtime._archive_worker is None
+
+
+def test_background_archive_failure_keeps_in_memory_capture_usable(tmp_path, monkeypatch, caplog):
+    runtime = CameraCaptureRuntime(
+        output_dir=tmp_path,
+        settings=CameraCaptureSettings(frames_in_memory=True),
+    )
+
+    def failing_write(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(capture_runtime, "_write_archive_files", failing_write)
+    runtime._start_archive_writer()
+
+    with caplog.at_level("WARNING", logger="openflight.camera.capture_runtime"):
+        saved = runtime._save_capture(1, 123.0, make_capture())
+        assert saved.archive_ready.wait(timeout=2.0)
+        runtime.stop()
+
+    assert saved.valid
+    assert saved.archive["frames"].shape == (4, 2, 3)
+    assert not (saved.path / "frames.npz").exists()
+    assert "archive failed" in caplog.text
+
+
 def test_live_image_controls_update_camera_without_restarting(tmp_path):
     class FakeCamera:
         def __init__(self):

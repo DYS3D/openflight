@@ -40,6 +40,7 @@ CameraCaptureStream = Literal["raw", "main-y"]
 RASPBERRY_PI_DIST_PACKAGES = Path("/usr/lib/python3/dist-packages")
 OV9281_VERTICAL_OFFSET_PATH = Path("/sys/module/ov9282/parameters/strip_y_offset")
 AUTO_EXPOSURE_STARTUP_SETTLE_S = 0.3
+ARCHIVE_SHUTDOWN_TIMEOUT_S = 10.0
 
 
 def vertical_crop_limits(width: int, height: int) -> dict[str, int] | None:
@@ -70,6 +71,8 @@ class CameraCaptureSettings:
     match_tolerance_s: float = 0.75
     auto_exposure: bool = True
     auto_exposure_state_path: Path | None = None
+    archive_frames: bool = True
+    frames_in_memory: bool = False
 
     @property
     def pre_frames(self) -> int:
@@ -84,19 +87,36 @@ class CameraCaptureSettings:
 
 @dataclass(frozen=True)
 class SavedCameraCapture:
-    """A persisted camera capture and its timing metadata."""
+    """A matched camera capture, its timing metadata, and where its frames live.
+
+    ``archive`` holds the same named arrays ``np.load("frames.npz")`` would
+    return when frames are kept in memory; ``path`` is None when nothing was
+    written to disk; ``archive_ready`` is set once a deferred write finishes.
+    """
 
     sequence: int
     trigger_timestamp: float
     completed_timestamp: float
-    path: Path
+    path: Path | None
     metadata: dict
     error: str | None = None
+    archive: dict[str, np.ndarray] | None = None
+    archive_ready: threading.Event | None = None
 
     @property
     def valid(self) -> bool:
         """Whether the capture was saved successfully."""
         return self.error is None
+
+
+@dataclass(frozen=True)
+class _ArchiveJob:
+    sequence: int
+    shot_dir: Path
+    archive: dict[str, np.ndarray]
+    summary: dict
+    started: float
+    ready: threading.Event
 
 
 def parse_scaler_crop(value: str | None) -> tuple[int, int, int, int] | None:
@@ -120,6 +140,54 @@ def _save_pgm(path: Path, image: np.ndarray) -> None:
     with path.open("wb") as handle:
         handle.write(f"P5\n{image.shape[1]} {image.shape[0]}\n255\n".encode("ascii"))
         handle.write(image.tobytes())
+
+
+def _archive_arrays(capture: TriggeredCapture, trigger_epoch: float) -> dict[str, np.ndarray]:
+    """Build the named arrays of frames.npz exactly as np.load would return them."""
+    return {
+        "frames": np.stack([frame.image for frame in capture.frames]),
+        "sensor_timestamp_ns": np.asarray(
+            [frame.sensor_timestamp_ns for frame in capture.frames],
+            dtype=np.int64,
+        ),
+        "host_timestamp_ns": np.asarray(
+            [frame.host_timestamp_ns for frame in capture.frames],
+            dtype=np.int64,
+        ),
+        "exposure_us": np.asarray([frame.exposure_us for frame in capture.frames], dtype=np.int32),
+        "analogue_gain": np.asarray(
+            [frame.analogue_gain for frame in capture.frames],
+            dtype=np.float32,
+        ),
+        "pre_trigger_count": np.asarray(capture.pre_trigger_count, dtype=np.int32),
+        "trigger_host_timestamp_ns": np.asarray(capture.trigger_host_timestamp_ns, dtype=np.int64),
+        "trigger_epoch_timestamp": np.asarray(trigger_epoch, dtype=np.float64),
+    }
+
+
+def _write_archive_files(
+    shot_dir: Path,
+    archive: dict[str, np.ndarray],
+    summary: dict,
+    started: float,
+) -> None:
+    """Persist frames.npz, preview stills, and metadata.json for one capture."""
+    images = archive["frames"]
+    # These clips are consumed immediately by the live estimators. ZIP
+    # compression delayed shot display by roughly a second on the Pi, so
+    # favor fast sequential I/O over the modest storage reduction.
+    np.savez(shot_dir / "frames.npz", **archive)
+
+    for label, index in (
+        ("first", 0),
+        ("trigger", max(0, int(archive["pre_trigger_count"]) - 1)),
+        ("last", len(images) - 1),
+    ):
+        _save_pgm(shot_dir / f"{label}.pgm", images[index])
+
+    summary["npz_bytes"] = (shot_dir / "frames.npz").stat().st_size
+    summary["save_time_ms"] = (time.monotonic() - started) * 1000.0
+    (shot_dir / "metadata.json").write_text(json.dumps(summary, indent=2) + "\n")
 
 
 def ensure_picamera2_import_path() -> bool:
@@ -164,6 +232,8 @@ class CameraCaptureRuntime:
         self._sequence = 0
         self._worker: threading.Thread | None = None
         self._ready: queue.Queue[TriggeredCapture | None] = queue.Queue()
+        self._archive_worker: threading.Thread | None = None
+        self._archive_queue: queue.Queue[_ArchiveJob | None] = queue.Queue()
         self._captures: list[SavedCameraCapture] = []
         self._condition = threading.Condition()
         self._trigger_epochs: queue.Queue[float] = queue.Queue()
@@ -227,6 +297,7 @@ class CameraCaptureRuntime:
             daemon=True,
         )
         self._worker.start()
+        self._start_archive_writer()
         try:
             self._camera.start()
             self._wait_for_prebuffer()
@@ -265,6 +336,47 @@ class CameraCaptureRuntime:
         if self._worker is not None:
             self._worker.join(timeout=3.0)
             self._worker = None
+        self._stop_archive_writer()
+
+    @property
+    def defers_archive_writes(self) -> bool:
+        """Whether frames.npz is written after the capture is handed to estimators."""
+        return self.settings.frames_in_memory and self.settings.archive_frames
+
+    def _start_archive_writer(self) -> None:
+        if self._archive_worker is not None or not self.defers_archive_writes:
+            return
+        self._archive_worker = threading.Thread(
+            target=self._archive_loop,
+            name="camera-capture-archive",
+            daemon=True,
+        )
+        self._archive_worker.start()
+
+    def _stop_archive_writer(self) -> None:
+        """Let every queued archive finish writing before the runtime is gone."""
+        if self._archive_worker is None:
+            return
+        self._archive_queue.put(None)
+        self._archive_worker.join(timeout=ARCHIVE_SHUTDOWN_TIMEOUT_S)
+        if self._archive_worker.is_alive():
+            logger.warning("[CAMERA] Archive writer did not finish before shutdown")
+        self._archive_worker = None
+
+    def _archive_loop(self) -> None:
+        while True:
+            job = self._archive_queue.get()
+            if job is None:
+                return
+            try:
+                _write_archive_files(job.shot_dir, job.archive, job.summary, job.started)
+                logger.info("[CAMERA] Capture #%d archived -> %s", job.sequence, job.shot_dir)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "[CAMERA] Capture #%d archive failed: %s", job.sequence, exc, exc_info=True
+                )
+            finally:
+                job.ready.set()
 
     def capture_preview_jpeg(self, quality: int = 80) -> bytes | None:
         """Encode the latest rolling-buffer frame as a preview JPEG.
@@ -445,6 +557,7 @@ class CameraCaptureRuntime:
         """Prepare one runtime instance to start again after a controlled stop."""
         self._ring = TriggeredFrameBuffer(self.settings.pre_frames, self.settings.post_frames)
         self._ready = queue.Queue()
+        self._archive_queue = queue.Queue()
         self._trigger_epochs = queue.Queue()
         self._trigger_auto_exposure = queue.Queue()
         self._auto_exposure_policy.reset()
@@ -744,46 +857,17 @@ class CameraCaptureRuntime:
         *,
         auto_exposure: dict | None = None,
     ) -> SavedCameraCapture:
-        timestamp = datetime.fromtimestamp(trigger_epoch or time.time()).strftime(
-            "%Y%m%d_%H%M%S_%f"
-        )[:-3]
-        shot_dir = self.output_dir / f"camera_{timestamp}_{sequence:03d}"
-        shot_dir.mkdir(parents=True, exist_ok=False)
+        shot_dir: Path | None = None
+        if self.settings.archive_frames:
+            timestamp = datetime.fromtimestamp(trigger_epoch or time.time()).strftime(
+                "%Y%m%d_%H%M%S_%f"
+            )[:-3]
+            shot_dir = self.output_dir / f"camera_{timestamp}_{sequence:03d}"
+            shot_dir.mkdir(parents=True, exist_ok=False)
         started = time.monotonic()
 
-        images = np.stack([frame.image for frame in capture.frames])
-        sensor_ns = np.asarray(
-            [frame.sensor_timestamp_ns for frame in capture.frames],
-            dtype=np.int64,
-        )
-        host_ns = np.asarray(
-            [frame.host_timestamp_ns for frame in capture.frames],
-            dtype=np.int64,
-        )
-        exposure_us = np.asarray([frame.exposure_us for frame in capture.frames], dtype=np.int32)
-        gain = np.asarray([frame.analogue_gain for frame in capture.frames], dtype=np.float32)
-
-        # These clips are consumed immediately by the live estimators. ZIP
-        # compression delayed shot display by roughly a second on the Pi, so
-        # favor fast sequential I/O over the modest storage reduction.
-        np.savez(
-            shot_dir / "frames.npz",
-            frames=images,
-            sensor_timestamp_ns=sensor_ns,
-            host_timestamp_ns=host_ns,
-            exposure_us=exposure_us,
-            analogue_gain=gain,
-            pre_trigger_count=np.int32(capture.pre_trigger_count),
-            trigger_host_timestamp_ns=np.int64(capture.trigger_host_timestamp_ns),
-            trigger_epoch_timestamp=np.float64(trigger_epoch),
-        )
-
-        for label, index in (
-            ("first", 0),
-            ("trigger", max(0, capture.pre_trigger_count - 1)),
-            ("last", len(images) - 1),
-        ):
-            _save_pgm(shot_dir / f"{label}.pgm", images[index])
+        archive = _archive_arrays(capture, trigger_epoch)
+        images = archive["frames"]
 
         summary = timing_summary(capture.frames)
         summary.update(
@@ -791,15 +875,15 @@ class CameraCaptureRuntime:
                 "sequence": sequence,
                 "trigger_timestamp": trigger_epoch,
                 "completed_timestamp": time.time(),
-                "capture_path": str(shot_dir),
+                "capture_path": str(shot_dir) if shot_dir is not None else None,
                 "pre_trigger_frames": capture.pre_trigger_count,
                 "post_trigger_frames": capture.post_trigger_count,
                 "trigger_host_timestamp_ns": capture.trigger_host_timestamp_ns,
                 "mean_brightness": float(images.mean()),
                 "p99_brightness": float(np.percentile(images, 99)),
-                "storage_format": "npz_uncompressed",
-                "npz_bytes": (shot_dir / "frames.npz").stat().st_size,
-                "save_time_ms": (time.monotonic() - started) * 1000.0,
+                "storage_format": "npz_uncompressed" if shot_dir is not None else "none",
+                "npz_bytes": None,
+                "save_time_ms": None,
                 "settings": {
                     "width": self.settings.width,
                     "height": self.settings.height,
@@ -814,18 +898,37 @@ class CameraCaptureRuntime:
                     "roll_correction_deg": self.settings.roll_correction_deg,
                     "scaler_crop": self.settings.scaler_crop,
                     "auto_exposure": self.settings.auto_exposure,
+                    "archive_frames": self.settings.archive_frames,
+                    "frames_in_memory": self.settings.frames_in_memory,
                 },
                 "auto_exposure": auto_exposure or self.auto_exposure_status(),
             }
         )
-        (shot_dir / "metadata.json").write_text(json.dumps(summary, indent=2) + "\n")
+
+        archive_ready: threading.Event | None = None
+        if shot_dir is not None and not self.defers_archive_writes:
+            _write_archive_files(shot_dir, archive, summary, started)
+        else:
+            summary["save_time_ms"] = (time.monotonic() - started) * 1000.0
+            if shot_dir is not None:
+                archive_ready = threading.Event()
+                self._archive_queue.put(
+                    _ArchiveJob(
+                        sequence=sequence,
+                        shot_dir=shot_dir,
+                        archive=archive,
+                        summary=dict(summary),
+                        started=started,
+                        ready=archive_ready,
+                    )
+                )
         logger.info(
             "[CAMERA] Capture #%d saved: %d frames, %.1ffps, gaps=%d -> %s",
             sequence,
             summary["frame_count"],
             summary["delivered_fps"],
             summary["gap_count"],
-            shot_dir,
+            shot_dir if shot_dir is not None else "memory only",
         )
         return SavedCameraCapture(
             sequence=sequence,
@@ -833,4 +936,6 @@ class CameraCaptureRuntime:
             completed_timestamp=summary["completed_timestamp"],
             path=shot_dir,
             metadata=summary,
+            archive=archive if self.settings.frames_in_memory else None,
+            archive_ready=archive_ready,
         )

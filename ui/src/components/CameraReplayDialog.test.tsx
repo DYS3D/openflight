@@ -49,6 +49,23 @@ describe('CameraReplayDialog', () => {
     expect(html).toContain('aria-pressed="false">Loop<');
   });
 
+  it('opens at normal speed with loop off', () => {
+    const html = renderToString(
+      <CameraReplayDialog
+        replay={replay}
+        state={{ kind: 'ready', videoUrl: 'http://localhost/replay.mp4' }}
+        onClose={() => {}}
+        onRetry={() => {}}
+      />
+    );
+
+    expect(html).toMatch(/aria-pressed="true">1×</);
+    expect(html).toMatch(/aria-pressed="false">0\.5×</);
+    expect(html).toMatch(/aria-pressed="false">0\.25×</);
+    expect(html).toContain('aria-pressed="false">Loop<');
+    expect(html).not.toMatch(/<video[^>]* loop=""/);
+  });
+
   it('offers retry and close after preparation fails', () => {
     const html = renderToString(
       <CameraReplayDialog replay={replay} state={{ kind: 'error' }} onClose={() => {}} onRetry={() => {}} />

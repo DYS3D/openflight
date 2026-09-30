@@ -22,6 +22,7 @@ class TestLogError:
 
         logger.log_error("capture loop failed", context={"component": "monitor"})
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["type"] == "error"
         assert entry["error"] == "capture loop failed"
@@ -50,6 +51,7 @@ class TestLogSessionError:
             exc=RuntimeError("boom"),
         )
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["type"] == "error"
         assert entry["error"] == "K-LD7 processing failed"
@@ -91,6 +93,7 @@ class TestLogTriggerEvent:
         )
 
         # Read back the JSONL file
+        logger.flush()
         lines = logger.session_path.read_text().strip().split("\n")
         entry = json.loads(lines[-1])
 
@@ -129,6 +132,7 @@ class TestLogTriggerEvent:
             peak_inbound_mph=42.1,
         )
 
+        logger.flush()
         lines = logger.session_path.read_text().strip().split("\n")
         entry = json.loads(lines[-1])
 
@@ -172,6 +176,7 @@ class TestLogShot:
         )
         logger.log_shot(shot)
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["shot_number"] == 7
         assert entry["impact_timestamp"] == 1234.5
@@ -226,6 +231,7 @@ class TestLogShot:
         )
         logger.log_shot(shot)
 
+        logger.flush()
         lines = logger.session_path.read_text().strip().split("\n")
         entry = json.loads(lines[-1])
 
@@ -272,6 +278,7 @@ class TestLogShot:
         )
         logger.log_shot(shot)
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["experimental_attack_angle_deg"] is None
         assert entry["experimental_attack_angle_status"] == "rejected_no_club_track"
@@ -296,6 +303,7 @@ class TestLogShot:
             post_trigger_duration_ms=68.0,
         )
 
+        logger.flush()
         lines = logger.session_path.read_text().strip().split("\n")
         entry = json.loads(lines[-1])
 
@@ -324,6 +332,7 @@ class TestLogCameraCapture:
             metadata={"frame_count": 48, "delivered_fps": 287.9},
         )
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["type"] == "camera_capture"
         assert entry["shot_number"] == 3
@@ -372,6 +381,7 @@ class TestLogKld7Buffer:
             club_angle=club,
         )
 
+        logger.flush()
         lines = logger.session_path.read_text().strip().split("\n")
         entry = json.loads(lines[-1])
 
@@ -404,6 +414,7 @@ class TestLogKld7Buffer:
             },
         )
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["ball_angle"]["vertical_deg"] == 12.5
         assert entry["club_angle"] is None
@@ -447,6 +458,7 @@ class TestLogIWR6843Capture:
             temperature_report=temperature_report,
         )
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["type"] == "iwr6843_capture"
         assert entry["shot_number"] == 2
@@ -474,6 +486,7 @@ class TestLogIWR6843Capture:
             club_path={"status": "accepted", "path_deg": 2.4, "confidence": 0.8},
         )
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["type"] == "iwr6843_capture"
         assert entry["club_path"]["path_deg"] == 2.4
@@ -495,6 +508,7 @@ class TestLogIWR6843Capture:
             ball_speed_mph=94.5,
         )
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["club_path"] is None
 
@@ -525,6 +539,7 @@ class TestLogClockSync:
 
         logger.log_clock_sync(device="ops243", port="/dev/ttyACM0", summary=self._summary())
 
+        logger.flush()
         entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
         assert entry["type"] == "ops_clock_sync"
         assert entry["device"] == "ops243"
@@ -635,6 +650,7 @@ class TestWriteEntryThreadSafety:
             thread.join(timeout=10)
 
         assert not any(thread.is_alive() for thread in threads)
+        logger.flush()
         assert not probe.overlap_detected, (
             "Concurrent _write_entry calls overlapped inside the stream write; "
             "session JSONL lines can interleave and corrupt the replay corpus."
@@ -711,8 +727,147 @@ def test_power_status_writes_structured_session_entry(tmp_path):
         }
     )
 
+    logger.flush()
     entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
     assert entry["type"] == "power_status"
     assert entry["state"] == "on_battery"
     assert entry["battery_percent"] == 42.5
     assert entry["external_power"] is False
+
+
+def _read_entries(logger):
+    return [json.loads(line) for line in logger.session_path.read_text().splitlines()]
+
+
+class _RecordingStream:
+    """Fake session file recording which thread wrote each line."""
+
+    def __init__(self, fail_first_write=False):
+        self.lines = []
+        self.writer_threads = set()
+        self.flushes = 0
+        self._fail_next = fail_first_write
+
+    def write(self, data):
+        self.writer_threads.add(threading.current_thread().name)
+        if self._fail_next:
+            self._fail_next = False
+            raise OSError("disk full")
+        self.lines.append(data)
+
+    def flush(self):
+        self.flushes += 1
+
+    def close(self):
+        pass
+
+
+class TestBackgroundWriter:
+    """Session JSONL writes go through a single background writer thread."""
+
+    def test_log_calls_do_not_write_on_the_calling_thread(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+        stream = _RecordingStream()
+        logger._session_file = stream
+
+        logger.log_error("one")
+        logger.log_error("two")
+        logger.flush()
+
+        assert [json.loads(line)["error"] for line in stream.lines] == ["one", "two"]
+        assert stream.writer_threads == {"session-log-writer"}
+        assert stream.flushes >= 1
+
+    def test_entries_are_written_in_call_order(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+
+        for seq in range(200):
+            logger.log_error(f"e{seq}")
+        logger.end_session()
+
+        entries = _read_entries(logger)
+        assert entries[0]["type"] == "session_start"
+        assert [entry["error"] for entry in entries[1:-1]] == [f"e{seq}" for seq in range(200)]
+        assert entries[-1]["type"] == "session_end"
+
+    def test_session_start_is_on_disk_when_start_session_returns(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+
+        assert [entry["type"] for entry in _read_entries(logger)] == ["session_start"]
+        logger.end_session()
+
+    def test_end_session_drains_queue_and_stops_writer(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+        writer = logger._writer_thread
+
+        for seq in range(50):
+            logger.log_error(f"e{seq}")
+        logger.end_session()
+
+        assert not writer.is_alive()
+        assert logger not in session_logger_module._active_loggers
+        entries = _read_entries(logger)
+        assert len([entry for entry in entries if entry["type"] == "error"]) == 50
+        assert entries[-1]["type"] == "session_end"
+
+    def test_writes_after_end_session_are_dropped(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+        logger.end_session()
+        before = logger.session_path.read_text()
+
+        logger._write_entry("late", {})
+        logger.flush()
+
+        assert logger.session_path.read_text() == before
+
+    def test_pending_lines_are_flushed_periodically_without_explicit_flush(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+
+        logger.log_error("periodic")
+
+        deadline = time.monotonic() + session_logger_module.WRITER_FLUSH_INTERVAL_S + 2.0
+        while time.monotonic() < deadline:
+            if "periodic" in logger.session_path.read_text():
+                break
+            time.sleep(0.02)
+        assert "periodic" in logger.session_path.read_text()
+        logger.end_session()
+
+    def test_write_failure_does_not_kill_the_writer(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+        stream = _RecordingStream(fail_first_write=True)
+        logger._session_file = stream
+
+        logger.log_error("lost")
+        logger.log_error("kept")
+        logger.flush(timeout=2.0)
+
+        assert [json.loads(line)["error"] for line in stream.lines] == ["kept"]
+        assert logger._writer_thread.is_alive()
+        logger.end_session()
+
+    def test_queued_lines_are_flushed_at_interpreter_exit(self, tmp_path):
+        import subprocess
+        import sys
+
+        script = (
+            "import sys\n"
+            "from openflight import session_logger as sl\n"
+            "sl.WRITER_FLUSH_INTERVAL_S = 3600\n"
+            "sl.WRITER_FLUSH_EVERY_LINES = 10**6\n"
+            "logger = sl.SessionLogger(log_dir=sys.argv[1], enabled=True)\n"
+            "logger.start_session(mode='mock')\n"
+            "logger.log_error('before-exit')\n"
+        )
+        subprocess.run([sys.executable, "-c", script, str(tmp_path)], check=True, timeout=60)
+
+        session_file = next(tmp_path.glob("session_*.jsonl"))
+        entries = [json.loads(line) for line in session_file.read_text().splitlines()]
+        assert [entry["error"] for entry in entries if entry["type"] == "error"] == ["before-exit"]

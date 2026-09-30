@@ -112,6 +112,17 @@ describe('calloutText', () => {
     expect(calloutText(carry, 'es')).toBe('214 yardas');
   });
 
+  it('does not turn a locale thousands separator into a decimal', () => {
+    setActiveLocale('pt');
+    const spin = { id: 'spin', label: 'Spin', value: (2328).toLocaleString('pt-BR'), unit: 'rpm' };
+    expect(calloutText(spin, 'pt-BR')).toBe('2328 rpm');
+
+    setActiveLocale('es');
+    const wedgeSpin = { id: 'spin', label: 'Spin', value: (10250).toLocaleString('es'), unit: 'rpm' };
+    expect(calloutText(wedgeSpin, 'es')).toBe('10250 rpm');
+    expect(calloutText({ id: 'smash', label: 'Smash', value: '1.48' }, 'es')).toBe('1,48');
+  });
+
   it('has nothing to say without a value', () => {
     expect(calloutText({ ...carry, value: '—' }, 'en')).toBeNull();
     expect(calloutText(null, 'en')).toBeNull();

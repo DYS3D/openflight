@@ -142,6 +142,54 @@
   border: 0;
 }
 
+.metric-card__consistency-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.metric-card--consistency-good {
+  --metric-consistency: var(--color-consistency-good);
+}
+
+.metric-card--consistency-fair {
+  --metric-consistency: var(--color-consistency-fair);
+}
+
+.metric-card--consistency-poor {
+  --metric-consistency: var(--color-consistency-poor);
+}
+
+.metric-card--consistency-good,
+.metric-card--consistency-fair,
+.metric-card--consistency-poor {
+  position: relative;
+}
+
+.metric-card--consistency-good .metric-card__value,
+.metric-card--consistency-fair .metric-card__value,
+.metric-card--consistency-poor .metric-card__value {
+  color: var(--metric-consistency);
+}
+
+/* A bar as well as the number colour, so the cue is not text colour alone. */
+.metric-card--consistency-good::after,
+.metric-card--consistency-fair::after,
+.metric-card--consistency-poor::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 4px;
+  background: var(--metric-consistency);
+  pointer-events: none;
+}
+
 .metric-card__unit {
   font-size: 0.95rem;
   font-weight: 600;

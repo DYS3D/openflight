@@ -1,9 +1,13 @@
+import { useRef } from 'react';
 import { LOCALES, type LocaleId } from '../../i18n';
 import { useI18n } from '../../i18n/useI18n';
 import { useSystemStore } from '../../stores/useSystemStore';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { useLocaleStore } from '../../stores/useLocaleStore';
 import { useUnitPreference } from '../../state/useUnitPreference';
+import { useDisplayPreferencesStore } from '../../stores/useDisplayPreferencesStore';
+import { useDragScroll } from '../../hooks/useDragScroll';
+import { DisplayPreferencesSection } from './DisplayPreferencesSection';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { SimStatus } from '../SimStatus';
 import type { UpdateStatus } from '../../types/socket';
@@ -40,11 +44,25 @@ export function MenuSheet({
   const { unitSystem, setUnitSystem } = useUnitPreference();
   const { theme, setTheme } = useThemeStore();
   const { locale, setLocale } = useLocaleStore();
+  const { preferences, setPreference } = useDisplayPreferencesStore();
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragScroll = useDragScroll(sheetRef);
 
   return (
     <>
       <button type="button" className="panel-scrim" onClick={onClose} aria-label={t('menu.close')} />
-      <div className="menu-sheet" role="dialog" aria-modal="true" aria-label={t('menu.title')}>
+      <div
+        className="menu-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('menu.title')}
+        ref={sheetRef}
+        onPointerDown={dragScroll.onPointerDown}
+        onPointerMove={dragScroll.onPointerMove}
+        onPointerUp={dragScroll.onPointerUp}
+        onPointerCancel={dragScroll.onPointerCancel}
+        onClickCapture={dragScroll.onClickCapture}
+      >
         <section className="menu-sheet__section">
           <span className="menu-sheet__section-title">{t('menu.units')}</span>
           <SegmentedControl
@@ -124,6 +142,8 @@ export function MenuSheet({
             </div>
           ) : null}
         </section>
+
+        <DisplayPreferencesSection preferences={preferences} onChange={setPreference} />
 
         <button type="button" className="menu-sheet__shutdown" onClick={onShutdown}>
           {t('menu.shutdown')}

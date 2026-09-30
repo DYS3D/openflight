@@ -27,6 +27,14 @@
   border-bottom: 1px solid var(--color-accent);
 }
 
+.status-banner--level {
+  justify-content: center;
+  background: var(--color-accent-block);
+  color: var(--color-accent-fg);
+  /* Persistent and control-free: let taps reach the header underneath. */
+  pointer-events: none;
+}
+
 .status-banner--notice {
   background: var(--color-danger);
   color: var(--color-accent-fg);

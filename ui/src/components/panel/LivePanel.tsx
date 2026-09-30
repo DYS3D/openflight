@@ -2,11 +2,14 @@ import { useMemo, type ReactNode } from 'react';
 import type { Shot } from '../../types/shot';
 import { computeSwingSpeedStats, filterShotsByProfile } from '../../types/shot';
 import { useUnitPreference } from '../../state/useUnitPreference';
+import { formatDistance, getDistanceUnit } from '../../utils/units';
 import { useI18n } from '../../i18n/useI18n';
 import { useSharedFitFontSize } from '../../hooks/useFitFontSize';
+import { useDisplayPreferencesStore } from '../../stores/useDisplayPreferencesStore';
 import { MetricCard } from '../ui/MetricCard';
 import { PanelHeader } from './PanelHeader';
 import { buildLiveMetrics, pinSelectedMetric } from './liveMetrics';
+import { consistencyBands } from './consistency';
 
 interface LivePanelProps {
   shot: Shot | null;
@@ -23,6 +26,11 @@ interface LivePanelProps {
   isNewShot?: boolean;
   /** Pinned header control, e.g. Change club. */
   headerAction?: ReactNode;
+  /** Omit these to read the display preferences store; pass them in tests. */
+  consistencyColors?: boolean;
+  showNormalizedCarry?: boolean;
+  /** Makes the profile name a button that opens the golfer picker. */
+  onSwitchProfile?: () => void;
 }
 
 /**
@@ -40,9 +48,15 @@ export function LivePanel({
   onSelectMetric,
   isNewShot = false,
   headerAction,
+  consistencyColors: consistencyColorsProp,
+  showNormalizedCarry: showNormalizedCarryProp,
+  onSwitchProfile,
 }: LivePanelProps) {
   const { locale, t } = useI18n();
   const { unitSystem } = useUnitPreference();
+  const storePreferences = useDisplayPreferencesStore((state) => state.preferences);
+  const consistencyColors = consistencyColorsProp ?? storePreferences.consistencyColors;
+  const showNormalizedCarry = showNormalizedCarryProp ?? storePreferences.showNormalizedCarry;
   const profileShots = useMemo(() => filterShotsByProfile(shots, profileId), [shots, profileId]);
   const displayedShot = profileShots[profileShots.length - 1] ?? null;
   const isProfileNewShot = Boolean(isNewShot && shot && displayedShot && shot.timestamp === displayedShot.timestamp);
@@ -59,12 +73,38 @@ export function LivePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
     [displayedShot, unitSystem, swingStats, selectedMetricId, locale]
   );
+  const bands = useMemo(
+    () => (consistencyColors && displayedShot ? consistencyBands(displayedShot, profileShots, profileId) : {}),
+    [consistencyColors, displayedShot, profileShots, profileId]
+  );
+  const normalizedCarry = displayedShot?.carry_normalized_yards;
+  const normalizedCarryText =
+    showNormalizedCarry && typeof normalizedCarry === 'number'
+      ? t('metric.normalizedCarry', {
+          value: formatDistance(normalizedCarry, unitSystem, 0),
+          unit: getDistanceUnit(unitSystem),
+        })
+      : undefined;
   const selected = metrics[0] ?? null;
   const gridRef = useSharedFitFontSize(
     metrics.length > 0,
     metrics.map((metric) => `${metric.value}:${metric.unit ?? ''}`).join('|')
   );
-  const header = <PanelHeader title={t('nav.live')} subtitle={profileName} club={clubLabel} actions={headerAction} />;
+  const subtitle =
+    onSwitchProfile && profileName ? (
+      <button
+        type="button"
+        className="live-panel__golfer"
+        aria-haspopup="dialog"
+        aria-label={t('live.switchGolfer', { name: profileName })}
+        onClick={onSwitchProfile}
+      >
+        {profileName}
+      </button>
+    ) : (
+      profileName
+    );
+  const header = <PanelHeader title={t('nav.live')} subtitle={subtitle} club={clubLabel} actions={headerAction} />;
 
   if (!selected) {
     return (
@@ -91,9 +131,11 @@ export function LivePanel({
               value={metric.value}
               unit={metric.unit}
               subtext={metric.subtext}
+              detail={metric.id === 'carry' ? normalizedCarryText : undefined}
               estimated={metric.estimated}
               confidence={metric.confidence}
               confidenceLabel={metric.confidenceLabel}
+              consistency={bands[metric.id]}
               labelPosition="above"
               selected={metric.id === selected.id}
               onClick={onSelectMetric ? () => onSelectMetric(metric.id) : undefined}

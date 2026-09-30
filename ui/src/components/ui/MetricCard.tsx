@@ -1,5 +1,6 @@
 import type { SpinQuality } from '../../types/shot';
-import { t } from '../../i18n';
+import { t, type MessageKey } from '../../i18n';
+import type { ConsistencyBand } from '../panel/consistency';
 import './MetricCard.css';
 
 export interface MetricCardProps {
@@ -7,6 +8,7 @@ export interface MetricCardProps {
   unit?: string;
   label: string;
   subtext?: string;
+  detail?: string;
   variant?: 'default' | 'emphasis';
   size?: 'standard' | 'hero';
   /**
@@ -23,7 +25,14 @@ export interface MetricCardProps {
   onClick?: () => void;
   /** Marks an interactive card as the currently promoted one (`aria-pressed`). */
   selected?: boolean;
+  consistency?: ConsistencyBand;
 }
+
+const CONSISTENCY_LABELS: Record<ConsistencyBand, MessageKey> = {
+  good: 'metric.consistencyGood',
+  fair: 'metric.consistencyFair',
+  poor: 'metric.consistencyPoor',
+};
 
 export function EstimatedMark() {
   return (
@@ -42,6 +51,7 @@ export function MetricCard({
   unit,
   label,
   subtext,
+  detail,
   variant = 'default',
   size = 'standard',
   labelPosition = 'below',
@@ -50,6 +60,7 @@ export function MetricCard({
   onClick,
   selected,
   estimated,
+  consistency,
 }: MetricCardProps) {
   const classes = ['metric-card', `metric-card--${variant}`, `metric-card--label-${labelPosition}`];
   if (size === 'hero') {
@@ -61,16 +72,23 @@ export function MetricCard({
   if (selected) {
     classes.push('metric-card--selected');
   }
+  if (consistency) {
+    classes.push(`metric-card--consistency-${consistency}`);
+  }
 
   const label_ = (
     <span className="metric-card__label">
       {label}
       {estimated ? <EstimatedMark /> : null}
+      {consistency ? (
+        <span className="metric-card__consistency-label">{t(CONSISTENCY_LABELS[consistency])}</span>
+      ) : null}
     </span>
   );
   const meta = (
     <>
       {subtext ? <span className="metric-card__subtext metric-card__confidence-label">{subtext}</span> : null}
+      {detail ? <span className="metric-card__subtext metric-card__confidence-label">{detail}</span> : null}
       {confidence ? (
         <div className={`metric-card__confidence metric-card__confidence--${confidence}`}>
           {confidence !== 'experimental' ? (

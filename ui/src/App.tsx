@@ -20,6 +20,7 @@ import { ShutdownDialog, type ShutdownState } from './components/ShutdownDialog'
 import { UpdateDialog } from './components/UpdateDialog';
 import { canInstallUpdate, isUpdateInProgress } from './utils/updateStatus';
 import { CameraReplayDialog } from './components/CameraReplayDialog';
+import { PostShotFeedback } from './components/PostShotFeedback';
 import {
   CameraPanel,
   LivePanel,
@@ -35,6 +36,7 @@ import {
   ShotsPanel,
   StatsPanel,
   clubSections,
+  profileSections,
   trainingImplementSections,
   type PanelView,
 } from './components/panel';
@@ -102,6 +104,7 @@ function AppContent() {
   // shot; dismissing keeps the default. The /display route returns early below,
   // so this never appears in the passive TV view.
   const [pickerOpen, setPickerOpen] = useState(true);
+  const [golferPickerOpen, setGolferPickerOpen] = useState(false);
   const [profileDialog, setProfileDialog] = useState<{ mode: 'add' | 'rename'; target: Profile | null } | null>(null);
   const [profileDialogName, setProfileDialogName] = useState('');
   const [clearSessionOpen, setClearSessionOpen] = useState(false);
@@ -320,6 +323,7 @@ function AppContent() {
                 onSelectMetric={setHeroMetricId}
                 isNewShot={profileIsNewShot}
                 headerAction={liveHeaderActions}
+                onSwitchProfile={() => setGolferPickerOpen(true)}
               />
             </ShotProcessingArea>
             {debugMode && <SimShotBadges latestSimShots={latestSimShots} />}
@@ -427,6 +431,31 @@ function AppContent() {
           wide={isSwingSpeedMode}
         />
       ) : null}
+
+      {golferPickerOpen ? (
+        <PickerOverlay
+          title={t('live.selectGolfer')}
+          selectedId={activeProfileId}
+          sections={profileSections(profiles)}
+          onSelect={(profileId) => {
+            handleSelectProfile(profileId);
+            setGolferPickerOpen(false);
+          }}
+          onClose={() => setGolferPickerOpen(false)}
+          wide
+        />
+      ) : null}
+
+      <PostShotFeedback
+        shot={profileLatestShot}
+        shots={shots}
+        profileId={activeProfileId}
+        activeTrainingImplement={isSwingSpeedMode ? selectedTrainingImplement : undefined}
+        heroMetricId={heroMetricId}
+        shotVersion={shotVersion}
+        isNewShot={profileIsNewShot}
+        liveView={currentView === 'live'}
+      />
 
       <PanelFooter
         currentView={currentView}

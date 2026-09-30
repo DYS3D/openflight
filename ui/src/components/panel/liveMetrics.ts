@@ -62,6 +62,10 @@ function shotShape(spinAxisDeg: number | null): string | undefined {
   return t('shape.straight');
 }
 
+export function liveCarryYards(shot: Shot): number {
+  return shot.carry_spin_adjusted ?? shot.estimated_carry_yards;
+}
+
 function markEstimated(isEstimated: boolean): true | undefined {
   return isEstimated ? true : undefined;
 }
@@ -73,7 +77,7 @@ function experimentalStatus(status: string | null | undefined): string {
 
 function buildBallStrikeMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[] {
   const speedUnit = getSpeedUnit(unitSystem);
-  const carry = shot.carry_spin_adjusted ?? shot.estimated_carry_yards;
+  const carry = liveCarryYards(shot);
   const angleConfidence = launchAngleQuality(shot.launch_angle_confidence);
   const horizontalLaunchIsCameraAssisted = shot.launch_angle_horizontal_source === 'camera_assisted_experimental';
   const fusedDeliveryAttempted = shot.experimental_fused_status != null;

@@ -49,6 +49,18 @@ describe('useBannerStore', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('holds a level warning while the unit is tilted and clears it once level', () => {
+    const tilted = { pitch_deg: 2.4, roll_deg: -0.6, level: false, threshold_deg: 1.5 };
+
+    expect(useBannerStore.getState().levelWarning).toBeNull();
+
+    useBannerStore.getState().setLevelStatus(tilted);
+    expect(useBannerStore.getState().levelWarning).toEqual(tilted);
+
+    useBannerStore.getState().setLevelStatus({ ...tilted, pitch_deg: 0.3, level: true });
+    expect(useBannerStore.getState().levelWarning).toBeNull();
+  });
+
   it('tracks and clears the reconnect attempt', () => {
     useBannerStore.getState().setReconnectAttempt(3);
     expect(useBannerStore.getState().reconnectAttempt).toBe(3);

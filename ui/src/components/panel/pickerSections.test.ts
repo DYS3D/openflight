@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { clubSections, initialPickerSection, pickerGridRows, trainingImplementSections } from './pickerSections';
+import type { Profile } from '../../types/profile';
+import {
+  clubSections,
+  initialPickerSection,
+  pickerGridRows,
+  profileSections,
+  trainingImplementSections,
+} from './pickerSections';
+
+describe('profileSections', () => {
+  it('offers every profile by name in one tab-less section', () => {
+    const profiles: Profile[] = [
+      { id: 'p1', name: 'Justin', created_at: '', settings: {} },
+      { id: 'p2', name: 'Lauren', created_at: '', settings: {} },
+    ];
+
+    expect(profileSections(profiles)).toEqual([
+      {
+        name: 'profiles',
+        options: [
+          { id: 'p1', label: 'Justin' },
+          { id: 'p2', label: 'Lauren' },
+        ],
+      },
+    ]);
+  });
+});
 
 describe('initialPickerSection', () => {
   const clubs = clubSections();

@@ -115,6 +115,12 @@ for (const viewport of KIOSK_VIEWPORTS) {
       await check('status menu');
       await page.getByLabel('Close status').click();
 
+      // Golfer quick switch: the header name opens a profile picker.
+      await page.locator('.panel-header').getByRole('button', { name: 'Switch golfer (Profile 1)' }).click();
+      await expect(page.getByRole('dialog', { name: 'Select golfer' })).toBeVisible();
+      await check('golfer picker');
+      await page.getByRole('button', { name: 'Close Select golfer' }).click();
+
       // Footer menu sheet: segmented controls, language select, shut down.
       await page.getByRole('button', { name: 'Open menu' }).click();
       await expect(page.getByRole('dialog', { name: 'Menu' })).toBeVisible();

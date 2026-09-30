@@ -39,6 +39,48 @@ describe('MetricCard', () => {
     expect(html).toContain('metric-card__confidence-label">experimental<');
   });
 
+  it('tints a card by consistency band and names the band for screen readers', () => {
+    const plain = renderToString(<MetricCard value="150" unit="yds" label="Carry" />);
+    expect(plain).not.toContain('metric-card--consistency');
+    expect(plain).not.toContain('metric-card__consistency-label');
+
+    const good = renderToString(<MetricCard value="150" unit="yds" label="Carry" consistency="good" />);
+    expect(good).toContain('metric-card--consistency-good');
+    expect(good).toContain('metric-card__consistency-label">Within your usual range<');
+
+    const poor = renderToString(<MetricCard value="170" unit="yds" label="Carry" consistency="poor" />);
+    expect(poor).toContain('metric-card--consistency-poor');
+    expect(poor).toContain('>Well off your usual range<');
+  });
+
+  it('colours consistency from theme tokens defined for both themes', () => {
+    const rootCss = readFileSync(fileURLToPath(new URL('../../index.css', import.meta.url)), 'utf8');
+
+    for (const band of ['good', 'fair', 'poor']) {
+      expect(css).toContain(`--metric-consistency: var(--color-consistency-${band})`);
+      expect(rootCss).toMatch(new RegExp(`\\[data-theme='dark'\\] \\{[^}]*--color-consistency-${band}:`));
+      expect(rootCss).toMatch(new RegExp(`\\[data-theme='light'\\] \\{[^}]*--color-consistency-${band}:`));
+    }
+  });
+
+  it('renders an optional second caption line after the subtext', () => {
+    const html = renderToString(
+      <MetricCard
+        value="214"
+        unit="yds"
+        label="Carry"
+        labelPosition="above"
+        subtext="Spin-adjusted"
+        detail="Normalized 184 yds"
+      />
+    );
+
+    expect(html).toMatch(/>Spin-adjusted<\/span><span class="metric-card__subtext[^"]*">Normalized 184 yds</);
+    expect(renderToString(<MetricCard value="214" label="Carry" subtext="Spin-adjusted" />)).not.toContain(
+      'Normalized'
+    );
+  });
+
   it('shows an estimated mark on the title, not beside the value', () => {
     const estimated = renderToString(
       <MetricCard value="8.9" unit="°" label="V. launch" labelPosition="above" estimated />

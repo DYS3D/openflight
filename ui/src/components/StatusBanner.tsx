@@ -12,21 +12,30 @@ function noticeText(notice: SimNotice, t: (key: MessageKey, vars?: Record<string
 
 export function StatusBanner() {
   const { t } = useI18n();
-  const { notice, reconnectAttempt, dismissNotice } = useBannerStore(
+  const { notice, reconnectAttempt, levelWarning, dismissNotice } = useBannerStore(
     useShallow((state) => ({
       notice: state.notice,
       reconnectAttempt: state.reconnectAttempt,
+      levelWarning: state.levelWarning,
       dismissNotice: state.dismissNotice,
     }))
   );
 
-  if (!notice && reconnectAttempt === null) return null;
+  if (!notice && reconnectAttempt === null && !levelWarning) return null;
 
   return (
     <div className="status-banners">
       {reconnectAttempt !== null ? (
         <div className="status-banner status-banner--reconnecting" role="status">
           {t('banner.reconnecting', { n: reconnectAttempt })}
+        </div>
+      ) : null}
+      {levelWarning ? (
+        <div className="status-banner status-banner--level" role="status">
+          {t('banner.notLevel', {
+            pitch: levelWarning.pitch_deg.toFixed(1),
+            roll: levelWarning.roll_deg.toFixed(1),
+          })}
         </div>
       ) : null}
       {notice ? (

@@ -168,6 +168,39 @@ describe('LivePanel', () => {
     expect(html).not.toContain('Shot 03');
   });
 
+  describe('golfer switch', () => {
+    function renderHeader(profileName: string, onSwitchProfile?: () => void) {
+      const html = text(
+        renderToString(
+          <LivePanel
+            shot={null}
+            shots={[]}
+            profileId="james"
+            profileName={profileName}
+            clubLabel="DR"
+            onSwitchProfile={onSwitchProfile}
+          />
+        )
+      );
+      return html.match(/<header class="panel-header">[\s\S]*?<\/header>/)?.[0] ?? '';
+    }
+
+    it('makes the profile name a button that opens the golfer picker', () => {
+      const header = renderHeader('James', () => {});
+
+      expect(header).toContain(
+        'panel-header__subtitle"><button type="button" class="live-panel__golfer" aria-haspopup="dialog" aria-label="Switch golfer (James)">James</button>'
+      );
+      expect(header).toContain('panel-header__club">DR<');
+    });
+
+    it('keeps the plain name without a switch handler, and hides an empty name', () => {
+      expect(renderHeader('James')).toContain('panel-header__subtitle">James<');
+      expect(renderHeader('', () => {})).not.toContain('live-panel__golfer');
+      expect(renderHeader('', () => {})).not.toContain('panel-header__subtitle');
+    });
+  });
+
   it('places Change club in the header actions', () => {
     const html = text(
       renderToString(
@@ -207,6 +240,91 @@ describe('LivePanel', () => {
 
     expect(html).toContain('Ready');
     expect(html).not.toContain('metric-card--interactive');
+  });
+
+  describe('consistency colours', () => {
+    const history = [150, 150, 160, 170, 170].map((carry, index) =>
+      makeShot({ carry_spin_adjusted: carry, ball_speed_mph: 100 + index, timestamp: `h${index}` })
+    );
+
+    function renderWith(shots: Shot[], consistencyColors: boolean) {
+      const current = shots[shots.length - 1];
+      return renderToString(
+        <LivePanel
+          shot={current}
+          shots={shots}
+          profileId="james"
+          profileName="James"
+          clubLabel="DR"
+          consistencyColors={consistencyColors}
+        />
+      );
+    }
+
+    it('tints only carry, ball speed, smash and V. launch when on', () => {
+      const current = makeShot({ carry_spin_adjusted: 200, ball_speed_mph: 102, timestamp: 'now' });
+      const html = renderWith([...history, current], true);
+      const tinted = [...html.matchAll(/metric-card--consistency-(\w+)[\s\S]*?metric-card__label[^>]*>([^<]+)/g)].map(
+        (match) => `${match[2]}:${match[1]}`
+      );
+
+      expect(tinted).toEqual(['Ball speed:good', 'Carry:poor', 'Smash:good', 'V. launch:good']);
+    });
+
+    it('leaves every tile untinted when off', () => {
+      const current = makeShot({ carry_spin_adjusted: 200, timestamp: 'now' });
+
+      expect(renderWith([...history, current], false)).not.toContain('metric-card--consistency');
+    });
+
+    it('leaves tiles untinted before the club has five earlier shots', () => {
+      const current = makeShot({ carry_spin_adjusted: 200, timestamp: 'now' });
+
+      expect(renderWith([...history.slice(1), current], true)).not.toContain('metric-card--consistency');
+    });
+  });
+
+  describe('normalized carry', () => {
+    function renderCarry(shot: Shot, showNormalizedCarry: boolean) {
+      const html = text(
+        renderToString(
+          <LivePanel
+            shot={shot}
+            shots={[shot]}
+            profileId="james"
+            profileName="James"
+            clubLabel="DR"
+            onSelectMetric={() => {}}
+            showNormalizedCarry={showNormalizedCarry}
+          />
+        )
+      );
+      return html.match(/metric-card__label[^>]*>Carry<[\s\S]*?<\/button>/)?.[0] ?? '';
+    }
+
+    it('adds a secondary line under the carry tile when on and the server sent it', () => {
+      const carry = renderCarry(makeShot({ carry_normalized_yards: 184.4 }), true);
+
+      expect(carry).toMatch(/>Spin-adjusted<\/span><span[^>]*>Normalized 184 yds</);
+    });
+
+    it('shows nothing extra when off or when the shot has no normalized carry', () => {
+      const html = text(
+        renderToString(
+          <LivePanel
+            shot={makeShot({ carry_normalized_yards: 184 })}
+            shots={[makeShot({ carry_normalized_yards: 184 })]}
+            profileId="james"
+            profileName="James"
+            clubLabel="DR"
+            showNormalizedCarry={false}
+          />
+        )
+      );
+
+      expect(html).not.toContain('Normalized');
+      expect(renderCarry(makeShot(), true)).not.toContain('Normalized');
+    });
   });
 
   it('renders the five-tile grid for a swing-speed shot', () => {

@@ -3,7 +3,13 @@ export { PanelFooter } from './PanelFooter';
 export { PanelHeader } from './PanelHeader';
 export { MenuSheet } from './MenuSheet';
 export { PickerOverlay } from './PickerOverlay';
-export { clubSections, trainingImplementSections, type PickerOption, type PickerSection } from './pickerSections';
+export {
+  clubSections,
+  profileSections,
+  trainingImplementSections,
+  type PickerOption,
+  type PickerSection,
+} from './pickerSections';
 export { LivePanel } from './LivePanel';
 export { ProfilesPanel } from './ProfilesPanel';
 export { ProfileNameDialog } from './ProfileNameDialog';

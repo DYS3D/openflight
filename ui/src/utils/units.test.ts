@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   convertDistanceFromYards,
+  convertDistanceToYards,
   convertSpeedFromMph,
   formatCarryRange,
   formatDistance,
@@ -33,6 +34,11 @@ describe('units helpers', () => {
     expect(convertDistanceFromYards(100, 'metric')).toBeCloseTo(91.44, 2);
     expect(formatDistance(100, 'metric', 0)).toBe('91');
     expect(getDistanceUnit('metric')).toBe('m');
+  });
+
+  it('converts a distance in the selected unit back to yards', () => {
+    expect(convertDistanceToYards(150, 'imperial')).toBe(150);
+    expect(convertDistanceToYards(convertDistanceFromYards(150, 'metric'), 'metric')).toBeCloseTo(150, 9);
   });
 
   it('joins speed and distance units for chrome labels', () => {

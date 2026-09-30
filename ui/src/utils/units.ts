@@ -23,6 +23,14 @@ export function convertDistanceFromYards(distanceYards: number, unitSystem: Unit
   return distanceYards;
 }
 
+export function convertDistanceToYards(distance: number, unitSystem: UnitSystem): number {
+  if (unitSystem === 'metric') {
+    return distance / YARDS_TO_METERS;
+  }
+
+  return distance;
+}
+
 export function formatSpeed(speedMph: number, unitSystem: UnitSystem, digits = 1): string {
   return convertSpeedFromMph(speedMph, unitSystem).toFixed(digits);
 }

@@ -30,6 +30,7 @@ import {
   PanelFooter,
   PanelAction,
   PickerOverlay,
+  PracticePanel,
   ShotsPanel,
   StatsPanel,
   clubSections,
@@ -357,7 +358,10 @@ function AppContent() {
           />
         )}
         {currentView === 'debug' && <DebugView />}
-        {mockMode && currentView === 'live' ? (
+        {currentView === 'practice' && (
+          <PracticePanel shots={shots} profileId={activeProfileId} profileName={activeProfileName} />
+        )}
+        {mockMode && (currentView === 'live' || currentView === 'practice') ? (
           <SimulateBubble
             label={isSwingSpeedMode ? t('app.simulateSwing') : t('app.simulateShot')}
             onSimulate={() => socketService.simulateShot()}
@@ -375,6 +379,10 @@ function AppContent() {
           updateStatus={updateStatus}
           onOpenUpdate={openUpdate}
           onCheckUpdates={() => socketService.checkForUpdates()}
+          onOpenPractice={() => {
+            setMenuOpen(false);
+            setCurrentView('practice');
+          }}
           onShutdown={() => {
             setMenuOpen(false);
             setShutdownState('confirm');

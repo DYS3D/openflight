@@ -188,6 +188,14 @@ for (const viewport of KIOSK_VIEWPORTS) {
       await expect(page.getByLabel('Remove Alex')).toBeVisible();
       await check('profiles (two profiles)');
 
+      // Practice (menu → Practice): game switch, distance steppers, New round.
+      await page.getByRole('button', { name: 'Open menu' }).click();
+      await page.getByRole('dialog', { name: 'Menu' }).getByRole('button', { name: 'Practice' }).click();
+      await expect(page.locator('.panel-header__title')).toHaveText('Practice');
+      await check('practice (target)');
+      await page.getByRole('group', { name: 'Game' }).getByRole('button', { name: 'Ladder' }).click();
+      await check('practice (ladder)');
+
       // Debug: sub-tabs plus the Record header action.
       await page.getByRole('button', { name: 'Debug' }).click();
       await expect(page.getByRole('heading', { name: 'System Status' })).toBeVisible();

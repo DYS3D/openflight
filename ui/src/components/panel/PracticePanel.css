@@ -1,0 +1,228 @@
+.practice-panel,
+.practice {
+  background: var(--color-surface);
+}
+
+.practice {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px 26px 10px;
+}
+
+.practice__controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  flex-shrink: 0;
+}
+
+.practice__mode .segmented-control {
+  width: auto;
+  padding: 0;
+  gap: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.practice__mode .segmented-control__button {
+  flex: 0 0 auto;
+  padding: 0 14px;
+}
+
+.practice-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.practice-stepper__label,
+.practice__label {
+  font-weight: 600;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.practice-stepper__button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 1.125rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.practice-stepper__button:disabled {
+  color: var(--color-text-faint);
+  cursor: default;
+}
+
+.practice-stepper__value {
+  min-width: 3.25rem;
+  text-align: center;
+  font-weight: 700;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.practice__unit {
+  margin-left: 0.25em;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+
+.practice__hint,
+.practice__scoring,
+.practice__detail {
+  font-weight: 500;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+
+.practice__hint {
+  margin-left: auto;
+}
+
+.practice__play {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  background: var(--color-border);
+  gap: 1px;
+  border: 1px solid var(--color-border);
+}
+
+.practice__play--summary {
+  grid-template-columns: 1.2fr 2fr;
+}
+
+.practice__card,
+.practice__totals {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 18px;
+  background: var(--color-surface);
+}
+
+.practice__card .panel-action {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+.practice__totals {
+  gap: 6px;
+}
+
+.practice__play--summary .practice__totals {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-around;
+}
+
+.practice__stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.practice__play--summary .practice__stat {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.practice__stat-value {
+  font-weight: 700;
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.practice__big {
+  font-weight: 700;
+  font-size: clamp(2.25rem, 13vh, 5rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.practice__big .practice__unit {
+  font-size: 0.875rem;
+  letter-spacing: 0;
+}
+
+.practice__medium {
+  font-weight: 700;
+  font-size: clamp(1.5rem, 7vh, 2.75rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.practice__points {
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+
+.practice__strip {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 6px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.practice__cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.1rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.practice__cell--hit {
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.practice__cell--current {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+@media (max-height: 640px) {
+  .practice {
+    padding: 8px 18px;
+    gap: 8px;
+  }
+}
+
+@media (max-height: 500px) {
+  .practice__scoring {
+    display: none;
+  }
+}
+
+/* Mock mode: room for the Simulate bubble. */
+.practice-panel:has(~ .simulate-bubble) .practice__strip {
+  margin-right: 12rem;
+}

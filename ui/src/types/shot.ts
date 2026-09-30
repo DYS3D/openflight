@@ -126,11 +126,17 @@ export interface TriggerDiagnosticUpdate {
   iwr6843: IWR6843Diagnostic;
 }
 
+/** Serial link state reported by `--radar-auto-reconnect`. */
+export type RadarLinkState = 'connected' | 'reconnecting' | 'disconnected';
+
 export interface TriggerStatus {
   mode: 'rolling-buffer' | 'mock' | 'swing-speed';
   trigger_type: string | null;
   radar_connected: boolean;
+  radar_state: RadarLinkState;
   radar_port: string | null;
+  /** IWR6843 angle radar link, or null when it is not enabled. */
+  iwr6843_state: RadarLinkState | null;
   triggers_total: number;
   triggers_accepted: number;
   triggers_rejected: number;

@@ -13,5 +13,26 @@ describe('StatusMenu', () => {
     expect(html).toContain('>Radar<');
     expect(html).toContain('>Connected<');
     expect(html).toContain('>Disconnected<');
+    expect(html).not.toContain('Angle radar');
+  });
+
+  it('shows the radar as reconnecting while auto-reconnect re-detects it', () => {
+    const html = renderToString(
+      <StatusMenu connected radarConnected={false} radarState="reconnecting" onClose={() => {}} />
+    );
+
+    expect(html).toContain('data-state="reconnecting"');
+    expect(html).toContain('>Reconnecting…<');
+    expect(html).not.toContain('>Disconnected<');
+  });
+
+  it('adds an angle radar row only when the IWR6843 reports a link state', () => {
+    const html = renderToString(
+      <StatusMenu connected radarConnected radarState="connected" iwr6843State="reconnecting" onClose={() => {}} />
+    );
+
+    expect(html).toContain('>Angle radar<');
+    expect(html).toContain('>Reconnecting…<');
+    expect(html).toContain('>Connected<');
   });
 });

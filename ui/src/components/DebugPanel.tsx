@@ -174,7 +174,11 @@ function SystemStatus({ status }: { status: TriggerStatus }) {
           <span
             className={`system-status__value ${status.radar_connected ? 'system-status__value--success' : 'system-status__value--error'}`}
           >
-            {status.radar_connected ? 'Connected' : 'Disconnected'}
+            {status.radar_state === 'reconnecting'
+              ? 'Reconnecting'
+              : status.radar_connected
+                ? 'Connected'
+                : 'Disconnected'}
           </span>
         </div>
         <div className="system-status__item">

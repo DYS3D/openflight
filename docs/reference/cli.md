@@ -42,6 +42,7 @@ Serial port, baud, and sample rate.
 | --- | --- | --- |
 | `--port`, `-p` | — | Serial port for radar |
 | `--ops-baud` | int | — |
+| `--radar-auto-reconnect` | flag; default off | After a serial error on the OPS243 or IWR6843 (cable pulled, USB reset), close the port and re-run radar detection — the udev names `/dev/openflight-ops243` and `/dev/openflight-iwr-cli` first — with exponential back-off capped at 30 s, then re-apply the radar configuration. The UI status menu shows the radar as reconnecting meanwhile. Off by default: the capture loops keep retrying the dead port, as before. A read timeout never triggers a reconnect. |
 | `--sample-rate` | int; default `30` | Radar sample rate in ksps (default: 30). Lower = longer buffer but lower max speed. 25=174mph/164ms, 27=187mph/152ms |
 
 ## Trigger & capture

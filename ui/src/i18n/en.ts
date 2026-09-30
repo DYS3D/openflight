@@ -16,6 +16,8 @@ export const en = {
   'header.radar': 'Radar',
   'header.connected': 'Connected',
   'header.disconnected': 'Disconnected',
+  'header.reconnecting': 'Reconnecting…',
+  'header.angleRadar': 'Angle radar',
 
   'live.ready': 'Ready',
   'live.readyDetail': 'Start a shot or swing speed session',

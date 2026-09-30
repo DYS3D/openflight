@@ -11,10 +11,17 @@ import time
 from datetime import datetime
 from typing import Callable, List, Optional
 
+import serial
+
 from ..clubs import ClubType
 from ..clubs.physics import get_club_physics
 from ..launch_monitor import Shot, estimate_carry_distance, summarize_shots
 from ..ops243 import OPS243Radar, SpeedReading
+from ..radar_reconnect import (
+    RADAR_STATE_CONNECTED,
+    RADAR_STATE_RECONNECTING,
+    reconnect_backoff_s,
+)
 from ..radar_timing import ActiveRadarTiming, RadarTimingConfig
 from ..session_logger import get_session_logger, log_session_error
 from .processor import RollingBufferProcessor
@@ -188,6 +195,7 @@ class RollingBufferMonitor:
         sample_rate_ksps: int = 30,
         ops_baud: Optional[int] = None,
         radar_timing: Optional[RadarTimingConfig] = None,
+        radar_auto_reconnect: bool = False,
         **trigger_kwargs,
     ):
         """
@@ -206,6 +214,11 @@ class RollingBufferMonitor:
             radar_timing: Clock-sync and re-arm timing. None uses the slow
                 defaults. One holder is shared by the radar and the sound
                 trigger so a safe-mode fallback reaches both.
+            radar_auto_reconnect: After a serial error, close the port and
+                re-run detection with capped back-off until the radar is
+                back, then re-apply the rolling-buffer setup. Off by
+                default: the capture loop then keeps retrying the dead port
+                once a second as before.
             **trigger_kwargs: Arguments for trigger strategy
         """
         self.timing = ActiveRadarTiming(radar_timing)
@@ -217,6 +230,9 @@ class RollingBufferMonitor:
         if trigger_type == "sound":
             trigger_kwargs["timing"] = self.timing
         self.trigger = create_trigger(trigger_type, **trigger_kwargs)
+        self.radar_auto_reconnect = radar_auto_reconnect
+        self.radar_state = RADAR_STATE_CONNECTED
+        self._configured_port = port
 
         self._running = False
         self._capture_thread: Optional[threading.Thread] = None
@@ -225,6 +241,7 @@ class RollingBufferMonitor:
         self._live_callback: Optional[Callable[[SpeedReading], None]] = None
         self._diagnostic_callback: Optional[Callable[[dict], None]] = None
         self._processing_callback: Optional[Callable[[str], None]] = None
+        self._radar_status_callback: Optional[Callable[[str], None]] = None
         self._shots: List[Shot] = []
         self._shot_sequence_number = 0
         self._current_club: ClubType = ClubType.DRIVER
@@ -296,6 +313,7 @@ class RollingBufferMonitor:
         live_callback: Optional[Callable[[SpeedReading], None]] = None,
         diagnostic_callback: Optional[Callable[[dict], None]] = None,
         processing_callback: Optional[Callable[[str], None]] = None,
+        radar_status_callback: Optional[Callable[[str], None]] = None,
     ):
         """
         Start monitoring for shots.
@@ -305,11 +323,14 @@ class RollingBufferMonitor:
             live_callback: Called for live readings (limited in rolling buffer mode)
             diagnostic_callback: Called with trigger diagnostic data for UI display
             processing_callback: Called with "started" or "failed" around shot processing
+            radar_status_callback: Called with "reconnecting" / "connected" when
+                radar auto-reconnect changes the serial link state
         """
         self._shot_callback = shot_callback
         self._live_callback = live_callback
         self._diagnostic_callback = diagnostic_callback
         self._processing_callback = processing_callback
+        self._radar_status_callback = radar_status_callback
         self._stop_event.clear()
         self._running = True
 
@@ -601,7 +622,11 @@ class RollingBufferMonitor:
 
             except Exception as e:
                 self._notify_processing("failed")
-                logger.error("[MONITOR] Capture loop error: %s", e, exc_info=True)
+                link_lost = self.radar_auto_reconnect and isinstance(
+                    e, (serial.SerialException, OSError)
+                )
+                if not link_lost:
+                    logger.error("[MONITOR] Capture loop error: %s", e, exc_info=True)
                 if capture is not None and not trigger_event_recorded:
                     self._record_trigger_event(
                         trigger_diagnostic,
@@ -610,6 +635,9 @@ class RollingBufferMonitor:
                         timestamp=capture.trigger_time,
                         latency_ms=trigger_latency_ms,
                     )
+                if link_lost:
+                    self._reconnect_radar(e)
+                    continue
                 log_session_error(
                     "Rolling buffer capture loop error",
                     component="rolling_buffer_monitor",
@@ -622,6 +650,69 @@ class RollingBufferMonitor:
                 # (failed FFT, rejected shot, exception, shutdown) must still
                 # send the deferred re-arm, or the radar stays idle.
                 self._finish_deferred_rearm()
+
+    def _set_radar_state(self, state: str) -> None:
+        """Record the serial link state and report it without breaking capture."""
+        self.radar_state = state
+        if not self._radar_status_callback:
+            return
+        try:
+            self._radar_status_callback(state)
+        except Exception:
+            logger.warning("[MONITOR] Radar status callback failed", exc_info=True)
+
+    def _reconnect_radar(self, error: Exception) -> None:
+        """Close the dead port and re-detect the radar with capped back-off.
+
+        Logs once when the link is lost and once when it is back; individual
+        failed attempts are debug-only. Returns as soon as the radar is
+        configured again or the monitor is stopped.
+        """
+        logger.error(
+            "[MONITOR] Radar serial link lost on %s (%s); reconnecting",
+            self.radar.port,
+            error,
+        )
+        log_session_error(
+            "Radar serial link lost; reconnecting",
+            component="rolling_buffer_monitor",
+            context={"trigger_type": self.trigger_type, "port": self.radar.port},
+            exc=error,
+        )
+        self._set_radar_state(RADAR_STATE_RECONNECTING)
+        try:
+            self.radar.disconnect()
+        except (serial.SerialException, OSError):
+            logger.debug("[MONITOR] Ignoring close error on lost port", exc_info=True)
+
+        failed_attempts = 0
+        started = time.monotonic()
+        while self._running:
+            try:
+                # Auto-detect again (stable udev name first) unless a port
+                # was pinned on the command line, e.g. the GPIO UART.
+                self.radar.port = self._configured_port
+                self.connect()
+            except (serial.SerialException, OSError) as exc:
+                failed_attempts += 1
+                delay = reconnect_backoff_s(failed_attempts)
+                logger.debug(
+                    "[MONITOR] Radar reconnect attempt %d failed (%s); retry in %.0fs",
+                    failed_attempts,
+                    exc,
+                    delay,
+                )
+                self._stop_event.wait(delay)
+                continue
+            self.trigger.reset()
+            logger.info(
+                "[MONITOR] Radar reconnected on %s after %d failed attempt(s) in %.0fs",
+                self.radar.port,
+                failed_attempts,
+                time.monotonic() - started,
+            )
+            self._set_radar_state(RADAR_STATE_CONNECTED)
+            return
 
     def _persist_accepted_shot(
         self,

@@ -192,3 +192,45 @@ def test_shot_method_defaults_to_none():
     shot = Shot(ball_speed_mph=100.0, timestamp=datetime.now())
 
     assert shot.spin_method is None
+
+
+def _assert_untrusted_confidence(result):
+    from openflight.launch_monitor import SPIN_CONFIDENCE_HIGH, SPIN_CONFIDENCE_RELIABLE
+
+    assert result.method == "multitaper_ungated"
+    assert 0.0 <= result.confidence <= RollingBufferProcessor.MULTITAPER_MAX_CONFIDENCE
+    assert result.confidence < SPIN_CONFIDENCE_RELIABLE
+    assert result.confidence < SPIN_CONFIDENCE_HIGH
+    assert not result.is_reliable
+
+
+def test_multitaper_confidence_stays_low_for_a_clean_candidate():
+    """r ~ 0.19 vs TrackMan: even a clear candidate must not look trusted."""
+    result = RollingBufferProcessor().detect_spin_multitaper(
+        _modulated_capture(spin_depth=0.05, fade_depth=0.0),
+        ball_speed_mph=100.0,
+        ball_timestamp_ms=5.0,
+    )
+
+    assert result.spin_rpm > 0
+    _assert_untrusted_confidence(result)
+
+
+@pytest.mark.parametrize("peak_to_floor", [0.0, 5.0, 1e3, 1e12])
+def test_multitaper_confidence_is_bounded_for_any_evidence(monkeypatch, peak_to_floor):
+    from openflight.rolling_buffer import processor as processor_module
+    from openflight.rolling_buffer.multitaper import MultitaperEstimate
+
+    monkeypatch.setattr(
+        processor_module,
+        "estimate_multitaper_spin",
+        lambda *_args, **_kwargs: MultitaperEstimate(
+            spin_hz=100.0, spin_rpm=6000.0, peak_to_floor=peak_to_floor, fade_hz=40.0
+        ),
+    )
+
+    result = RollingBufferProcessor().detect_spin_multitaper(
+        _modulated_capture(), ball_speed_mph=100.0, ball_timestamp_ms=5.0
+    )
+
+    _assert_untrusted_confidence(result)

@@ -157,6 +157,10 @@ class RollingBufferProcessor:
     MULTITAPER_SPIN_RPM_BAND = (1500.0, 11_000.0)
     MULTITAPER_RAIL_MARGIN_RPM = 250.0
     MULTITAPER_MIN_SAMPLES = 128
+    # The multitaper candidate correlates with TrackMan spin at only r ~ 0.19
+    # (see spin_estimate.py), so its evidence score is scaled into a band well
+    # below SPIN_CONFIDENCE_RELIABLE / SPIN_CONFIDENCE_HIGH: never trusted spin.
+    MULTITAPER_MAX_CONFIDENCE = 0.2
 
     BALL_SPEED_MATCH_TOLERANCE_MPH = 3.0
     IMPACT_TRANSITION_MIN_DELTA_MPH = 15.0
@@ -749,7 +753,8 @@ class RollingBufferProcessor:
         at_lower_rail = estimate.spin_rpm <= min_rpm + self.MULTITAPER_RAIL_MARGIN_RPM
         at_upper_rail = estimate.spin_rpm >= max_rpm - self.MULTITAPER_RAIL_MARGIN_RPM
         window_seconds = len(ball_envelope) / self.SAMPLE_RATE
-        confidence = min(0.59, estimate.peak_to_floor / (estimate.peak_to_floor + 5.0))
+        evidence = max(0.0, estimate.peak_to_floor)
+        confidence = self.MULTITAPER_MAX_CONFIDENCE * evidence / (evidence + 5.0)
         candidate = SpinCandidate(
             rank=1,
             rpm=estimate.spin_rpm,

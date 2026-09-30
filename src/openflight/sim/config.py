@@ -21,6 +21,11 @@ DEFAULT_CONFIG_PATH = Path("config/sim.json")
 
 KNOWN_TYPES: Tuple[str, ...] = ("gspro", "opengolfsim", "partee")
 
+# OpenConnect V1 documents Units only as "default yards" and never says what a
+# metric payload would carry, and OpenFlight measures in yards/mph without
+# converting — so "Yards" is the only label that is honest on the wire.
+SUPPORTED_UNITS: Tuple[str, ...] = ("Yards",)
+
 # Per-type defaults applied when a field is absent from the file.
 _DEFAULTS: Dict[str, dict] = {
     "gspro": {
@@ -80,6 +85,16 @@ def _with_defaults(connector_type: str, data: dict) -> ConnectorConfig:
     )
 
 
+def _check_units(cfg: ConnectorConfig, config_path: Path) -> None:
+    if cfg.units in SUPPORTED_UNITS:
+        return
+    raise ValueError(
+        f"unsupported units {cfg.units!r} for {cfg.type} connector in {config_path}: "
+        "OpenFlight sends yards/mph and does not convert, and OpenConnect V1 documents "
+        'only "Yards" (https://gsprogolf.com/GSProConnectV1.html); set "units": "Yards"'
+    )
+
+
 def load_sim_config(config_path: Path = DEFAULT_CONFIG_PATH) -> List[ConnectorConfig]:
     """Resolve the enabled connector configs from the file (only enabled ones).
 
@@ -90,7 +105,8 @@ def load_sim_config(config_path: Path = DEFAULT_CONFIG_PATH) -> List[ConnectorCo
     unreadable/syntactically-broken file degrades to "no connectors" with a
     warning rather than crashing startup, and a single malformed connector entry
     is skipped so it can't take the others down with it. An *unknown connector
-    type* still raises — that's a real misconfiguration worth surfacing loudly.
+    type* or *unsupported units* still raises — those are real misconfigurations
+    worth surfacing loudly.
     """
     if not config_path.exists():
         return []
@@ -121,6 +137,7 @@ def load_sim_config(config_path: Path = DEFAULT_CONFIG_PATH) -> List[ConnectorCo
         except (ValueError, TypeError, KeyError) as e:
             logger.warning("[sim] skipping malformed %s connector in %s: %s", ctype, config_path, e)
             continue
+        _check_units(cfg, config_path)
         if cfg.enabled:
             cfgs.append(cfg)
     return cfgs

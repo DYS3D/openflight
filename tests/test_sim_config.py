@@ -89,6 +89,29 @@ def test_omit_unsupported_fields_parsed(tmp_path):
     assert by_type == {"gspro": True, "partee": False}
 
 
+def test_units_yards_accepted(tmp_path):
+    p = _write(tmp_path, {"connectors": [{"type": "gspro", "enabled": True, "units": "Yards"}]})
+    assert load_sim_config(config_path=p)[0].units == "Yards"
+
+
+@pytest.mark.parametrize("units", ["Meters", "meters", "yards", "Metres"])
+def test_unsupported_units_rejected_with_clear_error(tmp_path, units):
+    # OpenConnect V1 documents Units only as "default yards" and OpenFlight sends
+    # yards/mph unconverted, so any other label would mislabel the payload.
+    p = _write(tmp_path, {"connectors": [{"type": "gspro", "enabled": True, "units": units}]})
+    with pytest.raises(ValueError) as excinfo:
+        load_sim_config(config_path=p)
+    msg = str(excinfo.value)
+    assert repr(units) in msg and "gspro" in msg and '"Yards"' in msg and "sim.json" in msg
+
+
+def test_unsupported_units_rejected_even_when_disabled(tmp_path):
+    # Same rule as an unknown type: the file is wrong regardless of `enabled`.
+    p = _write(tmp_path, {"connectors": [{"type": "gspro", "enabled": False, "units": "Meters"}]})
+    with pytest.raises(ValueError):
+        load_sim_config(config_path=p)
+
+
 def test_malformed_json_degrades_to_empty(tmp_path):
     """A syntactically broken sim.json must not crash startup — sim is opt-in and
     the core shot pipeline doesn't depend on it (PR #115 review #4)."""

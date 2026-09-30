@@ -95,6 +95,13 @@ requirements and setup specific to GSPro.
 | `BallData.CarryDistance` | OpenFlight's carry estimate |
 | `ClubData.Speed` / `Path` | measured if available (`ContainsClubData` set accordingly) |
 
+All values are yards / mph / rpm / degrees and the payload is labelled
+`"Units": "Yards"`. OpenFlight does not convert to metric, so `"units"` in
+`config/sim.json` must be `"Yards"`; any other value (including `"Meters"`) is
+rejected at startup with an error naming the connector. The OpenConnect spec
+only says `//default yards` for `Units` and never documents a metric label or
+which units the numeric fields are in, so a "Meters" payload would be a guess.
+
 ## OpenConnect field requirements
 
 The [OpenConnect V1 spec](https://gsprogolf.com/GSProConnectV1.html) annotates

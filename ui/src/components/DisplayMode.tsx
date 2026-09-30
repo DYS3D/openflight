@@ -5,6 +5,7 @@ import { computeSwingSpeedStats, getSwingSpeedMph, isSwingSpeedShot } from '../t
 import { useUnitPreference } from '../state/useUnitPreference';
 import { formatDistance, formatSpeed, getDistanceUnit, getSpeedUnit } from '../utils/units';
 import { getServerOrigin } from '../utils/serverOrigin';
+import { isSpinEstimated } from '../utils/provenance';
 import { MetricCard } from './ui/MetricCard';
 import { getHtmlLang, type MessageKey } from '../i18n';
 import { useI18n } from '../i18n/useI18n';
@@ -80,7 +81,7 @@ function buildMetrics(shot: Shot | null, unitSystem: 'imperial' | 'metric', t: T
       label: t('metric.carry'),
       value: formatDistance(carryYards, unitSystem, 0),
       unit: getDistanceUnit(unitSystem),
-      detail: shot.carry_spin_adjusted ? t('metric.spinAdjusted') : undefined,
+      detail: t('metric.estimated'),
     },
     {
       label: t('display.clubSpeed'),
@@ -101,7 +102,7 @@ function buildMetrics(shot: Shot | null, unitSystem: 'imperial' | 'metric', t: T
       label: t('metric.spin'),
       value: formatSpin(shot.spin_rpm),
       unit: shot.spin_rpm === null ? undefined : 'rpm',
-      detail: shot.spin_quality ?? undefined,
+      detail: isSpinEstimated(shot) ? t('metric.estimated') : (shot.spin_quality ?? undefined),
     },
     {
       label: t('display.clubPath'),

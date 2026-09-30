@@ -93,7 +93,7 @@ class LaunchConditions:
     launch_angle_h: float
     spin_rpm: float
     spin_axis_deg: float
-    spin_source: Literal["measured", "club_typical"]
+    spin_source: Literal["measured", "calculated", "club_typical"]
 
 
 @dataclass
@@ -132,9 +132,10 @@ def resolve_launch(shot: Shot) -> Optional[LaunchConditions]:
     Produce committed launch conditions from a shot.
 
     Returns None if the vertical launch angle is unavailable (no physics
-    simulation possible without it). Spin is taken from the measurement only
-    when confidence >= SPIN_CONFIDENCE_HIGH; otherwise a club-typical value
-    is substituted and `spin_source` is set to "club_typical".
+    simulation possible without it). Spin is taken from the shot only when
+    confidence >= SPIN_CONFIDENCE_HIGH (tagged "calculated" when it came from the
+    kinematic model); otherwise a club-typical value is substituted and
+    `spin_source` is set to "club_typical".
     """
     if shot.launch_angle_vertical is None:
         return None
@@ -146,7 +147,9 @@ def resolve_launch(shot: Shot) -> Optional[LaunchConditions]:
     )
     if use_measured:
         spin_rpm = float(shot.spin_rpm)
-        source: Literal["measured", "club_typical"] = "measured"
+        source: Literal["measured", "calculated", "club_typical"] = (
+            "calculated" if shot.spin_source == "calculated" else "measured"
+        )
     else:
         spin_rpm = CLUB_TYPICAL_SPIN_RPM.get(
             shot.club, CLUB_TYPICAL_SPIN_RPM[ClubType.UNKNOWN]

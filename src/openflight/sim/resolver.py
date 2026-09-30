@@ -6,55 +6,47 @@ serialize the ResolvedShot into their own wire format.
 """
 
 import math
-from typing import Dict, Tuple
+from types import MappingProxyType
+from typing import Dict, Mapping, Optional, Tuple
 
 from openflight.clubs import ClubType
-from openflight.clubs.physics import get_club_physics
+from openflight.clubs.physics import CLUB_PHYSICS, get_club_physics
 from openflight.launch_monitor import (
     SPIN_CONFIDENCE_HIGH,
     Shot,
 )
 from openflight.sim.types import IncompleteShotError, PlayerState, ResolvedShot
 
-# Temporary per-club spin model (rpm), used only when a measured spin is absent
-# or low-confidence. Slated for replacement by the shared ballistics spin model.
-SPIN_MODEL_RPM: Dict[ClubType, float] = {
-    ClubType.DRIVER: 2500.0,
-    ClubType.WOOD_3: 3000.0,
-    ClubType.WOOD_5: 3500.0,
-    ClubType.WOOD_7: 4000.0,
-    ClubType.HYBRID_3: 3500.0,
-    ClubType.HYBRID_5: 4000.0,
-    ClubType.HYBRID_7: 4500.0,
-    ClubType.HYBRID_9: 5000.0,
-    ClubType.IRON_2: 4000.0,
-    ClubType.IRON_3: 4500.0,
-    ClubType.IRON_4: 5000.0,
-    ClubType.IRON_5: 5500.0,
-    ClubType.IRON_6: 6000.0,
-    ClubType.IRON_7: 7000.0,
-    ClubType.IRON_8: 8000.0,
-    ClubType.IRON_9: 9000.0,
-    ClubType.PW: 9500.0,
-    ClubType.GW: 10000.0,
-    ClubType.SW: 10500.0,
-    ClubType.LW: 11000.0,
-    ClubType.UNKNOWN: 5000.0,
-}
+# Per-club fallback spin (rpm) when no trusted spin exists. Shared with the
+# ballistics engine so the carry the UI shows and the spin a simulator flies
+# come from the same table.
+SPIN_MODEL_RPM: Mapping[ClubType, float] = MappingProxyType(
+    {club: physics.typical_spin_rpm for club, physics in CLUB_PHYSICS.items()}
+)
 
-_DEFAULT_SPIN_RPM = 5000.0
+# Sources that mean "modeled, not observed" on a Shot's per-axis angle fields.
+_ESTIMATED_ANGLE_SOURCES = frozenset({"estimated", "mock"})
 
 
 def _resolve_total_spin(shot: Shot) -> Tuple[float, str]:
-    """Measured spin if present and high-confidence, else the per-club model."""
+    """High-confidence spin if present, else the per-club model.
+
+    Kinematically calculated spin (spin_source == "calculated") is a model
+    output, so it is used but tagged "estimated".
+    """
     if (
         shot.spin_rpm is not None
         and shot.spin_rpm > 0
         and shot.spin_confidence is not None
         and shot.spin_confidence >= SPIN_CONFIDENCE_HIGH
     ):
-        return float(shot.spin_rpm), "measured"
-    return SPIN_MODEL_RPM.get(shot.club, _DEFAULT_SPIN_RPM), "estimated"
+        provenance = "estimated" if shot.spin_source == "calculated" else "measured"
+        return float(shot.spin_rpm), provenance
+    return get_club_physics(shot.club).typical_spin_rpm, "estimated"
+
+
+def _angle_provenance(source: Optional[str]) -> str:
+    return "estimated" if source in _ESTIMATED_ANGLE_SOURCES else "measured"
 
 
 def resolve_shot(shot: Shot, player_state: PlayerState) -> ResolvedShot:
@@ -71,14 +63,14 @@ def resolve_shot(shot: Shot, player_state: PlayerState) -> ResolvedShot:
 
     if shot.launch_angle_vertical is not None:
         vla = float(shot.launch_angle_vertical)
-        provenance["vla"] = "measured"
+        provenance["vla"] = _angle_provenance(shot.launch_angle_vertical_source)
     else:
         vla = get_club_physics(shot.club).optimal_launch_deg
         provenance["vla"] = "estimated"
 
     if shot.launch_angle_horizontal is not None:
         hla = float(shot.launch_angle_horizontal)
-        provenance["hla"] = "measured"
+        provenance["hla"] = _angle_provenance(shot.launch_angle_horizontal_source)
     else:
         hla = 0.0
         provenance["hla"] = "estimated"
@@ -110,11 +102,8 @@ def resolve_shot(shot: Shot, player_state: PlayerState) -> ResolvedShot:
         carry = float(shot.carry_spin_adjusted)
     else:
         carry = float(shot.estimated_carry_yards)
-    # Carry is always model-derived (never directly observed), so "measured" here
-    # means launch-angle-informed: the carry model was driven by a measured launch
-    # angle rather than falling back to club-type defaults. The UI badge reflects
-    # that distinction, not a claim that carry itself was measured (PR #115 review #6).
-    provenance["carry"] = "measured" if shot.has_launch_angle else "estimated"
+    # Carry is never observed by any sensor; it is always a model output.
+    provenance["carry"] = "estimated"
 
     if shot.club_speed_mph is not None and shot.club_speed_mph > 0:
         club_speed = float(shot.club_speed_mph)

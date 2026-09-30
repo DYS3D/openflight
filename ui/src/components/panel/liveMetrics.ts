@@ -2,6 +2,7 @@ import type { Shot, SpinQuality, SwingSpeedStats } from '../../types/shot';
 import { getSwingSpeedMph, isSwingSpeedShot } from '../../types/shot';
 import type { UnitSystem } from '../../utils/units';
 import { formatDistance, formatSpeed, getDistanceUnit, getSpeedUnit } from '../../utils/units';
+import { isHorizontalLaunchEstimated, isSpinEstimated, isVerticalLaunchEstimated } from '../../utils/provenance';
 import { getHtmlLang, t } from '../../i18n';
 
 /** Placeholder for a metric the current shot has no value for. */
@@ -74,7 +75,6 @@ function buildBallStrikeMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[
   const speedUnit = getSpeedUnit(unitSystem);
   const carry = shot.carry_spin_adjusted ?? shot.estimated_carry_yards;
   const angleConfidence = launchAngleQuality(shot.launch_angle_confidence);
-  const angleEstimated = shot.angle_source === 'estimated';
   const horizontalLaunchIsCameraAssisted = shot.launch_angle_horizontal_source === 'camera_assisted_experimental';
   const fusedDeliveryAttempted = shot.experimental_fused_status != null;
   const attackAngle =
@@ -113,7 +113,8 @@ function buildBallStrikeMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[
       value: formatDistance(carry, unitSystem, 0),
       unit: getDistanceUnit(unitSystem),
       subtext: shot.carry_spin_adjusted === null ? undefined : t('metric.spinAdjusted'),
-      estimated: markEstimated(shot.carry_spin_adjusted === null),
+      // Carry is always a ballistic-model output; no sensor observes it.
+      estimated: true,
     },
     {
       id: 'club_speed',
@@ -131,7 +132,7 @@ function buildBallStrikeMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[
       label: t('metric.vLaunch'),
       value: formatOptionalAngle(shot.launch_angle_vertical),
       unit: angleUnit(shot.launch_angle_vertical),
-      estimated: markEstimated(shot.launch_angle_vertical !== null && angleEstimated),
+      estimated: markEstimated(isVerticalLaunchEstimated(shot)),
       confidence: shot.launch_angle_vertical === null ? null : angleConfidence,
     },
     {
@@ -140,7 +141,7 @@ function buildBallStrikeMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[
       value: formatOptionalAngle(shot.launch_angle_horizontal, true),
       unit: angleUnit(shot.launch_angle_horizontal),
       subtext: horizontalLaunchIsCameraAssisted ? 'camera assisted' : undefined,
-      estimated: markEstimated(shot.launch_angle_horizontal !== null && angleEstimated),
+      estimated: markEstimated(isHorizontalLaunchEstimated(shot)),
       confidence: shot.launch_angle_horizontal === null ? null : angleConfidence,
       confidenceLabel: horizontalLaunchIsCameraAssisted ? 'experimental' : undefined,
     },
@@ -149,7 +150,7 @@ function buildBallStrikeMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[
       label: t('metric.spin'),
       value: formatSpinRpm(shot.spin_rpm),
       unit: shot.spin_rpm === null ? undefined : 'rpm',
-      estimated: markEstimated(shot.spin_rpm !== null && shot.spin_source === 'calculated'),
+      estimated: markEstimated(isSpinEstimated(shot)),
       confidence: shot.spin_rpm === null ? null : shot.spin_quality,
     },
     {

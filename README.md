@@ -29,13 +29,16 @@ Doppler radar, with an optional TI IWR6843 angle radar.
 
 ### What It Measures
 
-- **Ball Speed**: 15-200 mph range with ±0.5% accuracy (OPS243-A)
+- **Ball Speed**: 15-200 mph range (OPS243-A). The radar's datasheet quotes ±0.5%,
+  but that is not OpenFlight's validated accuracy: in the one TrackMan comparison
+  committed here (`session_logs/comparison_20260506.csv`, 22 matched shots) ball
+  speed read 2.7 ± 0.7 mph (about 2.2%) low
 - **Club Speed**: Detected from pre-impact readings (OPS243-A)
 - **Smash Factor**: Ball speed / club speed ratio
 - **Launch Angle**: Measured by the IWR6843; estimated when no trusted radar angle is available
 - **Club Path**: Experimental pre-impact estimate from the IWR6843
 - **Spin Rate**: Experimental candidate from rolling-buffer I/Q; not used for carry by default
-- **Carry Distance**: Ballistic model with explicit fallbacks for missing measurements
+- **Carry Distance**: Always a ballistic-model estimate, never a measurement; the UI marks it as estimated
 
 ### Hardware at a Glance
 

@@ -48,6 +48,23 @@ describe('DisplayMode', () => {
     expect(html).not.toContain('display-metric');
   });
 
+  it('labels carry and calculated spin as estimated', () => {
+    const html = renderToString(
+      <DisplayMode connected captureSettings={captureSettings} latestShot={shot} shots={[shot]} />
+    );
+    expect(html.match(/Estimated/g)?.length).toBe(2);
+
+    const measuredSpin = renderToString(
+      <DisplayMode
+        connected
+        captureSettings={captureSettings}
+        latestShot={{ ...shot, spin_source: 'measured' }}
+        shots={[shot]}
+      />
+    );
+    expect(measuredSpin.match(/Estimated/g)?.length).toBe(1);
+  });
+
   it('does not request a preview when camera capture is unavailable', () => {
     const html = renderToString(
       <DisplayMode connected captureSettings={{ available: false }} latestShot={shot} shots={[shot]} />

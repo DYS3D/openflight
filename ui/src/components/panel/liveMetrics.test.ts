@@ -109,11 +109,11 @@ describe('buildLiveMetrics', () => {
     expect(byId(metric, 'carry')).toMatchObject({ value: '196', unit: 'm' });
   });
 
-  it('prefers the spin-adjusted carry and marks model carry as estimated', () => {
+  it('prefers the spin-adjusted carry and always marks carry as estimated', () => {
     const adjusted = byId(buildLiveMetrics(makeShot(), 'imperial', emptySwingStats), 'carry');
     expect(adjusted.value).toBe('214');
     expect(adjusted.subtext).toBe('Spin-adjusted');
-    expect(adjusted.estimated).toBeUndefined();
+    expect(adjusted.estimated).toBe(true);
 
     const estimated = byId(
       buildLiveMetrics(makeShot({ carry_spin_adjusted: null }), 'imperial', emptySwingStats),
@@ -219,6 +219,20 @@ describe('buildLiveMetrics', () => {
       subtext: 'camera assisted',
       confidenceLabel: 'experimental',
     });
+  });
+
+  it('marks only the estimated launch axis when sources differ per axis', () => {
+    const metrics = buildLiveMetrics(
+      makeShot({
+        angle_source: 'radar',
+        launch_angle_vertical_source: 'radar',
+        launch_angle_horizontal_source: 'estimated',
+      }),
+      'imperial',
+      emptySwingStats
+    );
+    expect(byId(metrics, 'launch_v').estimated).toBeUndefined();
+    expect(byId(metrics, 'launch_h').estimated).toBe(true);
   });
 
   it('marks estimated launch and spin with a flag, not provenance subtext', () => {

@@ -93,11 +93,12 @@ def test_missing_club_path_falls_back_to_zero():
     assert r.provenance["club_path"] == "estimated"
 
 
-def test_carry_provenance_tracks_launch_angle():
-    measured = resolve_shot(_shot(launch_angle_vertical=12.0), PlayerState())
-    assert measured.provenance["carry"] == "measured"
-    estimated = resolve_shot(_shot(), PlayerState())
-    assert estimated.provenance["carry"] == "estimated"
+def test_carry_is_always_estimated():
+    """No sensor observes carry, so a sim must never be told it was measured."""
+    with_angle = resolve_shot(_shot(launch_angle_vertical=12.0), PlayerState())
+    assert with_angle.provenance["carry"] == "estimated"
+    without_angle = resolve_shot(_shot(), PlayerState())
+    assert without_angle.provenance["carry"] == "estimated"
 
 
 def test_missing_ball_speed_raises():
@@ -122,3 +123,45 @@ def test_carry_falls_back_to_table_when_nothing_committed():
     assert resolve_shot(shot, PlayerState()).carry_yards == pytest.approx(
         shot.estimated_carry_yards
     )
+
+
+def test_table_estimated_launch_angles_are_not_reported_as_measured():
+    shot = _shot(
+        launch_angle_vertical=11.0,
+        launch_angle_vertical_source="estimated",
+        launch_angle_horizontal=0.0,
+        launch_angle_horizontal_source="estimated",
+    )
+    r = resolve_shot(shot, PlayerState())
+    assert r.vla == 11.0
+    assert r.provenance["vla"] == "estimated"
+    assert r.provenance["hla"] == "estimated"
+
+
+def test_mock_launch_angles_are_not_reported_as_measured():
+    shot = _shot(launch_angle_vertical=11.0, launch_angle_vertical_source="mock")
+    assert resolve_shot(shot, PlayerState()).provenance["vla"] == "estimated"
+
+
+@pytest.mark.parametrize("source", ["radar", "camera", None])
+def test_sensor_launch_angles_stay_measured(source):
+    shot = _shot(launch_angle_vertical=11.0, launch_angle_vertical_source=source)
+    assert resolve_shot(shot, PlayerState()).provenance["vla"] == "measured"
+
+
+def test_calculated_spin_is_used_but_tagged_estimated():
+    shot = _shot(spin_rpm=3100.0, spin_confidence=0.9, spin_source="calculated", spin_axis_deg=0.0)
+    r = resolve_shot(shot, PlayerState())
+    assert r.total_spin_rpm == 3100.0
+    assert r.provenance["total_spin"] == "estimated"
+    assert r.provenance["back_spin"] == "estimated"
+
+
+def test_fallback_spin_matches_the_ballistics_table():
+    """One club spin table: the sim fallback must equal what ballistics uses for carry."""
+    from openflight.ballistics import CLUB_TYPICAL_SPIN_RPM
+
+    for club in ClubType:
+        r = resolve_shot(_shot(club=club), PlayerState())
+        assert r.total_spin_rpm == CLUB_TYPICAL_SPIN_RPM[club], club
+        assert SPIN_MODEL_RPM[club] == CLUB_TYPICAL_SPIN_RPM[club], club

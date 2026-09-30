@@ -1036,6 +1036,8 @@ def init_camera_capture(
     lateral_offset_m: float,
     horizontal_offset_deg: float,
     use_gpio_trigger: bool,
+    archive_frames: bool = True,
+    frames_in_memory: bool = False,
 ) -> bool:
     """Initialize passive high-speed camera capture for offline alignment."""
     global camera_capture_runtime, camera_capture_config  # pylint: disable=global-statement
@@ -1062,6 +1064,8 @@ def init_camera_capture(
             auto_exposure_state_path=(
                 Path.home() / ".config" / "openflight" / "camera-exposure.json"
             ),
+            archive_frames=archive_frames,
+            frames_in_memory=frames_in_memory,
         )
         camera_capture_runtime = CameraCaptureRuntime(
             output_dir=output_dir,
@@ -1102,6 +1106,8 @@ def init_camera_capture(
             "mount_height_m": mount_height_m,
             "lateral_offset_m": lateral_offset_m,
             "horizontal_offset_deg": horizontal_offset_deg,
+            "archive_frames": settings.archive_frames,
+            "frames_in_memory": settings.frames_in_memory,
             "alignment_x_pct": 50.0,
             "alignment_y_pct": 50.0,
         }
@@ -2715,9 +2721,31 @@ def _emit_iwr6843_trigger_status(
 _CAMERA_ARCHIVE_UNSET = object()
 
 
+def _camera_capture_frames_rejection(camera_capture) -> str | None:
+    """Return the estimator status for a capture without usable frames, else None.
+
+    Frames handed over in memory (``--camera-frames-in-memory``) count as
+    available even when nothing was archived to disk.
+    """
+    if camera_capture is None or not camera_capture.valid:
+        return "rejected_no_camera_capture"
+    if getattr(camera_capture, "archive", None) is not None:
+        return None
+    if not camera_capture.path:
+        return "rejected_no_camera_capture"
+    if not (Path(camera_capture.path) / "frames.npz").exists():
+        return "rejected_missing_camera_frames"
+    return None
+
+
 def _load_camera_capture_archive(camera_capture) -> dict[str, object] | None:
-    """Load one camera clip into memory for all per-shot estimators."""
-    if camera_capture is None or not camera_capture.valid or not camera_capture.path:
+    """Return one camera clip for all per-shot estimators, decoding it only if needed."""
+    if camera_capture is None or not camera_capture.valid:
+        return None
+    archive = getattr(camera_capture, "archive", None)
+    if archive is not None:
+        return archive
+    if not camera_capture.path:
         return None
     frames_path = Path(camera_capture.path) / "frames.npz"
     if not frames_path.exists():
@@ -2746,59 +2774,55 @@ def _fuse_camera_club_delivery(
             estimate_chained_delivery,
         )
 
-        fused = ChainedDelivery(status="rejected_no_camera_capture")
-        if camera_capture is not None and camera_capture.valid and camera_capture.path:
-            frames_path = Path(camera_capture.path) / "frames.npz"
-            if frames_path.exists():
-                archive = (
-                    _load_camera_capture_archive(camera_capture)
-                    if camera_archive is _CAMERA_ARCHIVE_UNSET
-                    else camera_archive
-                )
-                if archive is None:
-                    fused = ChainedDelivery(status="rejected_missing_camera_frames")
-                else:
-                    trigger_index = (
-                        int(archive["pre_trigger_count"]) - 1
-                        if "pre_trigger_count" in archive
-                        else None
-                    )
-                    if iwr6843_runtime is None:
-                        fused = ChainedDelivery(status="rejected_no_iwr_runtime")
-                    else:
-                        calibration = iwr6843_runtime.calibration
-                        if calibration.tee_range_m is None:
-                            fused = ChainedDelivery(status="rejected_missing_tee_geometry")
-                        else:
-                            fused = estimate_chained_delivery(
-                                archive["frames"],
-                                archive["host_timestamp_ns"],
-                                trigger_index=trigger_index,
-                                range_evidence=shot.iwr6843_club_range_evidence,
-                                geometry=CameraDeliveryGeometry(
-                                    camera_height_m=float(camera_capture_config["mount_height_m"]),
-                                    radar_height_m=calibration.radar_height_m,
-                                    tee_range_m=float(calibration.tee_range_m),
-                                    ball_height_m=calibration.tee_ball_height_m,
-                                    camera_lateral_offset_m=float(
-                                        camera_capture_config.get("lateral_offset_m", 0.0)
-                                    ),
-                                    image_width_px=int(camera_capture_config["width"]),
-                                    image_height_px=int(camera_capture_config["height"]),
-                                    horizontal_pixel_sign=(
-                                        -1.0
-                                        if camera_capture_config.get("mirror_horizontal")
-                                        else 1.0
-                                    ),
-                                    roll_correction_deg=float(
-                                        camera_capture_config.get("roll_correction_deg", 0.0)
-                                    ),
-                                ),
-                                ops_club_speed_mph=shot.club_speed_mph,
-                                ball_tracker=camera_reference_ball_tracker,
-                            )
-            else:
+        rejection = _camera_capture_frames_rejection(camera_capture)
+        if rejection is not None:
+            fused = ChainedDelivery(status=rejection)
+        else:
+            archive = (
+                _load_camera_capture_archive(camera_capture)
+                if camera_archive is _CAMERA_ARCHIVE_UNSET
+                else camera_archive
+            )
+            if archive is None:
                 fused = ChainedDelivery(status="rejected_missing_camera_frames")
+            else:
+                trigger_index = (
+                    int(archive["pre_trigger_count"]) - 1
+                    if "pre_trigger_count" in archive
+                    else None
+                )
+                if iwr6843_runtime is None:
+                    fused = ChainedDelivery(status="rejected_no_iwr_runtime")
+                else:
+                    calibration = iwr6843_runtime.calibration
+                    if calibration.tee_range_m is None:
+                        fused = ChainedDelivery(status="rejected_missing_tee_geometry")
+                    else:
+                        fused = estimate_chained_delivery(
+                            archive["frames"],
+                            archive["host_timestamp_ns"],
+                            trigger_index=trigger_index,
+                            range_evidence=shot.iwr6843_club_range_evidence,
+                            geometry=CameraDeliveryGeometry(
+                                camera_height_m=float(camera_capture_config["mount_height_m"]),
+                                radar_height_m=calibration.radar_height_m,
+                                tee_range_m=float(calibration.tee_range_m),
+                                ball_height_m=calibration.tee_ball_height_m,
+                                camera_lateral_offset_m=float(
+                                    camera_capture_config.get("lateral_offset_m", 0.0)
+                                ),
+                                image_width_px=int(camera_capture_config["width"]),
+                                image_height_px=int(camera_capture_config["height"]),
+                                horizontal_pixel_sign=(
+                                    -1.0 if camera_capture_config.get("mirror_horizontal") else 1.0
+                                ),
+                                roll_correction_deg=float(
+                                    camera_capture_config.get("roll_correction_deg", 0.0)
+                                ),
+                            ),
+                            ops_club_speed_mph=shot.club_speed_mph,
+                            ball_tracker=camera_reference_ball_tracker,
+                        )
         shot.experimental_fused_attack_angle_deg = fused.attack_angle_deg
         shot.experimental_fused_club_path_deg = fused.club_path_deg
         shot.experimental_fused_status = fused.status
@@ -2845,56 +2869,54 @@ def _fuse_camera_ball_flight(
             select_camera_assisted_horizontal,
         )
 
-        estimate = CameraBallEstimate(status="rejected_no_camera_capture")
-        if camera_capture is not None and camera_capture.valid and camera_capture.path:
-            frames_path = Path(camera_capture.path) / "frames.npz"
-            if not frames_path.exists():
-                estimate = CameraBallEstimate(status="rejected_missing_camera_frames")
-            elif iwr6843_runtime is None:
-                estimate = CameraBallEstimate(status="rejected_no_iwr_runtime")
+        rejection = _camera_capture_frames_rejection(camera_capture)
+        if rejection is not None:
+            estimate = CameraBallEstimate(status=rejection)
+        elif iwr6843_runtime is None:
+            estimate = CameraBallEstimate(status="rejected_no_iwr_runtime")
+        else:
+            calibration = iwr6843_runtime.calibration
+            if calibration.tee_range_m is None:
+                estimate = CameraBallEstimate(status="rejected_missing_tee_geometry")
             else:
-                calibration = iwr6843_runtime.calibration
-                if calibration.tee_range_m is None:
-                    estimate = CameraBallEstimate(status="rejected_missing_tee_geometry")
+                archive = (
+                    _load_camera_capture_archive(camera_capture)
+                    if camera_archive is _CAMERA_ARCHIVE_UNSET
+                    else camera_archive
+                )
+                if archive is None:
+                    estimate = CameraBallEstimate(status="rejected_missing_camera_frames")
                 else:
-                    archive = (
-                        _load_camera_capture_archive(camera_capture)
-                        if camera_archive is _CAMERA_ARCHIVE_UNSET
-                        else camera_archive
-                    )
-                    if archive is None:
-                        estimate = CameraBallEstimate(status="rejected_missing_camera_frames")
-                    else:
-                        trigger_ns = int(archive["trigger_host_timestamp_ns"])
-                        estimate = estimate_camera_ball_flight(
-                            archive["frames"],
-                            archive["host_timestamp_ns"],
-                            trigger_ns=trigger_ns,
-                            range_evidence=shot.iwr6843_ball_range_evidence,
-                            geometry=CameraBallGeometry(
-                                camera_height_m=float(camera_capture_config["mount_height_m"]),
-                                radar_height_m=calibration.radar_height_m,
-                                tee_range_m=float(calibration.tee_range_m),
-                                ball_height_m=calibration.tee_ball_height_m,
-                                camera_lateral_offset_m=float(
-                                    camera_capture_config.get("lateral_offset_m", 0.0)
-                                ),
-                                horizontal_offset_deg=float(
-                                    camera_capture_config.get("horizontal_offset_deg", 0.0)
-                                ),
-                                roll_correction_deg=float(
-                                    camera_capture_config.get("roll_correction_deg", 0.0)
-                                ),
-                                horizontal_pixel_sign=(
-                                    -1.0 if camera_capture_config.get("mirror_horizontal") else 1.0
-                                ),
-                                image_width_px=int(camera_capture_config["width"]),
-                                image_height_px=int(camera_capture_config["height"]),
+                    trigger_ns = int(archive["trigger_host_timestamp_ns"])
+                    estimate = estimate_camera_ball_flight(
+                        archive["frames"],
+                        archive["host_timestamp_ns"],
+                        trigger_ns=trigger_ns,
+                        range_evidence=shot.iwr6843_ball_range_evidence,
+                        geometry=CameraBallGeometry(
+                            camera_height_m=float(camera_capture_config["mount_height_m"]),
+                            radar_height_m=calibration.radar_height_m,
+                            tee_range_m=float(calibration.tee_range_m),
+                            ball_height_m=calibration.tee_ball_height_m,
+                            camera_lateral_offset_m=float(
+                                camera_capture_config.get("lateral_offset_m", 0.0)
                             ),
-                            ops_ball_speed_mph=shot.ball_speed_raw_mph or shot.ball_speed_mph,
-                            iwr_vertical_deg=shot.launch_angle_vertical,
-                            ball_tracker=camera_ball_flight_reference_tracker,
-                        )
+                            horizontal_offset_deg=float(
+                                camera_capture_config.get("horizontal_offset_deg", 0.0)
+                            ),
+                            roll_correction_deg=float(
+                                camera_capture_config.get("roll_correction_deg", 0.0)
+                            ),
+                            horizontal_pixel_sign=(
+                                -1.0 if camera_capture_config.get("mirror_horizontal") else 1.0
+                            ),
+                            image_width_px=int(camera_capture_config["width"]),
+                            image_height_px=int(camera_capture_config["height"]),
+                        ),
+                        ops_ball_speed_mph=shot.ball_speed_raw_mph or shot.ball_speed_mph,
+                        iwr_vertical_deg=shot.launch_angle_vertical,
+                        ball_tracker=camera_ball_flight_reference_tracker,
+                    )
 
         decision = select_camera_assisted_horizontal(
             estimate,
@@ -2976,17 +2998,20 @@ def _fuse_camera_measurements(shot: Shot, camera_capture) -> None:
 
 def _attach_camera_replay(shot: Shot, camera_capture) -> None:
     """Expose a matched raw clip without doing any video conversion."""
-    if (
-        camera_replay_manager is None
-        or camera_capture is None
-        or not camera_capture.valid
-        or not camera_capture.path
-    ):
+    if camera_replay_manager is None or camera_capture is None or not camera_capture.valid:
         return
+    if not camera_capture.path:
+        logger.info(
+            "[CAMERA] Replay unavailable: capture #%d not archived", camera_capture.sequence
+        )
+        return
+    archive_ready = getattr(camera_capture, "archive_ready", None)
+    register_kwargs = {"archive_ready": archive_ready} if archive_ready is not None else {}
     try:
         shot.camera_replay = camera_replay_manager.register(
             camera_capture.path,
             camera_capture.metadata,
+            **register_kwargs,
         )
     except Exception as error:  # pylint: disable=broad-exception-caught
         logger.warning("[CAMERA] Replay registration failed: %s", error)
@@ -4544,6 +4569,25 @@ def main():
         help="Mirror saved frames left-to-right after mount rotation.",
     )
     parser.add_argument(
+        "--camera-archive-frames",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Write each matched clip to the camera output directory as frames.npz "
+            "plus stills (default). --no-camera-archive-frames keeps nothing on disk, "
+            "so shot replay is unavailable; it requires --camera-frames-in-memory."
+        ),
+    )
+    parser.add_argument(
+        "--camera-frames-in-memory",
+        action="store_true",
+        help=(
+            "Hand the captured frame stack to the launch estimators directly and "
+            "archive it in the background, instead of re-reading frames.npz from "
+            "disk for every shot. Off by default."
+        ),
+    )
+    parser.add_argument(
         "--session-location",
         "-l",
         default="range",
@@ -4916,6 +4960,8 @@ def main():
         or args.camera_capture_mount_height_m <= 0
     ):
         parser.error("--camera-capture dimensions, timing, exposure, and gain must be positive")
+    if args.camera_capture and not args.camera_archive_frames and not args.camera_frames_in_memory:
+        parser.error("--no-camera-archive-frames requires --camera-frames-in-memory")
     camera_capture_scaler_crop = None
     if args.camera_capture_scaler_crop:
         try:
@@ -5079,6 +5125,8 @@ def main():
             mirror_horizontal=args.camera_capture_mirror_horizontal,
             scaler_crop=camera_capture_scaler_crop,
             use_gpio_trigger=not args.iwr6843,
+            archive_frames=args.camera_archive_frames,
+            frames_in_memory=args.camera_frames_in_memory,
         ):
             print("Camera capture unavailable - running without high-speed camera capture")
             startup_status.skip("camera", "High-speed camera unavailable; continuing")

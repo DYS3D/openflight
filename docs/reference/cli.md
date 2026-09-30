@@ -179,6 +179,8 @@ Optional rolling-buffer capture and replay. See [camera setup](../camera/README.
 | `--camera-capture-scaler-crop` | `X,Y,W,H` | Optional Picamera2 scaler crop |
 | `--camera-capture-rotate-180` | flag | Rotate saved frames 180 degrees |
 | `--camera-capture-mirror-horizontal` | flag | Mirror saved frames left-to-right after rotation |
+| `--camera-archive-frames` / `--no-camera-archive-frames` | flag; default on | Write each matched clip to the camera output directory as `frames.npz` plus stills. Turning it off keeps nothing on disk, so shot replay is unavailable; requires `--camera-frames-in-memory` |
+| `--camera-frames-in-memory` | flag | Hand the captured frame stack to the launch estimators directly and archive it in the background, instead of re-reading `frames.npz` from disk for every shot. Off by default |
 
 ## K-LD7 (deprecated)
 

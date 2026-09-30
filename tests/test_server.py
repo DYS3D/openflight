@@ -4537,6 +4537,20 @@ class TestBallisticCarryPrecedence:
         assert shot.carry_spin_adjusted != pytest.approx(119.2)
         assert shot.carry_spin_adjusted > 135.0
 
+    def test_simulator_uses_the_configured_air_density(self, monkeypatch):
+        monkeypatch.setattr(server_module, "ballistics_enabled", True)
+        thin_air = server_module.air_density_kg_m3(altitude_m=1609.0)
+        monkeypatch.setattr(server_module, "air_density", thin_air)
+        shot = self._shot(launch_angle=19.1, prefilled_carry=None)
+
+        server_module._finalize_shot_detected(shot, emit_event="shot")
+
+        conditions = server_module.resolve_launch(shot)
+        expected = server_module.simulate(conditions, air_density=thin_air).carry_yards
+        sea_level = server_module.simulate(conditions).carry_yards
+        assert shot.carry_spin_adjusted == pytest.approx(expected)
+        assert shot.carry_spin_adjusted > sea_level
+
     def test_table_fallback_replaces_prefilled_carry_when_ballistics_disabled(self, monkeypatch):
         monkeypatch.setattr(server_module, "ballistics_enabled", False)
         shot = self._shot(launch_angle=19.1, prefilled_carry=999.0)

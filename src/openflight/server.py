@@ -42,7 +42,7 @@ from .access import (
     origin_is_allowed,
     token_matches,
 )
-from .ballistics import resolve_launch, simulate
+from .ballistics import AIR_DENSITY_STD, air_density_kg_m3, resolve_launch, simulate
 from .clubs import ClubType
 from .clubs.physics import (
     SHOT_SIMULATION_DEFAULTS,
@@ -288,6 +288,8 @@ inclinometer_runtime_config: dict = {"enabled": False}
 # a vertical launch angle is available. Operators can explicitly disable it;
 # missing launch inputs always fall back to the legacy table estimator.
 ballistics_enabled: bool = True
+# Air density for the ballistic model, from --altitude-ft/--temperature-f/--humidity.
+air_density: float = AIR_DENSITY_STD
 
 # Simulator connectors (optional). Populated in main() from config/sim.json +
 # CLI flags; shots fan out to every connected connector. Player/club state is
@@ -3437,7 +3439,7 @@ def _finalize_shot_detected(
     if shot.mode != "mock":
         conditions = resolve_launch(shot) if ballistics_enabled else None
         if conditions is not None:
-            trajectory = simulate(conditions)
+            trajectory = simulate(conditions, air_density=air_density)
             shot.carry_spin_adjusted = trajectory.carry_yards
             logger.info(
                 "[SERVER] Ballistic carry: %.0f yds (spin: %.0f rpm, source: %s)",
@@ -4699,6 +4701,24 @@ def main():
     )
     parser.add_argument("--no-logging", action="store_true", help="Disable session logging")
     parser.add_argument(
+        "--altitude-ft",
+        type=float,
+        default=0.0,
+        help="Site elevation in feet for the ballistic carry model (default: 0, sea level)",
+    )
+    parser.add_argument(
+        "--temperature-f",
+        type=float,
+        default=59.0,
+        help="Air temperature in °F for the ballistic carry model (default: 59, ISA)",
+    )
+    parser.add_argument(
+        "--humidity",
+        type=float,
+        default=0.0,
+        help="Relative humidity in percent for the ballistic carry model (default: 0)",
+    )
+    parser.add_argument(
         "--log-retention-days",
         type=float,
         default=90,
@@ -5050,6 +5070,15 @@ def main():
         supported = ", ".join(str(b) for b in sorted(UART_BAUD_COMMANDS))
         parser.error(f"--ops-baud must be one of {supported} (got {args.ops_baud})")
     global ballistics_enabled
+    global air_density
+    try:
+        air_density = air_density_kg_m3(
+            altitude_m=args.altitude_ft * 0.3048,
+            temperature_c=(args.temperature_f - 32.0) * 5.0 / 9.0,
+            relative_humidity=args.humidity / 100.0,
+        )
+    except ValueError as exc:
+        parser.error(f"--altitude-ft/--temperature-f/--humidity: {exc}")
     global battery_provider
     global profile_store
     global ball_speed_correction_enabled
@@ -5122,6 +5151,10 @@ def main():
 
     if ballistics_enabled:
         print("Ballistic carry model: ENABLED (simulator + drag/Magnus)")
+        print(
+            f"Air density: {air_density:.3f} kg/m³ ({args.altitude_ft:.0f} ft, "
+            f"{args.temperature_f:.0f} °F, {args.humidity:.0f}% RH)"
+        )
     else:
         print("Ballistic carry model: DISABLED (table fallback for all shots)")
 

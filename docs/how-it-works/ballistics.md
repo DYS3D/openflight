@@ -56,7 +56,7 @@ matters across a six-second flight.
 | --- | --- | --- |
 | `BALL_MASS_KG` | 0.04593 | USGA **maximum**-conforming ball, 45.93 g |
 | `BALL_RADIUS_M` | 0.02135 | 42.7 mm diameter |
-| `AIR_DENSITY_STD` | 1.225 kg/m³ | Sea level, 15 °C ISA |
+| `AIR_DENSITY_STD` | 1.225 kg/m³ | Sea level, 15 °C ISA; the default when no site conditions are given |
 | `CD_POLY` | (0.1304, 0.9287, -0.8259) | $C_d$ polynomial $(a, b, c)$ |
 | `CL_POLY` | (0.0504, 1.2031, -1.1490) | $C_l$ polynomial $(d, e, f)$ |
 | `SP_FIT_MAX` | 0.75 | Top of the fitted $S_p$ range; curves held beyond it |
@@ -71,6 +71,22 @@ matters across a six-second flight.
     Mass and radius use the USGA maximum rather than an average, so carry
     estimates are upper-bounded by the rules rather than by a guess about which
     specific ball is in play.
+
+## Site conditions
+
+Thin air carries farther: at Denver's elevation a 160 mph drive flies about 6 %
+farther than at sea level. Pass the site's conditions so the model uses the
+right air density:
+
+```bash
+scripts/start-kiosk.sh --altitude-ft 5280 --temperature-f 85 --humidity 30
+```
+
+`air_density_kg_m3()` converts these to moist-air density: ISA station
+pressure for the altitude, the ideal-gas law for temperature, and the Tetens
+vapour-pressure formula for humidity. Day-to-day barometric swings (about
+±2 %) are not modelled. The legacy table estimator used when no launch angle is
+available does not take density into account.
 
 ## Integration
 

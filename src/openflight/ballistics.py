@@ -38,6 +38,13 @@ BALL_RADIUS_M = 0.02135
 BALL_AREA_M2 = math.pi * BALL_RADIUS_M ** 2
 AIR_DENSITY_STD = 1.225  # kg/m³ at sea level, 15 °C ISA
 
+SEA_LEVEL_PRESSURE_PA = 101_325.0
+DRY_AIR_GAS_CONSTANT = 287.058  # J/(kg·K)
+WATER_VAPOR_GAS_CONSTANT = 461.495  # J/(kg·K)
+# Bounds cover every inhabited golf course; outside them the inputs are typos.
+ALTITUDE_RANGE_M = (-500.0, 4_500.0)
+TEMPERATURE_RANGE_C = (-30.0, 50.0)
+
 # Cd = CD_POLY[0] + CD_POLY[1]*Sp + CD_POLY[2]*Sp^2
 # Cl = CL_POLY[0] + CL_POLY[1]*Sp + CL_POLY[2]*Sp^2, clamped at >= 0
 #   Second-order polynomials in the spin parameter Sp = r*omega/v, the form
@@ -163,6 +170,36 @@ def resolve_launch(shot: Shot) -> Optional[LaunchConditions]:
         spin_rpm=spin_rpm,
         spin_axis_deg=shot.spin_axis_deg or 0.0,
         spin_source=source,
+    )
+
+
+def air_density_kg_m3(
+    altitude_m: float = 0.0,
+    temperature_c: float = 15.0,
+    relative_humidity: float = 0.0,
+) -> float:
+    """Moist-air density from site altitude, air temperature, and humidity.
+
+    Station pressure follows the ISA troposphere lapse (weather-driven pressure
+    swings of ~±2% are ignored); vapour pressure uses the Tetens formula.
+    Defaults reproduce AIR_DENSITY_STD. Raises ValueError for implausible input.
+    """
+    values = (altitude_m, temperature_c, relative_humidity)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("air density inputs must be finite")
+    if not ALTITUDE_RANGE_M[0] <= altitude_m <= ALTITUDE_RANGE_M[1]:
+        raise ValueError(f"altitude must be between {ALTITUDE_RANGE_M} m")
+    if not TEMPERATURE_RANGE_C[0] <= temperature_c <= TEMPERATURE_RANGE_C[1]:
+        raise ValueError(f"temperature must be between {TEMPERATURE_RANGE_C} °C")
+    if not 0.0 <= relative_humidity <= 1.0:
+        raise ValueError("relative humidity must be between 0 and 1")
+
+    pressure_pa = SEA_LEVEL_PRESSURE_PA * (1.0 - 2.25577e-5 * altitude_m) ** 5.25588
+    temperature_k = temperature_c + 273.15
+    saturation_pa = 610.78 * 10.0 ** (7.5 * temperature_c / (temperature_c + 237.3))
+    vapor_pa = relative_humidity * saturation_pa
+    return (pressure_pa - vapor_pa) / (DRY_AIR_GAS_CONSTANT * temperature_k) + vapor_pa / (
+        WATER_VAPOR_GAS_CONSTANT * temperature_k
     )
 
 

@@ -19,6 +19,7 @@ import { ShutdownDialog, type ShutdownState } from './components/ShutdownDialog'
 import { UpdateDialog } from './components/UpdateDialog';
 import { canInstallUpdate, isUpdateInProgress } from './utils/updateStatus';
 import { CameraReplayDialog } from './components/CameraReplayDialog';
+import { PostShotFeedback } from './components/PostShotFeedback';
 import {
   CameraPanel,
   LivePanel,
@@ -411,6 +412,17 @@ function AppContent() {
           wide={isSwingSpeedMode}
         />
       ) : null}
+
+      <PostShotFeedback
+        shot={profileLatestShot}
+        shots={shots}
+        profileId={activeProfileId}
+        activeTrainingImplement={isSwingSpeedMode ? selectedTrainingImplement : undefined}
+        heroMetricId={heroMetricId}
+        shotVersion={shotVersion}
+        isNewShot={profileIsNewShot}
+        liveView={currentView === 'live'}
+      />
 
       <PanelFooter
         currentView={currentView}

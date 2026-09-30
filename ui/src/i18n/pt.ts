@@ -250,6 +250,7 @@ export const pt: Messages = {
   'voice.rpm': 'rpm',
   'live.switchGolfer': 'Trocar de golfista ({name})',
   'live.selectGolfer': 'Selecionar golfista',
+  'banner.notLevel': 'A unidade não está nivelada (arfagem {pitch}°, rolagem {roll}°)',
 
   'display.tvAria': 'Modo de tela de TV',
   'display.streamUnavailable': 'Transmissão da câmera indisponível',

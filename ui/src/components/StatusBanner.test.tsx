@@ -2,11 +2,13 @@ import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setActiveLocale } from '../i18n';
 import type { SimNotice } from '../stores/useBannerStore';
+import type { LevelStatus } from '../types/socket';
 import { StatusBanner } from './StatusBanner';
 
 const bannerState = vi.hoisted(() => ({
   notice: null as SimNotice | null,
   reconnectAttempt: null as number | null,
+  levelWarning: null as LevelStatus | null,
   dismissNotice: () => {},
 }));
 
@@ -18,6 +20,7 @@ describe('StatusBanner', () => {
   beforeEach(() => {
     bannerState.notice = null;
     bannerState.reconnectAttempt = null;
+    bannerState.levelWarning = null;
   });
 
   afterEach(() => {
@@ -59,6 +62,25 @@ describe('StatusBanner', () => {
 
     expect(html).toContain('Reconnecting (1)…');
     expect(html).toContain('Shot not sent to simulator: offline');
+  });
+
+  it('shows pitch and roll while the unit is not level', () => {
+    bannerState.levelWarning = { pitch_deg: 2.44, roll_deg: -0.6, level: false, threshold_deg: 1.5 };
+    const html = renderToString(<StatusBanner />).replace(/<!-- -->/g, '');
+
+    expect(html).toContain('status-banner--level');
+    expect(html).toContain('role="status"');
+    expect(html).toContain('Unit is not level (pitch 2.4°, roll -0.6°)');
+    expect(html).not.toContain('status-banner__dismiss');
+  });
+
+  it('translates the level warning', () => {
+    setActiveLocale('pt');
+    bannerState.levelWarning = { pitch_deg: 0.2, roll_deg: 3, level: false, threshold_deg: 1.5 };
+
+    expect(renderToString(<StatusBanner />).replace(/<!-- -->/g, '')).toContain(
+      'A unidade não está nivelada (arfagem 0.2°, rolagem 3.0°)'
+    );
   });
 
   it('translates the banner text', () => {

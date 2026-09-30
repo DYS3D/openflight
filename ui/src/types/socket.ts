@@ -103,3 +103,11 @@ export interface UpdateStatus {
   restart?: 'systemd' | 'manual';
   last_result?: UpdateResult | null;
 }
+
+/** `level_status` from the server (`--level-warning-deg`); never sent by default. */
+export interface LevelStatus {
+  pitch_deg: number;
+  roll_deg: number;
+  level: boolean;
+  threshold_deg: number;
+}

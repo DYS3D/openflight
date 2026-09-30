@@ -251,6 +251,7 @@ export const fr: Messages = {
   'voice.rpm': 'tours par minute',
   'live.switchGolfer': 'Changer de golfeur ({name})',
   'live.selectGolfer': 'Choisir un golfeur',
+  'banner.notLevel': 'L’unité n’est pas de niveau (tangage {pitch}°, roulis {roll}°)',
 
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',

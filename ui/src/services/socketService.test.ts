@@ -83,6 +83,14 @@ describe('socketService', () => {
     useDebugStore.getState().setTriggerStatus(initial);
   });
 
+  it('shows a level warning from level_status and clears it when level again', () => {
+    fire(fake.handlers, 'level_status', { pitch_deg: 3.2, roll_deg: 0.4, level: false, threshold_deg: 2 });
+    expect(useBannerStore.getState().levelWarning).toMatchObject({ pitch_deg: 3.2, roll_deg: 0.4 });
+
+    fire(fake.handlers, 'level_status', { pitch_deg: 0.1, roll_deg: 0.4, level: true, threshold_deg: 2 });
+    expect(useBannerStore.getState().levelWarning).toBeNull();
+  });
+
   it('surfaces sim_send_failed as an on-screen notice', () => {
     fire(fake.handlers, 'sim_send_failed', { target: 'gspro', reason: 'connection refused' });
 

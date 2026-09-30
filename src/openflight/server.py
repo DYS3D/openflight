@@ -1102,6 +1102,9 @@ ball_speed_correction_enabled = False
 ball_speed_correction_distance_ft = 5.5
 ball_speed_correction_ball_above_radar_ft = -4.0 / 12.0
 calculated_spin_enabled = False
+# Experimental camera spin from a marked ball (--camera-strobe-spin). Off by
+# default; it adds camera_spin_* fields and never touches radar spin_rpm.
+camera_strobe_spin_enabled = False
 
 
 def shot_to_dict(shot: Shot) -> dict:
@@ -3450,6 +3453,58 @@ def _fuse_camera_measurements(shot: Shot, camera_capture) -> None:
     camera_archive = _load_camera_capture_archive(camera_capture)
     _fuse_camera_ball_flight(shot, camera_capture, camera_archive)
     _fuse_camera_club_delivery(shot, camera_capture, camera_archive)
+    if camera_strobe_spin_enabled:
+        _fuse_camera_strobe_spin(shot, camera_capture, camera_archive)
+
+
+def _fuse_camera_strobe_spin(shot: Shot, camera_capture, camera_archive) -> None:
+    """EXPERIMENTAL: spin from the marked ball on the two frames nearest the trigger.
+
+    Additive only: fills ``camera_spin_*`` and never rewrites radar ``spin_rpm``.
+    Uses consecutive frames and their timestamp gap; a strobed double exposure
+    would instead pass one frame and the planned pulse gap.
+    """
+    try:
+        import numpy as np  # noqa: PLC0415  pylint: disable=import-outside-toplevel
+
+        from openflight.camera.spin_from_pair import (  # noqa: PLC0415
+            estimate_spin_from_frames,
+        )
+
+        rejection = _camera_capture_frames_rejection(camera_capture)
+        if rejection is None and camera_archive is None:
+            rejection = "rejected_missing_camera_frames"
+        if rejection is not None:
+            shot.camera_spin_status = rejection
+            logger.info("[SERVER] Camera strobe spin skipped: %s", rejection)
+            return
+        frames = camera_archive["frames"]
+        timestamps_ns = camera_archive["host_timestamp_ns"]
+        trigger_ns = int(camera_archive["trigger_host_timestamp_ns"])
+        first = int(np.argmin(np.abs(np.asarray(timestamps_ns, dtype=np.int64) - trigger_ns)))
+        if first + 1 >= len(frames):
+            shot.camera_spin_status = "rejected_insufficient_post_trigger_frames"
+            logger.info("[SERVER] Camera strobe spin skipped: no frame after the trigger")
+            return
+        gap_s = (int(timestamps_ns[first + 1]) - int(timestamps_ns[first])) / 1e9
+        result = estimate_spin_from_frames(frames[first], frames[first + 1], gap_s)
+        shot.camera_spin_status = result.status
+        shot.camera_spin_rpm = result.spin_rpm
+        shot.camera_spin_axis_deg = result.axis_deg
+        shot.camera_spin_confidence = result.confidence if result.spin_rpm is not None else None
+        logger.info(
+            "[SERVER] Camera strobe spin: status=%s rpm=%s axis=%s confidence=%.2f "
+            "gap=%.3f ms radar_spin=%s",
+            result.status,
+            None if result.spin_rpm is None else round(result.spin_rpm),
+            None if result.axis_deg is None else round(result.axis_deg, 1),
+            result.confidence,
+            gap_s * 1e3,
+            shot.spin_rpm,
+        )
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        shot.camera_spin_status = "error"
+        logger.warning("[SERVER] Camera strobe spin error: %s", error, exc_info=True)
 
 
 def _attach_camera_replay(shot: Shot, camera_capture) -> None:
@@ -5058,6 +5113,16 @@ def main():
         ),
     )
     parser.add_argument(
+        "--camera-strobe-spin",
+        action="store_true",
+        help=(
+            "EXPERIMENTAL: estimate spin from a marked ball on the trigger-nearest "
+            "camera frames and attach camera_spin_* fields to each shot. Requires "
+            "--camera-capture. Needs IR strobe hardware and short exposures that the "
+            "current build does not have; with plain frames expect rejections."
+        ),
+    )
+    parser.add_argument(
         "--session-location",
         "-l",
         default="range",
@@ -5536,6 +5601,8 @@ def main():
         parser.error("--camera-capture dimensions, timing, exposure, and gain must be positive")
     if args.camera_capture and not args.camera_archive_frames and not args.camera_frames_in_memory:
         parser.error("--no-camera-archive-frames requires --camera-frames-in-memory")
+    if args.camera_strobe_spin and not args.camera_capture:
+        parser.error("--camera-strobe-spin requires --camera-capture")
     camera_capture_scaler_crop = None
     if args.camera_capture_scaler_crop:
         try:
@@ -5583,6 +5650,8 @@ def main():
     _VERTICAL_RADAR_GATE_BYPASS = args.kld7_vertical_raw
     global calculated_spin_enabled
     calculated_spin_enabled = args.calculated_spin
+    global camera_strobe_spin_enabled
+    camera_strobe_spin_enabled = args.camera_strobe_spin
     global spin_axis_model
     spin_axis_model = args.spin_axis_model
     global show_normalized_carry

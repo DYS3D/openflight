@@ -309,6 +309,11 @@ class Shot:
     )
     spin_axis_deg: Optional[float] = None  # Spin axis tilt: 0=backspin, +right(fade), -left(draw)
     inclinometer: Optional[dict] = None  # Stable enclosure orientation used for this shot
+    # Experimental camera spin (--camera-strobe-spin); never replaces radar spin_rpm.
+    camera_spin_rpm: Optional[float] = None
+    camera_spin_axis_deg: Optional[float] = None
+    camera_spin_confidence: Optional[float] = None
+    camera_spin_status: Optional[str] = None
     # Carry re-simulated at TrackMan normalized conditions (--show-normalized-carry).
     carry_normalized_yards: Optional[float] = None
     # Downsampled simulated flight for UI display only; never written to session logs.
@@ -481,6 +486,11 @@ class Shot:
         }
         if self.carry_normalized_yards is not None:
             data["carry_normalized_yards"] = self.carry_normalized_yards
+        if self.camera_spin_status is not None:
+            data["camera_spin_rpm"] = self.camera_spin_rpm
+            data["camera_spin_axis_deg"] = self.camera_spin_axis_deg
+            data["camera_spin_confidence"] = self.camera_spin_confidence
+            data["camera_spin_status"] = self.camera_spin_status
         return data
 
 

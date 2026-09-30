@@ -65,11 +65,6 @@ MATCH_QUALITIES = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Timestamp pairing
-# ---------------------------------------------------------------------------
-
-
 def _naive(ts: datetime) -> datetime:
     return ts.replace(tzinfo=None) if ts.tzinfo is not None else ts
 
@@ -151,11 +146,6 @@ def pair_by_timestamp(
     return pairs
 
 
-# ---------------------------------------------------------------------------
-# Statistics
-# ---------------------------------------------------------------------------
-
-
 def _pair_club(pair: Pair) -> str:
     shot = pair.of or pair.tm
     return (shot.club if shot else "") or "(no club)"
@@ -230,11 +220,6 @@ def build_report(
     }
 
 
-# ---------------------------------------------------------------------------
-# Output
-# ---------------------------------------------------------------------------
-
-
 def _format_metric_rows(metrics: Dict[str, Dict[str, Any]]) -> List[str]:
     rows = []
     for field_name, label, unit in METRICS:
@@ -277,11 +262,6 @@ def format_report(report: Dict[str, Any]) -> str:
     lines.extend(_format_metric_rows(overall["metrics"]))
     lines.append("=" * 72)
     return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 def build_pairs(

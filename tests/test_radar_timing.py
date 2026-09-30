@@ -25,10 +25,6 @@ from openflight.rolling_buffer.monitor import RollingBufferMonitor
 from openflight.rolling_buffer.processor import RollingBufferProcessor
 from openflight.rolling_buffer.trigger import SoundTrigger
 
-# ---------------------------------------------------------------------------
-# Fakes
-# ---------------------------------------------------------------------------
-
 
 class _ClockSerial:
     """Replies to ``C?`` with a clock payload after an optional delay."""
@@ -120,11 +116,6 @@ _COMPLETE_DUMP = (
 _TRUNCATED_DUMP = _COMPLETE_DUMP[:-3]  # Q array never closes: no "]}"
 
 
-# ---------------------------------------------------------------------------
-# Config and CLI
-# ---------------------------------------------------------------------------
-
-
 class TestRadarTimingConfig:
     def test_defaults_are_the_shipped_timing(self):
         config = RadarTimingConfig()
@@ -214,11 +205,6 @@ class TestActiveRadarTiming:
         assert holder.active.rearm_after_pa_s == 0.1
 
 
-# ---------------------------------------------------------------------------
-# read_clock_sync: --fast-clock-sync
-# ---------------------------------------------------------------------------
-
-
 class TestFastClockSync:
     def test_default_takes_every_sample(self):
         radar = _radar(_ClockSerial("137.429"), ActiveRadarTiming())
@@ -286,11 +272,6 @@ class TestFastClockSync:
         assert summary["samples"] == 3
 
 
-# ---------------------------------------------------------------------------
-# rearm_rolling_buffer sleeps
-# ---------------------------------------------------------------------------
-
-
 class TestRearmSleeps:
     def _rearm_sleeps(self, timing):
         radar = _radar(_StreamSerial([]), timing)
@@ -321,11 +302,6 @@ class TestRearmSleeps:
         timing = ActiveRadarTiming(RadarTimingConfig(rearm_drain_poll_s=0.01))
         timing.enter_safe_mode("truncated dump")
         assert self._rearm_sleeps(timing) == [0.2, 0.1, 0.1, 0.15]
-
-
-# ---------------------------------------------------------------------------
-# Safe-mode fallback from a truncated dump on the wire
-# ---------------------------------------------------------------------------
 
 
 class TestSafeModeFallback:
@@ -389,11 +365,6 @@ class TestSafeModeFallback:
         radar = _radar(_StreamSerial([(0.02, _TRUNCATED_DUMP)]))
         response = radar.wait_for_hardware_trigger(timeout=0.2, dump_grace=1.0)
         assert response == _TRUNCATED_DUMP.decode("ascii")
-
-
-# ---------------------------------------------------------------------------
-# SoundTrigger: clock-sync sample count and --rearm-after-handoff
-# ---------------------------------------------------------------------------
 
 
 def _dump_response(i_samples, q_samples) -> str:
@@ -488,11 +459,6 @@ class TestSoundTriggerTiming:
         assert trigger.wait_for_trigger(radar, RollingBufferProcessor(), timeout=1.0) is not None
         assert radar.calls == ["wait", "clock_sync", "rearm"]
         assert radar.clock_sync_samples == [36]
-
-
-# ---------------------------------------------------------------------------
-# Monitor: one holder shared by radar and trigger; hand-off before re-arm
-# ---------------------------------------------------------------------------
 
 
 class TestMonitorTimingPlumbing:

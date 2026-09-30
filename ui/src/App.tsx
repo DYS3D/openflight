@@ -11,6 +11,7 @@ import { useCameraReplayController } from './hooks/useCameraReplayController';
 import { socketService } from './services/socketService';
 import { DebugView } from './components/DebugView';
 import { IWR6843Alert } from './components/IWR6843Alert';
+import { StatusBanner } from './components/StatusBanner';
 import { DisplayMode } from './components/DisplayMode';
 import { SimShotBadges } from './components/SimShotBadges';
 import { ShotProcessingArea } from './components/ShotProcessingArea';
@@ -246,6 +247,7 @@ function AppContent() {
       <LaunchDaddyOverlay />
 
       <IWR6843Alert />
+      <StatusBanner />
 
       {showShutdown ? (
         <ShutdownDialog state={shutdownState} onConfirm={handleShutdown} onCancel={closeShutdown} />

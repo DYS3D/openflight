@@ -22,6 +22,13 @@ const fake = vi.hoisted(() => {
 vi.mock('socket.io-client', () => ({ io: () => fake.socket }));
 
 const { socketService } = await import('./socketService');
+const { useBannerStore } = await import('../stores/useBannerStore');
+
+function fire(handlers: Map<string, (...args: unknown[]) => void>, event: string, ...args: unknown[]) {
+  const handler = handlers.get(event);
+  if (!handler) throw new Error(`no handler registered for ${event}`);
+  handler(...args);
+}
 
 describe('socketService', () => {
   const emit = fake.socket.emit;
@@ -30,11 +37,17 @@ describe('socketService', () => {
     fake.handlers.clear();
     fake.managerHandlers.clear();
     emit.mockClear();
+    useBannerStore.getState().dismissNotice();
+    useBannerStore.getState().clearReconnect();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
     socketService.connect();
   });
 
   afterEach(() => {
     socketService.disconnect();
+    useBannerStore.getState().dismissNotice();
+    vi.restoreAllMocks();
   });
 
   it('sends the requested debug state explicitly instead of a bare toggle', () => {
@@ -44,5 +57,44 @@ describe('socketService', () => {
     expect(emit).toHaveBeenCalledWith('toggle_debug', { enabled: true });
     expect(emit).toHaveBeenCalledWith('toggle_debug', { enabled: false });
     expect(emit).not.toHaveBeenCalledWith('toggle_debug');
+  });
+
+  it('surfaces sim_send_failed as an on-screen notice', () => {
+    fire(fake.handlers, 'sim_send_failed', { target: 'gspro', reason: 'connection refused' });
+
+    expect(useBannerStore.getState().notice).toMatchObject({
+      kind: 'simSendFailed',
+      target: 'gspro',
+      reason: 'connection refused',
+    });
+  });
+
+  it('surfaces sim_shot_dropped as an on-screen notice', () => {
+    fire(fake.handlers, 'sim_shot_dropped', { reason: 'simulator busy' });
+
+    expect(useBannerStore.getState().notice).toMatchObject({ kind: 'simShotDropped', reason: 'simulator busy' });
+  });
+
+  it('shows the reconnect attempt count and clears it on reconnect', () => {
+    fire(fake.managerHandlers, 'reconnect_attempt', 1);
+    fire(fake.managerHandlers, 'reconnect_attempt', 2);
+    expect(useBannerStore.getState().reconnectAttempt).toBe(2);
+
+    fire(fake.managerHandlers, 'reconnect', 2);
+    expect(useBannerStore.getState().reconnectAttempt).toBeNull();
+  });
+
+  it('clears the reconnect banner when the socket connects', () => {
+    fire(fake.managerHandlers, 'reconnect_attempt', 4);
+    fire(fake.handlers, 'connect');
+
+    expect(useBannerStore.getState().reconnectAttempt).toBeNull();
+  });
+
+  it('clears the reconnect banner when the service disconnects', () => {
+    fire(fake.managerHandlers, 'reconnect_attempt', 5);
+    socketService.disconnect();
+
+    expect(useBannerStore.getState().reconnectAttempt).toBeNull();
   });
 });

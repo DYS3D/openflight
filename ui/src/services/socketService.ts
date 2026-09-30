@@ -3,6 +3,7 @@ import { useSystemStore } from '../stores/useSystemStore';
 import { useShotStore } from '../stores/useShotStore';
 import { useCameraStore, type CameraCaptureSettings } from '../stores/useCameraStore';
 import { useDebugStore } from '../stores/useDebugStore';
+import { useBannerStore } from '../stores/useBannerStore';
 import {
   type Shot,
   type SessionState,
@@ -39,6 +40,7 @@ class SocketService {
     if (this.socket) {
       this.socket.close();
       this.socket = null;
+      useBannerStore.getState().clearReconnect();
     }
   }
 
@@ -48,11 +50,20 @@ class SocketService {
     this.socket.on('connect', () => {
       console.log('Connected to server');
       useSystemStore.getState().setConnected(true);
+      useBannerStore.getState().clearReconnect();
       this.socket?.emit('get_session');
       this.socket?.emit('get_trigger_status');
       this.socket?.emit('get_radar_config');
       this.socket?.emit('get_camera_capture_settings');
       this.socket?.emit('get_profiles');
+    });
+
+    this.socket.io.on('reconnect_attempt', (attempt: number) => {
+      useBannerStore.getState().setReconnectAttempt(attempt);
+    });
+
+    this.socket.io.on('reconnect', () => {
+      useBannerStore.getState().clearReconnect();
     });
 
     this.socket.on('disconnect', () => {
@@ -98,10 +109,12 @@ class SocketService {
 
     this.socket.on('sim_send_failed', (data: { target: string; reason: string }) => {
       console.warn(`Sim send failed (${data.target}): ${data.reason}`);
+      useBannerStore.getState().showNotice({ kind: 'simSendFailed', target: data.target, reason: data.reason });
     });
 
     this.socket.on('sim_shot_dropped', (data: { reason: string }) => {
       console.warn(`Sim shot dropped: ${data.reason}`);
+      useBannerStore.getState().showNotice({ kind: 'simShotDropped', reason: data.reason });
     });
 
     this.socket.on('club_changed', (data: { club: string }) => {

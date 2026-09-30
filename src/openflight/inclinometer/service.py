@@ -36,6 +36,16 @@ def pitch_degrees(sample: AccelerationSample) -> float:
     return math.degrees(math.atan2(sample.y_g, math.hypot(sample.x_g, sample.z_g)))
 
 
+def roll_degrees(sample: AccelerationSample) -> float:
+    """Return enclosure roll; positive is right side down viewed from behind the unit.
+
+    With Z up and +Y toward the target (the documented pitch mounting), the
+    right-handed LIS3DH frame puts +X to the right, so lowering the right
+    side makes X read negative gravity.
+    """
+    return math.degrees(math.atan2(-sample.x_g, math.hypot(sample.y_g, sample.z_g)))
+
+
 class InclinometerService:
     """Sample, filter, and retain stable enclosure orientations."""
 
@@ -135,6 +145,7 @@ class InclinometerService:
                 calibrated_pitch_deg=raw_pitch + self.zero_offset_deg,
                 pitch_std_deg=pitch_std,
                 sample_count=len(samples),
+                roll_deg=statistics.median(roll_degrees(item) for item in samples),
             )
             self._history.append(snapshot)
             return snapshot

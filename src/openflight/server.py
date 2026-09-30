@@ -54,6 +54,7 @@ from .clubs.physics import (
     get_club_physics,
     get_club_simulation_profile,
 )
+from .inclinometer.level import LevelMonitor, level_frame_angles
 from .launch_monitor import (
     SPIN_CONFIDENCE_CALCULATED,
     SPIN_CONFIDENCE_RELIABLE,
@@ -296,6 +297,10 @@ camera_ball_flight_reference_tracker = None
 # Optional LIS3DH enclosure orientation used to compensate TI mount tilt.
 inclinometer_service = None
 inclinometer_runtime_config: dict = {"enabled": False}
+inclinometer_roll_compensation_enabled = False
+level_monitor: LevelMonitor | None = None
+_level_status_stop = threading.Event()
+LEVEL_STATUS_POLL_S = 0.5
 
 # Ballistic model toggle. Shot carry comes from the physics simulator whenever
 # a vertical launch angle is available. Operators can explicitly disable it;
@@ -574,6 +579,7 @@ def _cleanup_hardware_for_shutdown() -> bool:
         _run_shutdown_step("K-LD7 vertical stop", kld7_vertical.stop)
     if kld7_horizontal:
         _run_shutdown_step("K-LD7 horizontal stop", kld7_horizontal.stop)
+    _level_status_stop.set()
     if inclinometer_service:
         _run_shutdown_step("inclinometer stop", inclinometer_service.stop)
     if iwr6843_runtime:
@@ -1475,9 +1481,10 @@ def init_inclinometer(*, zero_offset_deg: float, bus_number: int = 1, address: i
 
         snapshot = startup.snapshot
         logger.info(
-            "Inclinometer enabled (raw pitch %+.2fdeg, calibrated %+.2fdeg)",
+            "Inclinometer enabled (raw pitch %+.2fdeg, calibrated %+.2fdeg, roll %+.2fdeg)",
             snapshot.raw_pitch_deg,
             snapshot.calibrated_pitch_deg,
+            snapshot.roll_deg,
         )
         if iwr6843_runtime is not None:
             configured_tilt = math.degrees(iwr6843_runtime.calibration.tilt_rad)
@@ -1512,6 +1519,47 @@ def init_inclinometer(*, zero_offset_deg: float, bus_number: int = 1, address: i
             "error": str(error),
         }
         return False
+
+
+def _poll_level_status() -> None:
+    """Broadcast ``level_status`` when the enclosure crosses the level threshold."""
+    if level_monitor is None or inclinometer_service is None:
+        return
+    snapshot = inclinometer_service.snapshot_for_impact(time.time()).snapshot
+    if snapshot is None:
+        return
+    if not level_monitor.update(snapshot.calibrated_pitch_deg, snapshot.roll_deg):
+        return
+    status = level_monitor.status
+    log = logger.info if status["level"] else logger.warning
+    log(
+        "[SERVER] Enclosure %s: pitch %+.2fdeg, roll %+.2fdeg (threshold %.2fdeg)",
+        "level" if status["level"] else "NOT level",
+        status["pitch_deg"],
+        status["roll_deg"],
+        status["threshold_deg"],
+    )
+    socketio.emit("level_status", status)
+
+
+def _level_status_loop() -> None:
+    while not _level_status_stop.wait(LEVEL_STATUS_POLL_S):
+        try:
+            _poll_level_status()
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.warning("[SERVER] Level status check failed", exc_info=True)
+
+
+def start_level_status_monitor(threshold_deg: float) -> None:
+    """Warn connected clients whenever the enclosure leaves or returns to level."""
+    global level_monitor  # pylint: disable=global-statement
+    level_monitor = LevelMonitor(threshold_deg)
+    _level_status_stop.clear()
+    threading.Thread(
+        target=_level_status_loop,
+        name="openflight-level-status",
+        daemon=True,
+    ).start()
 
 
 def init_kld7(
@@ -2070,6 +2118,8 @@ def handle_connect(auth=None, *_args):
     _reply("profiles", get_profile_store().snapshot())
     if power_monitor and power_monitor.status:
         _reply("power_status", power_monitor.status.to_dict())
+    if level_monitor is not None and level_monitor.status is not None:
+        _reply("level_status", level_monitor.status)
     if monitor:
         _reply("session_state", _session_state_payload(include_runtime_meta=True))
         _reply("trigger_status", _get_trigger_status())
@@ -2882,6 +2932,44 @@ def _snapshot_inclinometer_for_shot(shot: Shot) -> None:
     shot.inclinometer = data
 
 
+def _level_iwr_angles(
+    shot: Shot,
+    kind: str,
+    vertical_deg: float,
+    horizontal_deg: float,
+) -> tuple[float, float]:
+    """Rotate an IWR6843 (vertical, horizontal) pair by the pre-impact enclosure roll.
+
+    Returns the pair unchanged unless --inclinometer-roll-compensation is on
+    and this shot has an applied inclinometer snapshot. The radar-frame
+    values are kept under ``inclinometer["roll_compensation"][kind]``.
+    """
+    orientation = shot.inclinometer
+    if not inclinometer_roll_compensation_enabled or not orientation:
+        return vertical_deg, horizontal_deg
+    roll_deg = orientation.get("roll_deg")
+    if not orientation.get("applied") or roll_deg is None:
+        return vertical_deg, horizontal_deg
+    level_vertical, level_horizontal = level_frame_angles(vertical_deg, horizontal_deg, roll_deg)
+    orientation.setdefault("roll_compensation", {})[kind] = {
+        "roll_deg": roll_deg,
+        "radar_vertical_deg": round(vertical_deg, 3),
+        "radar_horizontal_deg": round(horizontal_deg, 3),
+        "level_vertical_deg": round(level_vertical, 3),
+        "level_horizontal_deg": round(level_horizontal, 3),
+    }
+    logger.info(
+        "[SERVER] Inclinometer roll %+.2fdeg: IWR %s angles V %.2f->%.2fdeg, H %+.2f->%+.2fdeg",
+        roll_deg,
+        kind,
+        vertical_deg,
+        level_vertical,
+        horizontal_deg,
+        level_horizontal,
+    )
+    return level_vertical, level_horizontal
+
+
 def _process_iwr6843_angle(shot: Shot) -> float | None:
     """Apply a correlated LCMF-v1 result without risking the OPS shot."""
     if iwr6843_runtime is None or shot.mode == "mock":
@@ -2977,6 +3065,10 @@ def _process_iwr6843_angle(shot: Shot) -> float | None:
                     (horizontal_confidence or 0.0) * 100,
                     horizontal_status,
                 )
+                shot.launch_angle_vertical, shot.launch_angle_horizontal = _level_iwr_angles(
+                    shot, "ball", measurement.angle_deg, horizontal_deg
+                )
+                shot.iwr6843_horizontal_deg = shot.launch_angle_horizontal
             logger.info(
                 "[SERVER] IWR6843 LCMF-v1 launch: %.2f° "
                 "(%d snapshots/%d frames, component std %.2f°)",
@@ -3028,6 +3120,10 @@ def _process_iwr6843_angle(shot: Shot) -> float | None:
             shot.experimental_attack_angle_status = (
                 getattr(club_path, "attack_angle_status", None) or club_path.status
             )
+            if candidate_path is not None and candidate_attack is not None:
+                candidate_attack, candidate_path = _level_iwr_angles(
+                    shot, "club", candidate_attack, candidate_path
+                )
             if candidate_path is not None:
                 shot.experimental_club_path_deg = round(candidate_path, 1)
             if candidate_attack is not None:
@@ -5111,6 +5207,23 @@ def main():
         help="Degrees added to raw LIS3DH pitch (default: 0)",
     )
     parser.add_argument(
+        "--inclinometer-roll-compensation",
+        action="store_true",
+        help=(
+            "Rotate IWR6843 launch angles (and IWR club path/attack angle) by the "
+            "measured enclosure roll into a level frame. Requires --inclinometer. Default off"
+        ),
+    )
+    parser.add_argument(
+        "--level-warning-deg",
+        type=float,
+        default=0.0,
+        help=(
+            "Send level_status to the UI when enclosure pitch or roll exceeds this many "
+            "degrees (clears below 80%% of it). Requires --inclinometer. 0 = off (default)"
+        ),
+    )
+    parser.add_argument(
         "--iwr6843-port", default=None, help="TI serial port (auto-detect by default)"
     )
     parser.add_argument(
@@ -5364,6 +5477,12 @@ def main():
         parser.error("--iwr6843 and horizontal --kld7 cannot both own club path")
     if args.inclinometer and not args.iwr6843:
         parser.error("--inclinometer requires --iwr6843")
+    if args.level_warning_deg < 0:
+        parser.error("--level-warning-deg must not be negative")
+    if args.inclinometer_roll_compensation and not args.inclinometer:
+        parser.error("--inclinometer-roll-compensation requires --inclinometer")
+    if args.level_warning_deg > 0 and not args.inclinometer:
+        parser.error("--level-warning-deg requires --inclinometer")
     if args.iwr6843 and args.mock:
         parser.error("--iwr6843 cannot be used with --mock")
     if args.camera_capture and args.mock:
@@ -5434,6 +5553,8 @@ def main():
     spin_axis_model = args.spin_axis_model
     global show_normalized_carry
     show_normalized_carry = args.show_normalized_carry
+    global inclinometer_roll_compensation_enabled
+    inclinometer_roll_compensation_enabled = args.inclinometer_roll_compensation
     global radar_auto_reconnect_enabled
     radar_auto_reconnect_enabled = args.radar_auto_reconnect
     ballistics_enabled = args.ballistics
@@ -5637,6 +5758,8 @@ def main():
             startup_status.skip("inclinometer", "Inclinometer unavailable; continuing")
         else:
             startup_status.ready("inclinometer", "Inclinometer connected")
+            if args.level_warning_deg > 0:
+                start_level_status_monitor(args.level_warning_deg)
 
     # Initialize K-LD7 angle radars (if enabled)
     if args.kld7:

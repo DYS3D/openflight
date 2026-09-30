@@ -170,9 +170,7 @@ class TestPlatform:
         model_file.write_bytes(model.encode() + b"\0")
         os_release = tmp_path / "os-release"
         os_release.write_text(f'ID=debian\nVERSION_CODENAME="{codename}"\n')
-        result = _call(
-            INSTALLER, 'platform_problems "$1" "$2"', str(model_file), str(os_release)
-        )
+        result = _call(INSTALLER, 'platform_problems "$1" "$2"', str(model_file), str(os_release))
         return result.stdout.splitlines()
 
     def test_pi5_bookworm_passes(self, tmp_path):
@@ -443,8 +441,20 @@ class TestFlashHelper:
         result = _call(FLASHER, 'detect_cp2105_port "$1"', str(tmp_path))
         assert result.stdout.strip().endswith("-if00-port0")
 
+    def test_prefers_the_udev_cli_name(self, tmp_path):
+        by_id = tmp_path / "by-id"
+        by_id.mkdir()
+        (by_id / "usb-Silicon_Labs_CP2105_Dual_00ABC-if00-port0").write_text("")
+        stable = tmp_path / "openflight-iwr-cli"
+        stable.write_text("")
+        result = _call(FLASHER, 'detect_cp2105_port "$1" "$2"', str(by_id), str(stable))
+        assert result.stdout.strip() == str(stable)
+
+    def test_default_stable_name_matches_the_udev_rules(self):
+        assert 'STABLE_CLI_PORT="/dev/openflight-iwr-cli"' in FLASHER.read_text()
+
     def test_no_port_is_an_error(self, tmp_path):
-        result = _call(FLASHER, 'detect_cp2105_port "$1"', str(tmp_path))
+        result = _call(FLASHER, 'detect_cp2105_port "$1" "$1/absent"', str(tmp_path))
         assert result.returncode != 0
 
     def test_dry_run_shows_the_flash_command(self):

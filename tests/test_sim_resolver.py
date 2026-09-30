@@ -150,7 +150,7 @@ def test_sensor_launch_angles_stay_measured(source):
 
 
 def test_calculated_spin_is_used_but_tagged_estimated():
-    shot = _shot(spin_rpm=3100.0, spin_confidence=0.9, spin_source="calculated", spin_axis_deg=0.0)
+    shot = _shot(spin_rpm=3100.0, spin_confidence=0.5, spin_source="calculated", spin_axis_deg=0.0)
     r = resolve_shot(shot, PlayerState())
     assert r.total_spin_rpm == 3100.0
     assert r.provenance["total_spin"] == "estimated"

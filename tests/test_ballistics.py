@@ -48,11 +48,17 @@ class TestResolveLaunch:
         assert cond.spin_source == "measured"
 
     def test_calculated_spin_is_labelled_calculated(self):
-        shot = _shot(spin_rpm=2900, spin_confidence=0.85, spin_source="calculated")
+        shot = _shot(spin_rpm=2900, spin_confidence=0.5, spin_source="calculated")
         cond = resolve_launch(shot)
         assert cond is not None
         assert cond.spin_rpm == 2900
         assert cond.spin_source == "calculated"
+
+    def test_low_confidence_measured_spin_is_not_admitted_by_source_alone(self):
+        shot = _shot(spin_rpm=2900, spin_confidence=0.5, spin_source="measured")
+        cond = resolve_launch(shot)
+        assert cond is not None
+        assert cond.spin_source == "club_typical"
 
     def test_uses_club_typical_when_low_confidence(self):
         shot = _shot(spin_rpm=1500, spin_confidence=0.3, club=ClubType.DRIVER)

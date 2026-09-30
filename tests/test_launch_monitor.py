@@ -124,7 +124,8 @@ class TestShot:
         """Shot with launch angle should adjust carry distance."""
         shot_no_angle = Shot(ball_speed_mph=150.0, timestamp=datetime.now())
         shot_low_angle = Shot(
-            ball_speed_mph=150.0, timestamp=datetime.now(),
+            ball_speed_mph=150.0,
+            timestamp=datetime.now(),
             launch_angle_vertical=7.0,  # well below 11 optimal for driver
             launch_angle_confidence=1.0,
         )
@@ -140,11 +141,14 @@ class TestShot:
         """Shot with launch angle should have tighter carry range."""
         shot_no_angle = Shot(ball_speed_mph=150.0, timestamp=datetime.now())
         shot_angle = Shot(
-            ball_speed_mph=150.0, timestamp=datetime.now(),
+            ball_speed_mph=150.0,
+            timestamp=datetime.now(),
             launch_angle_vertical=11.0,
             launch_angle_confidence=0.5,
         )
-        no_angle_spread = shot_no_angle.estimated_carry_range[1] - shot_no_angle.estimated_carry_range[0]
+        no_angle_spread = (
+            shot_no_angle.estimated_carry_range[1] - shot_no_angle.estimated_carry_range[0]
+        )
         angle_spread = shot_angle.estimated_carry_range[1] - shot_angle.estimated_carry_range[0]
         assert angle_spread < no_angle_spread
 
@@ -215,7 +219,7 @@ class TestMultiObjectReporting:
 
         # Verify the method exists and handles single digits
         # Can't test actual command without hardware, but method should not raise
-        assert hasattr(radar, 'set_num_reports')
+        assert hasattr(radar, "set_num_reports")
 
     def test_direction_constants(self):
         """Verify direction enum values."""
@@ -224,3 +228,46 @@ class TestMultiObjectReporting:
         assert Direction.INBOUND.value == "inbound"
         assert Direction.OUTBOUND.value == "outbound"
         assert Direction.UNKNOWN.value == "unknown"
+
+
+class TestSpinIsTrusted:
+    """Calculated spin is admitted by source; measured spin needs confidence."""
+
+    def _shot(self, **kwargs):
+        from datetime import datetime
+
+        from openflight.clubs import ClubType
+
+        base = dict(ball_speed_mph=150.0, timestamp=datetime.now(), club=ClubType.DRIVER)
+        base.update(kwargs)
+        return Shot(**base)
+
+    def test_calculated_spin_confidence_stays_below_reliable(self):
+        from openflight.launch_monitor import SPIN_CONFIDENCE_CALCULATED, SPIN_CONFIDENCE_RELIABLE
+
+        assert SPIN_CONFIDENCE_CALCULATED < SPIN_CONFIDENCE_RELIABLE
+
+    def test_calculated_spin_is_trusted_by_source(self):
+        from openflight.launch_monitor import SPIN_CONFIDENCE_CALCULATED, spin_is_trusted
+
+        shot = self._shot(
+            spin_rpm=2800.0, spin_confidence=SPIN_CONFIDENCE_CALCULATED, spin_source="calculated"
+        )
+        assert spin_is_trusted(shot)
+
+    def test_measured_spin_needs_high_confidence(self):
+        from openflight.launch_monitor import spin_is_trusted
+
+        assert spin_is_trusted(self._shot(spin_rpm=2800.0, spin_confidence=0.7))
+        assert not spin_is_trusted(self._shot(spin_rpm=2800.0, spin_confidence=0.5))
+        assert not spin_is_trusted(self._shot(spin_rpm=None, spin_confidence=0.9))
+        assert not spin_is_trusted(
+            self._shot(spin_rpm=0.0, spin_confidence=0.9, spin_source="calculated")
+        )
+
+    def test_mock_spin_is_not_trusted_by_source(self):
+        from openflight.launch_monitor import spin_is_trusted
+
+        assert not spin_is_trusted(
+            self._shot(spin_rpm=2800.0, spin_confidence=0.3, spin_source="mock")
+        )

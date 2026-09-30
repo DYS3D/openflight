@@ -22,6 +22,28 @@ SPIN_CONFIDENCE_HIGH = 0.7
 # but the carry table substitutes the club-optimal spin for the ball speed.
 SPIN_CONFIDENCE_RELIABLE = 0.6
 
+# Kinematic spin (170*v*sin(LA)^1.2) is a model, not a measurement. It sits
+# below the "reliable" floor so nothing mistakes it for radar-measured spin;
+# spin_is_trusted() admits it explicitly by source instead.
+SPIN_CONFIDENCE_CALCULATED = 0.5
+
+# Spin sources that come from a model rather than the radar.
+MODELLED_SPIN_SOURCES = frozenset({"calculated", "mock"})
+
+
+def spin_is_trusted(shot: "Shot", floor: float = SPIN_CONFIDENCE_HIGH) -> bool:
+    """True when a shot's spin may drive carry: measured above ``floor`` or calculated.
+
+    Calculated spin is admitted regardless of its (deliberately low)
+    confidence because the operator opted into the model with
+    --calculated-spin; it is still labelled as an estimate downstream.
+    """
+    if shot.spin_rpm is None or shot.spin_rpm <= 0:
+        return False
+    if shot.spin_source == "calculated":
+        return True
+    return shot.spin_confidence is not None and shot.spin_confidence >= floor
+
 
 def estimate_carry_distance(ball_speed_mph: float, club: ClubType = ClubType.DRIVER) -> float:
     """

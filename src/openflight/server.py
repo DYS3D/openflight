@@ -39,7 +39,13 @@ from .clubs.physics import (
     get_club_physics,
     get_club_simulation_profile,
 )
-from .launch_monitor import SPIN_CONFIDENCE_HIGH, SPIN_CONFIDENCE_RELIABLE, Shot, summarize_shots
+from .launch_monitor import (
+    SPIN_CONFIDENCE_CALCULATED,
+    SPIN_CONFIDENCE_RELIABLE,
+    Shot,
+    spin_is_trusted,
+    summarize_shots,
+)
 from .ops243 import (
     UART_BAUD_COMMANDS,
     Direction,
@@ -2417,7 +2423,7 @@ def _apply_calculated_spin(shot: Shot) -> bool:
         return False
     shot.spin_rpm_measured = shot.spin_rpm
     shot.spin_rpm = spin_calc
-    shot.spin_confidence = SPIN_CONFIDENCE_HIGH
+    shot.spin_confidence = SPIN_CONFIDENCE_CALCULATED
     shot.spin_source = "calculated"
     shot.spin_rejection_reason = None
     logger.info(
@@ -3361,12 +3367,7 @@ def _finalize_shot_detected(
                 conditions.spin_source,
             )
         else:
-            has_reliable_spin = (
-                shot.spin_rpm
-                and shot.spin_rpm > 0
-                and shot.spin_confidence is not None
-                and shot.spin_confidence >= SPIN_CONFIDENCE_RELIABLE
-            )
+            has_reliable_spin = spin_is_trusted(shot, floor=SPIN_CONFIDENCE_RELIABLE)
             spin_for_carry = (
                 shot.spin_rpm
                 if has_reliable_spin

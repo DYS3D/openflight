@@ -4352,7 +4352,9 @@ class TestApplyCalculatedSpin:
         assert 4500 < shot.spin_rpm < 5100
         assert shot.spin_rpm_measured == 6800.0
         assert shot.spin_source == "calculated"
-        assert shot.spin_confidence == pytest.approx(0.7)
+        # A model output must never look like high-confidence measured spin.
+        assert shot.spin_confidence == pytest.approx(server_module.SPIN_CONFIDENCE_CALCULATED)
+        assert shot.spin_confidence < server_module.SPIN_CONFIDENCE_RELIABLE
         assert shot.spin_rejection_reason is None
 
     def test_untouched_when_launch_angle_estimated(self):

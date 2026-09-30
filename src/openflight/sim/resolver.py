@@ -11,10 +11,7 @@ from typing import Dict, Mapping, Optional, Tuple
 
 from openflight.clubs import ClubType
 from openflight.clubs.physics import CLUB_PHYSICS, get_club_physics
-from openflight.launch_monitor import (
-    SPIN_CONFIDENCE_HIGH,
-    Shot,
-)
+from openflight.launch_monitor import MODELLED_SPIN_SOURCES, Shot, spin_is_trusted
 from openflight.sim.types import IncompleteShotError, PlayerState, ResolvedShot
 
 # Per-club fallback spin (rpm) when no trusted spin exists. Shared with the
@@ -26,7 +23,6 @@ SPIN_MODEL_RPM: Mapping[ClubType, float] = MappingProxyType(
 
 # Sources that mean "modeled, not observed".
 _ESTIMATED_ANGLE_SOURCES = frozenset({"estimated", "mock"})
-_MODELLED_SPIN_SOURCES = frozenset({"calculated", "mock"})
 
 
 def _resolve_total_spin(shot: Shot) -> Tuple[float, str]:
@@ -35,13 +31,8 @@ def _resolve_total_spin(shot: Shot) -> Tuple[float, str]:
     Kinematically calculated or mock spin is a model output, so it is used
     but tagged "estimated".
     """
-    if (
-        shot.spin_rpm is not None
-        and shot.spin_rpm > 0
-        and shot.spin_confidence is not None
-        and shot.spin_confidence >= SPIN_CONFIDENCE_HIGH
-    ):
-        provenance = "estimated" if shot.spin_source in _MODELLED_SPIN_SOURCES else "measured"
+    if spin_is_trusted(shot):
+        provenance = "estimated" if shot.spin_source in MODELLED_SPIN_SOURCES else "measured"
         return float(shot.spin_rpm), provenance
     return get_club_physics(shot.club).typical_spin_rpm, "estimated"
 

@@ -4628,3 +4628,141 @@ class TestBallisticCarryPrecedence:
         resolved = server_module.resolve_shot(forwarded[0], server_module.SimPlayerState())
         assert resolved.carry_yards == pytest.approx(shot.carry_spin_adjusted)
         assert resolved.carry_yards > 135.0
+
+
+class _HaltMain(BaseException):
+    """Stops ``main()`` once the flags under test have been applied."""
+
+
+def _run_main_until_start_monitor(monkeypatch, flags: list[str]) -> dict:
+    """Run ``main()`` on a mock build and capture the ``start_monitor`` kwargs.
+
+    The globals ``main()`` assigns are monkeypatched to their current values
+    so they are restored after the test.
+    """
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(sys, "argv", ["openflight-server", "--mock", "--no-logging", *flags])
+    for name in (
+        "ball_speed_correction_enabled",
+        "ball_speed_correction_distance_ft",
+        "ball_speed_correction_ball_above_radar_ft",
+        "ballistics_enabled",
+        "air_density",
+        "calculated_spin_enabled",
+        "battery_provider",
+        "profile_store",
+        "_VERTICAL_RADAR_GATE_BYPASS",
+    ):
+        monkeypatch.setattr(server_module, name, getattr(server_module, name))
+    monkeypatch.setattr(server_module, "ProfileStore", MagicMock())
+    monkeypatch.setattr(server_module, "init_session_logger", lambda **_kwargs: None)
+    captured: dict = {}
+
+    def halt(**kwargs):
+        captured.update(kwargs)
+        raise _HaltMain()
+
+    monkeypatch.setattr(server_module, "start_monitor", halt)
+
+    with pytest.raises(_HaltMain):
+        server_module.main()
+
+    return captured
+
+
+class TestSpeedCorrectionWithoutAngleRadar:
+    """``--speed-correction-without-angle-radar`` applies the cosine correction
+    on OPS-only builds using the table-estimated launch angle. Default off
+    leaves those builds exactly as before: raw radial speed, no
+    ``ball_speed_raw_mph``."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_finalization(self, monkeypatch):
+        server_module._reset_shot_sequence()
+        monkeypatch.setattr(server_module, "monitor", None)
+        monkeypatch.setattr(server_module, "kld7_vertical", None)
+        monkeypatch.setattr(server_module, "kld7_horizontal", None)
+        monkeypatch.setattr(server_module, "iwr6843_runtime", None)
+        monkeypatch.setattr(server_module, "camera_capture_runtime", None)
+        monkeypatch.setattr(server_module, "ball_speed_correction_distance_ft", 5.0)
+        monkeypatch.setattr(server_module, "ball_speed_correction_ball_above_radar_ft", -4.0 / 12.0)
+        monkeypatch.setattr(server_module, "calculated_spin_enabled", False)
+        monkeypatch.setattr(server_module, "ballistics_enabled", False)
+        monkeypatch.setattr(server_module, "debug_mode", False)
+        monkeypatch.setattr(server_module, "sim_connectors", [])
+        monkeypatch.setattr(server_module, "get_session_logger", lambda: None)
+        monkeypatch.setattr(server_module.socketio, "emit", lambda *_args, **_kwargs: None)
+        yield
+        _wait_for_shot_finalization_idle()
+
+    @staticmethod
+    def _ops_only_shot() -> Shot:
+        return Shot(
+            ball_speed_mph=108.0,
+            club_speed_mph=85.0,
+            timestamp=datetime(2026, 9, 30, 12, 0, 0),
+            impact_timestamp=100.0,
+            club=ClubType.IRON_7,
+            spin_rpm=None,
+            launch_angle_vertical=None,
+            mode="rolling-buffer",
+        )
+
+    def test_default_leaves_ops_only_ball_speed_uncorrected(self, monkeypatch):
+        monkeypatch.setattr(server_module, "ball_speed_correction_enabled", False)
+        shot = self._ops_only_shot()
+
+        server_module._finalize_shot_detected(shot, emit_event="shot")
+
+        assert shot.launch_angle_vertical_source == "estimated"
+        assert shot.ball_speed_mph == pytest.approx(108.0)
+        assert shot.ball_speed_raw_mph is None
+
+    def test_flag_corrects_ops_only_ball_speed_with_estimated_angle(self, monkeypatch):
+        monkeypatch.setattr(server_module, "ball_speed_correction_enabled", True)
+        shot = self._ops_only_shot()
+
+        server_module._finalize_shot_detected(shot, emit_event="shot")
+
+        assert shot.launch_angle_vertical_source == "estimated"
+        assert shot.launch_angle_vertical is not None
+        expected = server_module.correct_ball_speed(
+            108.0, shot.launch_angle_vertical, 5.0, -4.0 / 12.0
+        )
+        assert shot.ball_speed_raw_mph == pytest.approx(108.0)
+        assert shot.ball_speed_mph == pytest.approx(expected)
+        assert shot.ball_speed_mph > 108.0
+
+    @pytest.mark.parametrize(
+        ("flags", "expected_enabled"),
+        [([], False), (["--speed-correction-without-angle-radar"], True)],
+    )
+    def test_main_wires_the_flag_into_the_correction_switch(
+        self, monkeypatch, flags, expected_enabled
+    ):
+        _run_main_until_start_monitor(monkeypatch, flags)
+        assert server_module.ball_speed_correction_enabled is expected_enabled
+
+
+class TestRadarTimingFlagsReachTheMonitor:
+    """The OPS243 timing group is registered on the server parser and its
+    parsed config rides to ``start_monitor`` with the trigger kwargs."""
+
+    @pytest.mark.parametrize(
+        ("flags", "expected"),
+        [
+            ([], {}),
+            (
+                ["--fast-clock-sync", "--rearm-after-handoff", "--clock-sync-samples", "12"],
+                {"fast_clock_sync": True, "rearm_after_handoff": True, "clock_sync_samples": 12},
+            ),
+        ],
+    )
+    def test_main_passes_radar_timing_to_start_monitor(self, monkeypatch, flags, expected):
+        from openflight.radar_timing import RadarTimingConfig
+
+        captured = _run_main_until_start_monitor(monkeypatch, flags)
+
+        assert captured["trigger_kwargs"]["radar_timing"] == RadarTimingConfig(**expected)
+        assert captured["trigger_kwargs"]["pre_trigger_segments"] == 16

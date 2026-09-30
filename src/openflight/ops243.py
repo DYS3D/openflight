@@ -46,6 +46,7 @@ from typing import Callable, List, Optional
 import serial
 import serial.tools.list_ports
 
+from .radar_timing import ActiveRadarTiming, RadarTimingConfig
 from .serial_latency import log_usb_serial_latency_timer
 
 # Configure logging for raw radar data
@@ -195,6 +196,14 @@ class OPS243Radar:
     # udev symlink from scripts/setup/99-openflight.rules (scripts/install.sh).
     STABLE_PORT = "/dev/openflight-ops243"
 
+    # A fractional C? reply bracketed this tightly already pins the offset;
+    # --fast-clock-sync stops sampling at the first one.
+    FAST_CLOCK_SYNC_MAX_LATENCY_MS = 3.0
+
+    # Timing holder shared with the trigger; None on instances built
+    # without __init__, which then run on the slow defaults.
+    timing: Optional[ActiveRadarTiming] = None
+
     def __init__(
         self,
         port: Optional[str] = None,
@@ -202,6 +211,7 @@ class OPS243Radar:
         *,
         uart_baud: int = DEFAULT_UART_BAUD,
         negotiate_baud: Optional[bool] = None,
+        timing: Optional[ActiveRadarTiming] = None,
     ):
         """
         Initialize radar driver.
@@ -216,11 +226,14 @@ class OPS243Radar:
             uart_baud: Target UART rate to negotiate to (default 230400).
             negotiate_baud: Force baud negotiation on/off. Default None
                 means "negotiate iff the port is a raw UART".
+            timing: Clock-sync and re-arm timing holder. None uses the
+                slow defaults (``RadarTimingConfig()``).
         """
         self.port = port
         self.baud = baud
         self.uart_baud = uart_baud
         self._negotiate_baud = negotiate_baud
+        self.timing = timing if timing is not None else ActiveRadarTiming()
         self.serial: Optional[serial.Serial] = None
         self._unit = "mph"
         self._json_mode = False
@@ -229,6 +242,23 @@ class OPS243Radar:
         self.last_hardware_trigger_first_byte_timestamp: Optional[float] = None
         # Most recent OPS-clock -> host-epoch sync (see read_clock_sync).
         self.last_clock_sync: Optional[dict] = None
+
+    def _active_timing(self) -> RadarTimingConfig:
+        return self.timing.active if self.timing is not None else RadarTimingConfig()
+
+    @staticmethod
+    def _capture_has_terminator(response: str) -> bool:
+        """True when the dump's Q array closed with the ``]}`` terminator."""
+        q_idx = response.rfind('"Q"')
+        return q_idx >= 0 and "]}" in response[q_idx:]
+
+    def _check_capture_terminator(self, response: str, source: str) -> None:
+        """Drop to the slow timing defaults after a dump that never terminated."""
+        if not response or self.timing is None or self._capture_has_terminator(response):
+            return
+        self.timing.enter_safe_mode(
+            f"{source}: capture arrived without its ]}} terminator ({len(response)} bytes)"
+        )
 
     @staticmethod
     def find_radar_ports() -> List[str]:
@@ -569,13 +599,24 @@ class OPS243Radar:
 
         return response
 
+    @classmethod
+    def _is_precise_fractional_read(cls, read: dict) -> bool:
+        """True for a fractional C? reply bracketed under the fast-sync latency cap."""
+        radar_clock = read.get("radar_clock_s")
+        if radar_clock is None:
+            return False
+        clock = float(radar_clock)
+        is_fractional = abs(clock - round(clock)) > 1e-6
+        return is_fractional and read["read_latency_ms"] < cls.FAST_CLOCK_SYNC_MAX_LATENCY_MS
+
     def read_clock_sync(
         self,
         samples: int = 7,
         per_read_timeout: float = 0.2,
-        max_sync_duration_s: float = 1.25,
+        max_sync_duration_s: Optional[float] = None,
         sample_interval_s: float = 0.01,
         store: bool = True,
+        fast_clock_sync: Optional[bool] = None,
     ) -> dict:
         """Map the OPS internal clock to host epoch via repeated ``C?`` reads.
 
@@ -604,11 +645,24 @@ class OPS243Radar:
         default it is also stored on ``self.last_clock_sync``; pass
         ``store=False`` for diagnostics that should not affect the live timing
         path. Never raises on a missing/garbled reply.
+
+        ``max_sync_duration_s`` and ``fast_clock_sync`` default to the active
+        timing config. With ``fast_clock_sync`` on, sampling stops at the
+        first fractional reply bracketed in under
+        ``FAST_CLOCK_SYNC_MAX_LATENCY_MS``; the summary then carries
+        ``fast_clock_sync_early_exit: True``.
         """
         if not self.serial or not self.serial.is_open:
             raise ConnectionError("Not connected to radar")
 
+        timing = self._active_timing()
+        if max_sync_duration_s is None:
+            max_sync_duration_s = timing.max_sync_duration_s
+        if fast_clock_sync is None:
+            fast_clock_sync = timing.fast_clock_sync
+
         reads: List[dict] = []
+        early_exit = False
 
         def read_once() -> bool:
             self.serial.reset_input_buffer()
@@ -620,8 +674,7 @@ class OPS243Radar:
                 # mid-dump). Abandon the sync; the caller falls back to
                 # first-byte timing. Retrying writes would only re-block.
                 logger.warning(
-                    "[OPS] Clock sync C? write timed out — port jammed, "
-                    "abandoning clock sync"
+                    "[OPS] Clock sync C? write timed out — port jammed, abandoning clock sync"
                 )
                 return False
             buf = ""
@@ -654,6 +707,9 @@ class OPS243Radar:
             if idx:
                 time.sleep(max(0.0, sample_interval_s))
             if not read_once():
+                break
+            if fast_clock_sync and self._is_precise_fractional_read(reads[-1]):
+                early_exit = True
                 break
 
         valid = [r for r in reads if r["radar_clock_s"] is not None]
@@ -727,6 +783,8 @@ class OPS243Radar:
             "rollover_uncertainty_ms": rollover_uncertainty_ms,
             "reads": reads,
         }
+        if early_exit:
+            summary["fast_clock_sync_early_exit"] = True
         if store:
             self.last_clock_sync = summary
         if usable_for_trigger_timestamps:
@@ -1455,6 +1513,7 @@ class OPS243Radar:
                 time.sleep(0.02)
 
         full_response = "".join(response_lines)
+        self._check_capture_terminator(full_response, "S! trigger")
 
         # Only log issues, not normal operation
         if not full_response:
@@ -1587,6 +1646,7 @@ class OPS243Radar:
                 time.sleep(0.02)
 
         full_response = "".join(response_lines) if response_lines else ""
+        self._check_capture_terminator(full_response, "Hardware trigger")
 
         if not full_response:
             logger.info("[OPS] Hardware trigger: no data received within %.0fs", timeout)
@@ -1628,6 +1688,7 @@ class OPS243Radar:
         # The budget is a floor scaled by baud: unchanged over USB and over
         # UART at 230,400 (dump ~1.8s), but a 19,200 link needs ~21s just to
         # finish one straggling dump and would otherwise trip this every time.
+        timing = self._active_timing()
         drain_budget = self.transfer_budget_s(floor=self.REARM_DRAIN_TIMEOUT_S)
         drain_start = time.time()
         total_drained = 0
@@ -1639,7 +1700,7 @@ class OPS243Radar:
                 chunk = self.serial.read(waiting)
                 total_drained += len(chunk)
                 drain_tail = (drain_tail + chunk)[-200:]
-            time.sleep(0.2)
+            time.sleep(timing.rearm_drain_poll_s)
             if self.serial.in_waiting == 0:
                 break
             if time.time() - drain_start > drain_budget:
@@ -1663,17 +1724,17 @@ class OPS243Radar:
             # Restart sampling
             self.serial.write(b"PA")
             self.serial.flush()
-            time.sleep(0.1)
+            time.sleep(timing.rearm_after_pa_s)
 
             # Re-send trigger split (may reset after capture dump)
             self.serial.write(f"S#{pre_trigger_segments}\r".encode())
             self.serial.flush()
-            time.sleep(0.1)
+            time.sleep(timing.rearm_after_split_s)
 
             # Reactivate after settings change
             self.serial.write(b"PA")
             self.serial.flush()
-            time.sleep(0.15)
+            time.sleep(timing.rearm_after_activate_s)
         except serial.SerialTimeoutException:
             # Radar not servicing commands (likely mid-dump from an
             # immediate re-trigger). Don't hang the capture thread — the

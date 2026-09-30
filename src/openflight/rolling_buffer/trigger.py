@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Callable, List, Optional
 
+from ..radar_timing import ActiveRadarTiming
 from .processor import RollingBufferProcessor
 from .types import IQCapture
 
@@ -342,7 +343,6 @@ class SoundTrigger(TriggerStrategy):
 
     """
 
-    CLOCK_SYNC_SAMPLES = 36
     CLOCK_SYNC_MAX_ROLLOVER_UNCERTAINTY_MS = 40.0
     CLOCK_SYNC_MAX_TIMEOUT_READ_MS = 50.0
     CLOCK_SYNC_MAX_FALLBACK_AGE_S = 60.0
@@ -350,6 +350,7 @@ class SoundTrigger(TriggerStrategy):
     def __init__(
         self,
         pre_trigger_segments: int = 12,
+        timing: Optional[ActiveRadarTiming] = None,
     ):
         """
         Initialize sound trigger.
@@ -360,8 +361,12 @@ class SoundTrigger(TriggerStrategy):
                 Default 12 gives ~51ms pre-trigger, ~85ms post-trigger.
                 NOTE: This is passed to enter_rolling_buffer_mode() by the caller.
                 The trigger does NOT configure rolling buffer mode itself.
+            timing: Clock-sync sample count and re-arm ordering, shared with
+                the radar driver. None uses the slow defaults.
         """
         super().__init__(pre_trigger_segments=pre_trigger_segments)
+        self.timing = timing if timing is not None else ActiveRadarTiming()
+        self._rearm_pending = False
 
     @staticmethod
     def _clock_sync_last_read_host_time(clock_sync: dict) -> Optional[float]:
@@ -464,7 +469,7 @@ class SoundTrigger(TriggerStrategy):
         if hasattr(radar, "read_clock_sync"):
             try:
                 fresh_sync = radar.read_clock_sync(
-                    samples=self.CLOCK_SYNC_SAMPLES,
+                    samples=self.timing.active.clock_sync_samples,
                     store=False,
                 )
                 if isinstance(fresh_sync, dict):
@@ -655,8 +660,14 @@ class SoundTrigger(TriggerStrategy):
 
         # Accepted: talk on the wire while the radar is still idle, then
         # re-arm as the last serial action before returning to the reader.
+        # With rearm_after_handoff the monitor re-arms once the shot has
+        # been processed and delivered (finish_deferred_rearm).
         self._select_clock_sync_for_capture(radar, capture)
-        radar.rearm_rolling_buffer(self.pre_trigger_segments)
+        if self.timing.active.rearm_after_handoff:
+            self._rearm_pending = True
+            logger.info("[TRIGGER] Re-arm deferred until the shot is handed off")
+        else:
+            radar.rearm_rolling_buffer(self.pre_trigger_segments)
 
         if capture.first_byte_timestamp is not None and capture.trigger_timestamp is None:
             capture.apply_trigger_timestamp_from_first_byte()
@@ -684,6 +695,18 @@ class SoundTrigger(TriggerStrategy):
         )
 
         return capture
+
+    def finish_deferred_rearm(self, radar: "OPS243Radar") -> bool:
+        """Re-arm a radar left idle by ``rearm_after_handoff``.
+
+        Returns True when a re-arm was pending and has now been sent. Safe
+        to call on every capture-loop path; it is a no-op otherwise.
+        """
+        if not self._rearm_pending:
+            return False
+        self._rearm_pending = False
+        radar.rearm_rolling_buffer(self.pre_trigger_segments)
+        return True
 
     def reset(self):
         """Reset trigger state."""

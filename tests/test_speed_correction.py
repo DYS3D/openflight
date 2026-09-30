@@ -1,11 +1,35 @@
 """Tests for the ball-speed cosine correction."""
 
+import argparse
+
 import pytest
 
-from openflight.speed_correction import correct_ball_speed, radial_speed_factor
+from openflight.speed_correction import (
+    SpeedCorrectionConfig,
+    add_speed_correction_args,
+    correct_ball_speed,
+    radial_speed_factor,
+)
 
 D_FT = 5.0
 H_FT = -4.0 / 12.0
+
+
+class TestSpeedCorrectionConfig:
+    def test_default_is_off(self):
+        assert SpeedCorrectionConfig().apply_without_angle_radar is False
+
+    def test_cli_default_keeps_correction_off_without_angle_radar(self):
+        parser = argparse.ArgumentParser()
+        add_speed_correction_args(parser)
+        config = SpeedCorrectionConfig.from_args(parser.parse_args([]))
+        assert config == SpeedCorrectionConfig(apply_without_angle_radar=False)
+
+    def test_cli_flag_turns_correction_on(self):
+        parser = argparse.ArgumentParser()
+        add_speed_correction_args(parser)
+        args = parser.parse_args(["--speed-correction-without-angle-radar"])
+        assert SpeedCorrectionConfig.from_args(args).apply_without_angle_radar is True
 
 
 class TestRadialSpeedFactor:

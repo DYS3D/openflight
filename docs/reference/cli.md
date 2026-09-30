@@ -53,6 +53,26 @@ How a capture is initiated and framed.
 | `--trigger` | choices: `sound`, `speed`; default `sound` | Trigger strategy |
 | `--sound-pre-trigger` | int; default `16` | Pre-trigger segments S#n, 0-32 (default: 16 = 50/50 split, each segment ~4.27ms at 30ksps) |
 
+## OPS243 timing
+
+Clock-sync and re-arm timing for the sound-trigger capture cycle
+(`src/openflight/radar_timing.py`). Every default reproduces the shipped
+behaviour; the two fast paths are opt-in. If a dump ever arrives without its
+`]}` terminator, the active timing reverts to these defaults for the rest of
+the session and a single warning is logged (`[TIMING] ... reverting radar
+timing to the slow defaults`).
+
+| Flag | Type / default | Description |
+| --- | --- | --- |
+| `--clock-sync-samples` | int; default `36` | `C?` reads per accepted shot when mapping the radar clock to host time |
+| `--clock-sync-max-duration` | float; default `1.25` | Seconds to keep sampling an integer-only radar clock while waiting for a one-second rollover |
+| `--rearm-drain-poll` | float; default `0.2` | Seconds between serial-drain polls before re-arming |
+| `--rearm-after-pa` | float; default `0.1` | Seconds to wait after the first `PA` on re-arm |
+| `--rearm-after-split` | float; default `0.1` | Seconds to wait after `S#n` on re-arm |
+| `--rearm-after-activate` | float; default `0.15` | Seconds to wait after the second `PA` on re-arm |
+| `--fast-clock-sync` | flag | Stop the per-shot clock sync early once a fractional-clock reply arrives with under 3 ms of read latency. Default off: always take every sample. |
+| `--rearm-after-handoff` | flag | Hand an accepted capture to shot processing and the UI before re-arming the radar. Default off: re-arm first, then process. Rejected (silent) captures still re-arm immediately. |
+
 ## IWR6843 angle radar
 
 The supported angle radar.
@@ -96,6 +116,7 @@ Carry model and spin handling.
 | `--temperature-f` | float; default `59` | Air temperature in °F for the ballistic carry model |
 | `--humidity` | float; default `0` | Relative humidity in percent for the ballistic carry model |
 | `--calculated-spin` | flag | Replace radar-measured spin with the kinematic estimate (170*v*sin(LA)^1.2) when the launch angle was measured. The 24 GHz OPS return carries no usable spin line (see src/openflight/spin_estimate.py); the measured value is kept in spin_rpm_measured for offline scoring |
+| `--speed-correction-without-angle-radar` | flag | Apply the ball-speed cosine correction (`src/openflight/speed_correction.py`) on OPS-only builds using the table-estimated launch angle and the `--kld7-ball-distance` / `--kld7-radar-height-inches` geometry. Default off: the correction only runs with `--kld7` or `--iwr6843`. |
 
 ## Swing speed
 

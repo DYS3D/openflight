@@ -29,10 +29,44 @@ head's delivery is nearly parallel to the LOS (error ~0.1-0.2 mph).
 
 from __future__ import annotations
 
+import argparse
 import math
+from dataclasses import dataclass
 
 MPH_TO_FTS = 1.4666667
 DRAG_MPH_PER_MS = 0.027  # iron-speed drag deceleration of the ball
+
+
+@dataclass(frozen=True)
+class SpeedCorrectionConfig:
+    """When the cosine correction runs.
+
+    The correction rides on whichever angle radar supplies launch angle.
+    ``apply_without_angle_radar`` also applies it on OPS-only builds using the
+    table-estimated launch angle; default off leaves those builds uncorrected.
+    """
+
+    apply_without_angle_radar: bool = False
+
+    @classmethod
+    def from_args(cls, args: argparse.Namespace) -> "SpeedCorrectionConfig":
+        return cls(apply_without_angle_radar=bool(args.speed_correction_without_angle_radar))
+
+
+def add_speed_correction_args(parser: argparse.ArgumentParser) -> None:
+    """Register the speed-correction flag on ``parser``."""
+    group = parser.add_argument_group("Ball-speed cosine correction")
+    group.add_argument(
+        "--speed-correction-without-angle-radar",
+        dest="speed_correction_without_angle_radar",
+        action="store_true",
+        default=False,
+        help=(
+            "Apply the ball-speed cosine correction on OPS-only builds using the "
+            "table-estimated launch angle. Default off: the correction only runs "
+            "with --kld7 or --iwr6843."
+        ),
+    )
 
 
 def radial_speed_factor(

@@ -15,6 +15,7 @@ from ..clubs import ClubType
 from ..clubs.physics import get_club_physics
 from ..launch_monitor import Shot, estimate_carry_distance, summarize_shots
 from ..ops243 import OPS243Radar, SpeedReading
+from ..radar_timing import ActiveRadarTiming, RadarTimingConfig
 from ..session_logger import get_session_logger, log_session_error
 from .processor import RollingBufferProcessor
 from .trigger import create_trigger
@@ -186,6 +187,7 @@ class RollingBufferMonitor:
         trigger_type: str = "sound",
         sample_rate_ksps: int = 30,
         ops_baud: Optional[int] = None,
+        radar_timing: Optional[RadarTimingConfig] = None,
         **trigger_kwargs,
     ):
         """
@@ -201,13 +203,19 @@ class RollingBufferMonitor:
             trigger_type: Trigger strategy:
                 - "sound" (default): Persistent hardware-triggered buffer
                 - "speed": Fast speed trigger fallback per manufacturer
+            radar_timing: Clock-sync and re-arm timing. None uses the slow
+                defaults. One holder is shared by the radar and the sound
+                trigger so a safe-mode fallback reaches both.
             **trigger_kwargs: Arguments for trigger strategy
         """
+        self.timing = ActiveRadarTiming(radar_timing)
         radar_kwargs = {} if ops_baud is None else {"uart_baud": ops_baud}
-        self.radar = OPS243Radar(port=port, **radar_kwargs)
+        self.radar = OPS243Radar(port=port, timing=self.timing, **radar_kwargs)
         self.processor = RollingBufferProcessor(sample_rate=sample_rate_ksps * 1000)
         self.trigger_type = trigger_type
         self.sample_rate_ksps = sample_rate_ksps
+        if trigger_type == "sound":
+            trigger_kwargs["timing"] = self.timing
         self.trigger = create_trigger(trigger_type, **trigger_kwargs)
 
         self._running = False
@@ -337,6 +345,16 @@ class RollingBufferMonitor:
             self._processing_callback(state)
         except Exception:
             logger.warning("[MONITOR] Processing status callback failed", exc_info=True)
+
+    def _finish_deferred_rearm(self) -> None:
+        """Re-arm the radar a trigger left idle under ``rearm_after_handoff``."""
+        finish = getattr(self.trigger, "finish_deferred_rearm", None)
+        if finish is None:
+            return
+        try:
+            finish(self.radar)
+        except Exception:
+            logger.warning("[MONITOR] Deferred re-arm failed", exc_info=True)
 
     def _record_trigger_event(self, diagnostic: dict, *, accepted: bool, reason: str, **updates):
         """Persist and publish one complete outcome for a physical trigger."""
@@ -556,6 +574,7 @@ class RollingBufferMonitor:
                                 total_ms,
                             )
                     finally:
+                        self._finish_deferred_rearm()
                         self._persist_accepted_shot(
                             capture, processed, shot, trigger_diagnostic, trigger_latency_ms
                         )
@@ -598,6 +617,11 @@ class RollingBufferMonitor:
                     exc=e,
                 )
                 time.sleep(1.0)
+            finally:
+                # Every path that leaves an accepted capture unprocessed
+                # (failed FFT, rejected shot, exception, shutdown) must still
+                # send the deferred re-arm, or the radar stays idle.
+                self._finish_deferred_rearm()
 
     def _persist_accepted_shot(
         self,

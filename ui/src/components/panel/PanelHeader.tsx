@@ -58,6 +58,8 @@ export function PanelHeader({
   const { t } = useI18n();
   const storeConnected = useSystemStore((state) => state.connected);
   const storeRadarConnected = useDebugStore((state) => state.triggerStatus.radar_connected);
+  const radarState = useDebugStore((state) => state.triggerStatus.radar_state);
+  const iwr6843State = useDebugStore((state) => state.triggerStatus.iwr6843_state);
   const handleSecretTap = useLaunchDaddyStore((state) => state.handleSecretTap);
   const [internalOpen, setInternalOpen] = useState(false);
 
@@ -96,6 +98,8 @@ export function PanelHeader({
         <StatusMenu
           connected={connected}
           radarConnected={radarConnected}
+          radarState={radarConnectedProp === undefined ? radarState : undefined}
+          iwr6843State={iwr6843State}
           onClose={() => {
             if (statusMenuOpenProp === undefined) {
               setInternalOpen(false);

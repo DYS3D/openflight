@@ -18,6 +18,8 @@ export const es: Messages = {
   'header.radar': 'Radar',
   'header.connected': 'Conectado',
   'header.disconnected': 'Desconectado',
+  'header.reconnecting': 'Reconectando…',
+  'header.angleRadar': 'Radar de ángulo',
 
   'live.ready': 'Listo',
   'live.readyDetail': 'Empieza un golpe o una sesión de velocidad de swing',

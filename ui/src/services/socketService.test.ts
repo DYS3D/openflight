@@ -23,6 +23,7 @@ vi.mock('socket.io-client', () => ({ io: () => fake.socket }));
 
 const { socketService } = await import('./socketService');
 const { useBannerStore } = await import('../stores/useBannerStore');
+const { useDebugStore } = await import('../stores/useDebugStore');
 
 function fire(handlers: Map<string, (...args: unknown[]) => void>, event: string, ...args: unknown[]) {
   const handler = handlers.get(event);
@@ -57,6 +58,28 @@ describe('socketService', () => {
     expect(emit).toHaveBeenCalledWith('toggle_debug', { enabled: true });
     expect(emit).toHaveBeenCalledWith('toggle_debug', { enabled: false });
     expect(emit).not.toHaveBeenCalledWith('toggle_debug');
+  });
+
+  it('stores the radar link state carried by trigger_status', () => {
+    const initial = useDebugStore.getState().triggerStatus;
+    expect(initial.radar_state).toBe('disconnected');
+    expect(initial.iwr6843_state).toBeNull();
+
+    fire(fake.handlers, 'trigger_status', {
+      ...initial,
+      radar_connected: false,
+      radar_state: 'reconnecting',
+      radar_port: '/dev/openflight-ops243',
+      iwr6843_state: 'connected',
+    });
+
+    expect(useDebugStore.getState().triggerStatus).toMatchObject({
+      radar_connected: false,
+      radar_state: 'reconnecting',
+      iwr6843_state: 'connected',
+    });
+
+    useDebugStore.getState().setTriggerStatus(initial);
   });
 
   it('surfaces sim_send_failed as an on-screen notice', () => {

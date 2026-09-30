@@ -86,6 +86,7 @@ dev = [
     "pre-commit>=4.0.0",
     "pytest>=9.0.3",
     "ruff>=0.1.0",
+    "pytest-cov>=7.1.0",
 ]
 # Documentation site. Zensical is pre-1.0, so pin the minor to keep CI and
 # local builds on the same renderer.

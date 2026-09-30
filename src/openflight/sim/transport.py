@@ -103,6 +103,7 @@ class TcpSimClient:
         on_inbound: Optional[Callable[[InboundEvent], None]] = None,
         on_status: Optional[Callable[[StatusEvent], None]] = None,
         backoff_seconds: Tuple[float, ...] = DEFAULT_BACKOFF,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self._host = host
         self._port = port
@@ -112,6 +113,7 @@ class TcpSimClient:
         self.on_inbound = on_inbound
         self.on_status = on_status
         self._backoff = backoff_seconds
+        self._clock = clock
         self._state = ConnectionState.DISABLED
         self._state_lock = threading.Lock()
         self._sock: Optional[socket.socket] = None
@@ -119,7 +121,7 @@ class TcpSimClient:
         self._stop_event = threading.Event()
         self._conn_thread: Optional[threading.Thread] = None
         self._hb_thread: Optional[threading.Thread] = None
-        self._last_send_time = 0.0
+        self._last_send_time = float("-inf")
         self._send_time_lock = threading.Lock()
 
     # --- public state ---------------------------------------------------------
@@ -174,7 +176,7 @@ class TcpSimClient:
                 raise ConnectionError("send_raw called while not connected")
             self._sock.sendall(data)
         with self._send_time_lock:
-            self._last_send_time = time.time()
+            self._last_send_time = self._clock()
 
     # --- internals ------------------------------------------------------------
 
@@ -200,11 +202,15 @@ class TcpSimClient:
                 return
             if self.state != ConnectionState.CONNECTED:
                 continue
-            with self._send_time_lock:
-                idle_for = time.time() - self._last_send_time
-            if idle_for < interval:
+            if not self._heartbeat_due(interval):
                 continue
             self._send_heartbeat()
+
+    def _heartbeat_due(self, interval: float) -> bool:
+        """True once no real traffic has been sent for a full interval."""
+        with self._send_time_lock:
+            idle_for = self._clock() - self._last_send_time
+        return idle_for >= interval
 
     def _set_state(self, new_state: ConnectionState, **status_kwargs) -> None:
         with self._state_lock:

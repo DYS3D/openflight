@@ -166,7 +166,7 @@ def test_persisted_startup_sends_no_mode_switch_at_all(radar):
 
     This is the production launch-monitor path. The OPS243-A flips HOST_INT
     pin mode when it changes modes at runtime, so the board is persisted into
-    rolling-buffer mode with A! and power-cycled once (CLAUDE.md "Radar
+    rolling-buffer mode with A! and power-cycled once (AGENTS.md "Radar
     Setup"); startup then only re-arms. A GC/PI here would re-introduce the
     runtime transition the whole workaround exists to avoid.
 

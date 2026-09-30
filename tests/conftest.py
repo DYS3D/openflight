@@ -34,7 +34,7 @@ class MockSimServer:
 
     def _run(self):
         try:
-            self._sock.settimeout(0.5)
+            self._sock.settimeout(0.05)
             while not self._stop.is_set():
                 try:
                     self._client_sock, _ = self._sock.accept()

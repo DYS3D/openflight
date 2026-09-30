@@ -45,8 +45,8 @@ To analyze afterwards:
     python -c "import pickle; d=pickle.load(open('file.pkl','rb')); print(d['metadata'])"
 
 Datasheets:
-    docs/K-LD7_Datasheet.pdf (module)
-    docs/K-LD7-EVAL_Datasheet.pdf (eval board)
+    docs/legacy/K-LD7_Datasheet.pdf (module)
+    docs/legacy/K-LD7-EVAL_Datasheet.pdf (eval board)
 """
 
 import argparse

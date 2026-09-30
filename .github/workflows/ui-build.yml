@@ -25,6 +25,23 @@ jobs:
         run: npm run build
         working-directory: ui
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".node-version"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ui
+      - name: Unit tests
+        run: npm run test
+        working-directory: ui
+
   lint:
     runs-on: ubuntu-latest
     steps:

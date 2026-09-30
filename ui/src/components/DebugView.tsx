@@ -1,5 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
 import { useDebugStore } from '../stores/useDebugStore';
+import { useShotStore } from '../stores/useShotStore';
 import { useSystemStore } from '../stores/useSystemStore';
 import { socketService } from '../services/socketService';
 import { useI18n } from '../i18n/useI18n';
@@ -8,6 +9,7 @@ import { PanelAction, PanelHeader } from './panel';
 
 export function DebugView() {
   const { t } = useI18n();
+  const shotLatency = useShotStore((state) => state.latestShot?.latency_ms ?? null);
   const { debugMode, mockMode } = useSystemStore(
     useShallow((state) => ({ debugMode: state.debugMode, mockMode: state.mockMode }))
   );
@@ -43,6 +45,7 @@ export function DebugView() {
           onUpdateConfig={(config) => socketService.setRadarConfig(config)}
           triggerDiagnostics={triggerDiagnostics}
           triggerStatus={triggerStatus}
+          shotLatency={shotLatency}
         />
       </div>
     </div>

@@ -347,6 +347,11 @@ export const en = {
   'header.radarNoiseValue': '{noise} dB ({delta} vs baseline)',
   'header.interference': 'Interference',
 
+  'debug.shotLatency': 'Shot latency',
+  'debug.latencyStage': 'Stage',
+  'debug.latencyTriggerToUi': 'Trigger → UI',
+  'debug.latencyTriggerToFinal': 'Trigger → final',
+
   'display.tvAria': 'TV display mode',
   'display.streamUnavailable': 'Camera stream unavailable',
   'display.streamAlt': 'OpenFlight camera stream',

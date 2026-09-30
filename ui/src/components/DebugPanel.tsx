@@ -1,6 +1,8 @@
 import { memo, useState } from 'react';
 import type { DebugReading, RadarConfig, DebugShotLog } from '../types/socket';
-import type { TriggerDiagnostic, TriggerStatus } from '../types/shot';
+import type { ShotLatency, TriggerDiagnostic, TriggerStatus } from '../types/shot';
+import { t } from '../i18n';
+import { latencyRows } from '../utils/shotLatency';
 import './DebugPanel.css';
 
 interface DebugPanelProps {
@@ -13,6 +15,35 @@ interface DebugPanelProps {
   onUpdateConfig: (config: Partial<RadarConfig>) => void;
   triggerDiagnostics: TriggerDiagnostic[];
   triggerStatus: TriggerStatus;
+  /** `latency_ms` of the newest shot; the table is hidden when the server sends none. */
+  shotLatency?: ShotLatency | null;
+}
+
+function ShotLatencyTable({ latency }: { latency: ShotLatency | null | undefined }) {
+  const rows = latencyRows(latency);
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="debug-panel__section">
+      <h4>{t('debug.shotLatency')}</h4>
+      <table className="shot-latency">
+        <thead>
+          <tr>
+            <th scope="col">{t('debug.latencyStage')}</th>
+            <th scope="col">ms</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <th scope="row">{row.label}</th>
+              <td>{row.ms.toFixed(0)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 const REASON_DISPLAY: Record<string, string> = {
@@ -310,6 +341,7 @@ export function DebugPanel({
   onUpdateConfig,
   triggerDiagnostics,
   triggerStatus,
+  shotLatency,
 }: DebugPanelProps) {
   const [activeTab, setActiveTab] = useState<DebugTab>('status');
   const isRollingBuffer = triggerStatus.mode === 'rolling-buffer';
@@ -353,6 +385,7 @@ export function DebugPanel({
         {activeTab === 'status' && (
           <>
             <SystemStatus status={triggerStatus} />
+            <ShotLatencyTable latency={shotLatency} />
             {isRollingBuffer && <LastTriggerCard diag={lastDiag} />}
             {!isRollingBuffer && triggerStatus.mode !== 'mock' && (
               <div className="debug-panel__section">

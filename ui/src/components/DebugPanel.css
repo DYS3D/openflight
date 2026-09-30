@@ -587,3 +587,36 @@
     font-size: 0.75rem;
   }
 }
+
+/* Shot latency table */
+.shot-latency {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.shot-latency th,
+.shot-latency td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.shot-latency thead th {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.shot-latency tbody th {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.shot-latency td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}

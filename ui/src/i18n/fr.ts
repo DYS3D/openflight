@@ -351,6 +351,11 @@ export const fr: Messages = {
   'header.radarNoiseValue': '{noise} dB ({delta} vs référence)',
   'header.interference': 'Interférence',
 
+  'debug.shotLatency': 'Latence du coup',
+  'debug.latencyStage': 'Étape',
+  'debug.latencyTriggerToUi': 'Déclenchement → interface',
+  'debug.latencyTriggerToFinal': 'Déclenchement → final',
+
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',
   'display.streamAlt': 'Flux caméra OpenFlight',

@@ -350,6 +350,11 @@ export const pt: Messages = {
   'header.radarNoiseValue': '{noise} dB ({delta} vs base)',
   'header.interference': 'Interferência',
 
+  'debug.shotLatency': 'Latência do golpe',
+  'debug.latencyStage': 'Etapa',
+  'debug.latencyTriggerToUi': 'Disparo → interface',
+  'debug.latencyTriggerToFinal': 'Disparo → final',
+
   'display.tvAria': 'Modo de tela de TV',
   'display.streamUnavailable': 'Transmissão da câmera indisponível',
   'display.streamAlt': 'Transmissão da câmera OpenFlight',

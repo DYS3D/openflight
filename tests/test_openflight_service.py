@@ -7,6 +7,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 UNIT = REPO_ROOT / "scripts/setup/openflight.service"
 SETUP = REPO_ROOT / "scripts/setup/setup.sh"
+INSTALL = REPO_ROOT / "scripts/install.sh"
 SETUP_LIB = REPO_ROOT / "scripts/setup/lib.sh"
 
 
@@ -44,7 +45,7 @@ def test_service_stops_crash_looping_instead_of_retrying_forever():
 def test_every_home_path_in_the_unit_is_rewritten_by_setup():
     """Only the project path is rewritten; any other /home/coleman entry would ship stale."""
     assert "s|/home/coleman/openflight|$PROJECT_DIR|g" in SETUP_LIB.read_text(encoding="utf-8")
-    for installer in (SETUP,):
+    for installer in (SETUP, INSTALL):
         assert 'of_render_unit "$' in installer.read_text(encoding="utf-8"), installer
 
     for line in _unit_lines():

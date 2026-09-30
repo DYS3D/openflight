@@ -2,7 +2,7 @@
 """
 OpenFlight post-install self-test.
 
-Checks what scripts/setup/install-pi.sh set up (UI build, service, udev rules,
+Checks what scripts/install.sh set up (UI build, service, udev rules,
 serial permissions, UART, disk space) and then the radars themselves, reusing
 the hardware checks from diagnose.py.
 
@@ -78,7 +78,7 @@ def check_service(
         return (
             "fail",
             f"{unit_name} {state or 'not installed'}",
-            "Re-run scripts/setup/install-pi.sh, or: sudo systemctl enable openflight",
+            "Re-run scripts/install.sh, or: sudo systemctl enable openflight",
         )
 
     return _timed("Kiosk service", run)
@@ -88,7 +88,7 @@ def check_udev_rules(path: Path = UDEV_RULES) -> CheckResult:
     def run():
         if path.is_file():
             return "pass", str(path), ""
-        return "fail", f"{path} missing", "Re-run scripts/setup/install-pi.sh"
+        return "fail", f"{path} missing", "Re-run scripts/install.sh"
 
     return _timed("udev rules", run)
 

@@ -313,6 +313,8 @@ class Shot:
     carry_normalized_yards: Optional[float] = None
     # Downsampled simulated flight for UI display only; never written to session logs.
     flight: Optional[dict] = field(default=None, repr=False, compare=False)
+    # Display-only derived metrics (--derived-metrics); never written to session logs.
+    derived: Optional[dict] = field(default=None, repr=False, compare=False)
 
     @property
     def ball_speed_ms(self) -> float:

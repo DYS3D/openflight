@@ -54,6 +54,7 @@ from .clubs.physics import (
     get_club_physics,
     get_club_simulation_profile,
 )
+from .derived_metrics import derive as derive_metrics, format_for_log as format_derived_for_log
 from .inclinometer.level import LevelMonitor, level_frame_angles
 from .launch_monitor import (
     SPIN_CONFIDENCE_CALCULATED,
@@ -311,6 +312,8 @@ air_density: float = AIR_DENSITY_STD
 # TrackMan normalization: sea level, 77 °F (25 °C), 0% humidity, no wind.
 NORMALIZED_AIR_DENSITY = air_density_kg_m3(altitude_m=0.0, temperature_c=25.0)
 show_normalized_carry: bool = False
+# --derived-metrics: attach the display-only "derived" block to UI shot payloads.
+derived_metrics_enabled: bool = False
 
 # Simulator connectors (optional). Populated in main() from config/sim.json +
 # CLI flags; shots fan out to every connected connector. Player/club state is
@@ -1136,6 +1139,8 @@ def shot_to_dict(shot: Shot) -> dict:
         data["carry_normalized_yards"] = round(data["carry_normalized_yards"])
     if shot.flight is not None:
         data["flight"] = shot.flight
+    if shot.derived is not None:
+        data["derived"] = shot.derived
     return data
 
 
@@ -1171,13 +1176,26 @@ def _flight_payload(trajectory: Trajectory, carry_yards: float | None = None) ->
     }
 
 
-def _attach_mock_flight(shot: Shot) -> None:
+def _attach_mock_flight(shot: Shot) -> Trajectory | None:
     """Give a mock shot a display flight that lands at its displayed carry."""
     conditions = resolve_launch(shot)
     if conditions is None:
-        return
+        return None
     trajectory = simulate(conditions, air_density=air_density)
     shot.flight = _flight_payload(trajectory, carry_yards=shot.estimated_carry_yards)
+    return trajectory
+
+
+def _attach_derived_metrics(shot: Shot, trajectory: Trajectory | None) -> None:
+    """Attach the --derived-metrics block (rounded for display) and log it once."""
+    if not derived_metrics_enabled:
+        return
+    derived = derive_metrics(shot, trajectory)
+    for entry in derived.values():
+        if not isinstance(entry["value"], str):
+            entry["value"] = round(entry["value"], 2)
+    shot.derived = derived
+    logger.info("[SERVER] Derived metrics: %s", format_derived_for_log(derived))
 
 
 @app.route("/")
@@ -3794,6 +3812,7 @@ def _finalize_shot_detected(
     # back to the table estimator otherwise (either ballistics disabled or
     # angle missing → resolve_launch returns None). This is the only place
     # that writes carry_spin_adjusted for a live shot.
+    trajectory: Trajectory | None = None
     if shot.mode != "mock":
         conditions = resolve_launch(shot) if ballistics_enabled else None
         if conditions is not None:
@@ -3836,7 +3855,8 @@ def _finalize_shot_detected(
                 "" if shot.spin_rpm and shot.spin_rpm > 0 else " avg",
             )
     else:
-        _attach_mock_flight(shot)
+        trajectory = _attach_mock_flight(shot)
+    _attach_derived_metrics(shot, trajectory)
     if shot.spin_rejection_reason:
         logger.info(
             "[SERVER] Spin unavailable: %s (snr=%s, candidate=%s rpm)",
@@ -5102,6 +5122,15 @@ def main():
         ),
     )
     parser.add_argument(
+        "--derived-metrics",
+        action="store_true",
+        help=(
+            "Add a display-only 'derived' block to UI shot payloads: smash factor, "
+            "face/path/loft estimates, apex, hang time, curve, roll and shot shape "
+            "(see src/openflight/derived_metrics.py). Default off"
+        ),
+    )
+    parser.add_argument(
         "--log-retention-days",
         type=float,
         default=90,
@@ -5587,6 +5616,8 @@ def main():
     spin_axis_model = args.spin_axis_model
     global show_normalized_carry
     show_normalized_carry = args.show_normalized_carry
+    global derived_metrics_enabled
+    derived_metrics_enabled = args.derived_metrics
     global inclinometer_roll_compensation_enabled
     inclinometer_roll_compensation_enabled = args.inclinometer_roll_compensation
     global radar_auto_reconnect_enabled

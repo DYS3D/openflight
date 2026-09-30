@@ -121,7 +121,7 @@ do not will be asked for changes before review.
 
 2. **Includes automated tests.**
    New behavior needs new tests; bug fixes need a test that reproduces the bug
-   (see [Development Rules](CLAUDE.md) — write the failing test first). If you
+   (see [Development Rules](AGENTS.md#development-rules) — write the failing test first). If you
    believe tests genuinely don't apply, say so explicitly in the PR and explain why.
 
 3. **Describes the manual (human) testing performed.**

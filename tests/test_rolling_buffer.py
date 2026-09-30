@@ -2744,7 +2744,7 @@ class TestSpinRailRejection:
 # to the radar before the Python process exited. The OPS243-A firmware has
 # a documented bug where the HOST_INT pin mode switches unexpectedly when
 # transitioning between modes at runtime (see ops243.py:743 docstring and
-# CLAUDE.md "Radar Setup"). The project's whole approach is to keep the
+# AGENTS.md "Radar Setup"). The project's whole approach is to keep the
 # radar in persistent rolling-buffer mode at all times — sending GS on
 # shutdown breaks that and the next startup hits the buggy GS→GC runtime
 # transition, so HOST_INT never fires.

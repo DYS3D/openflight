@@ -11,8 +11,7 @@ Everything after the hardware works.
 - :material-golf: **[Simulator connectors](simulator/index.md)**
 
     Stream shots to [GSPro](simulator/gspro.md),
-    [OpenGolfSim](simulator/opengolfsim.md), [PAR-TEE](simulator/partee.md),
-    E6, and Garmin.
+    [OpenGolfSim](simulator/opengolfsim.md), and [PAR-TEE](simulator/partee.md).
 
 - :material-speedometer: **[Swing speed training](swing-speed.md)**
 

@@ -16,6 +16,12 @@ Software configuration, once the hardware is wired.
 
     Idempotent Pi 5 install, stable radar names, and the PASS/FAIL doctor.
 
+- :material-clipboard-check: **[Hardware validation checklist](hardware-validation.md)**
+
+    How to prove each off-by-default feature (radar timing, auto-reconnect,
+    GSPro field trimming, access control, request limits, cosine correction)
+    on your device before turning it on.
+
 - :material-content-save-outline: **[Rolling buffer setup](rolling-buffer.md)**
 
     The one-time flash-persist step. Hardware triggers do not work without it.

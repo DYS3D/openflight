@@ -116,6 +116,12 @@ PASS/FAIL checklist. See the **[One-Command Installer](docs/setup/installer.md)*
 ./scripts/setup/flash-iwr6843.sh        # optional: TI radar firmware
 ```
 
+Several new behaviours (radar timing, auto-reconnect, GSPro field trimming,
+access control, request limits, cosine correction on OPS-only builds) ship
+**off by default** and have not been run on hardware yet; the
+**[Hardware Validation Checklist](docs/setup/hardware-validation.md)** says how
+to prove each one on your device before turning it on.
+
 See the **[Raspberry Pi Setup Guide](docs/setup/raspberry-pi.md)** for details and troubleshooting. Touchscreen installations can use the **[Startup Splash Screen](docs/setup/splash-screen.md)** guide to install a terminal-free desktop launcher with immediate startup progress.
 
 ### 4. Hit balls

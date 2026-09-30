@@ -27,6 +27,8 @@ interface LivePanelProps {
   headerAction?: ReactNode;
   /** Omit to read the display preferences store; pass it in tests. */
   consistencyColors?: boolean;
+  /** Makes the profile name a button that opens the golfer picker. */
+  onSwitchProfile?: () => void;
 }
 
 /**
@@ -45,6 +47,7 @@ export function LivePanel({
   isNewShot = false,
   headerAction,
   consistencyColors: consistencyColorsProp,
+  onSwitchProfile,
 }: LivePanelProps) {
   const { locale, t } = useI18n();
   const { unitSystem } = useUnitPreference();
@@ -75,7 +78,21 @@ export function LivePanel({
     metrics.length > 0,
     metrics.map((metric) => `${metric.value}:${metric.unit ?? ''}`).join('|')
   );
-  const header = <PanelHeader title={t('nav.live')} subtitle={profileName} club={clubLabel} actions={headerAction} />;
+  const subtitle =
+    onSwitchProfile && profileName ? (
+      <button
+        type="button"
+        className="live-panel__golfer"
+        aria-haspopup="dialog"
+        aria-label={t('live.switchGolfer', { name: profileName })}
+        onClick={onSwitchProfile}
+      >
+        {profileName}
+      </button>
+    ) : (
+      profileName
+    );
+  const header = <PanelHeader title={t('nav.live')} subtitle={subtitle} club={clubLabel} actions={headerAction} />;
 
   if (!selected) {
     return (

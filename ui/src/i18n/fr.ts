@@ -249,6 +249,8 @@ export const fr: Messages = {
   'voice.meters': 'mètres',
   'voice.degrees': 'degrés',
   'voice.rpm': 'tours par minute',
+  'live.switchGolfer': 'Changer de golfeur ({name})',
+  'live.selectGolfer': 'Choisir un golfeur',
 
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',

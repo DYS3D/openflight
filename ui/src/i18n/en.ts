@@ -245,6 +245,8 @@ export const en = {
   'voice.meters': 'meters',
   'voice.degrees': 'degrees',
   'voice.rpm': 'rpm',
+  'live.switchGolfer': 'Switch golfer ({name})',
+  'live.selectGolfer': 'Select golfer',
 
   'display.tvAria': 'TV display mode',
   'display.streamUnavailable': 'Camera stream unavailable',

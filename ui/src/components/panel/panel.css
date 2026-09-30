@@ -591,6 +591,27 @@
   min-height: 0;
 }
 
+.live-panel__golfer {
+  display: block;
+  max-width: 100%;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 44px;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  outline-offset: -2px;
+}
+
 .shot-flash {
   position: absolute;
   inset: 0;

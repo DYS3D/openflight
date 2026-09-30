@@ -1,5 +1,6 @@
 import { CLUBS_BY_TYPE } from '../../data/clubs';
 import { getTrainingImplementsByGroup } from '../../data/trainingImplements';
+import type { Profile } from '../../types/profile';
 
 export interface PickerOption {
   id: string;
@@ -22,6 +23,10 @@ export function trainingImplementSections(): PickerSection[] {
     name,
     options: items.map((item) => ({ id: item.id, label: item.label })),
   }));
+}
+
+export function profileSections(profiles: ReadonlyArray<Profile>): PickerSection[] {
+  return [{ name: 'profiles', options: profiles.map((profile) => ({ id: profile.id, label: profile.name })) }];
 }
 
 /** Open on the family that already contains the selection (driver → Woods). */

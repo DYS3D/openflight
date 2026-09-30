@@ -248,6 +248,8 @@ export const es: Messages = {
   'voice.meters': 'metros',
   'voice.degrees': 'grados',
   'voice.rpm': 'rpm',
+  'live.switchGolfer': 'Cambiar de golfista ({name})',
+  'live.selectGolfer': 'Elegir golfista',
 
   'display.tvAria': 'Modo pantalla TV',
   'display.streamUnavailable': 'Transmisión de cámara no disponible',

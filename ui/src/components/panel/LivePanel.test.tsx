@@ -168,6 +168,39 @@ describe('LivePanel', () => {
     expect(html).not.toContain('Shot 03');
   });
 
+  describe('golfer switch', () => {
+    function renderHeader(profileName: string, onSwitchProfile?: () => void) {
+      const html = text(
+        renderToString(
+          <LivePanel
+            shot={null}
+            shots={[]}
+            profileId="james"
+            profileName={profileName}
+            clubLabel="DR"
+            onSwitchProfile={onSwitchProfile}
+          />
+        )
+      );
+      return html.match(/<header class="panel-header">[\s\S]*?<\/header>/)?.[0] ?? '';
+    }
+
+    it('makes the profile name a button that opens the golfer picker', () => {
+      const header = renderHeader('James', () => {});
+
+      expect(header).toContain(
+        'panel-header__subtitle"><button type="button" class="live-panel__golfer" aria-haspopup="dialog" aria-label="Switch golfer (James)">James</button>'
+      );
+      expect(header).toContain('panel-header__club">DR<');
+    });
+
+    it('keeps the plain name without a switch handler, and hides an empty name', () => {
+      expect(renderHeader('James')).toContain('panel-header__subtitle">James<');
+      expect(renderHeader('', () => {})).not.toContain('live-panel__golfer');
+      expect(renderHeader('', () => {})).not.toContain('panel-header__subtitle');
+    });
+  });
+
   it('places Change club in the header actions', () => {
     const html = text(
       renderToString(

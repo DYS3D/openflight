@@ -60,6 +60,8 @@ export interface Shot {
   spin_method?: string | null;
   spin_multipath_fade_hz?: number | null;
   carry_spin_adjusted: number | null;
+  /** Only sent when the server runs with --show-normalized-carry. */
+  carry_normalized_yards?: number;
   swing_speed_duration_ms?: number;
   swing_speed_reading_count?: number;
   swing_speed_trigger_mph?: number;

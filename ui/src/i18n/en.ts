@@ -248,6 +248,7 @@ export const en = {
   'live.switchGolfer': 'Switch golfer ({name})',
   'live.selectGolfer': 'Select golfer',
   'banner.notLevel': 'Unit is not level (pitch {pitch}°, roll {roll}°)',
+  'metric.normalizedCarry': 'Normalized {value} {unit}',
 
   'display.tvAria': 'TV display mode',
   'display.streamUnavailable': 'Camera stream unavailable',

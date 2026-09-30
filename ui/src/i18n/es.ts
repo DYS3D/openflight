@@ -251,6 +251,7 @@ export const es: Messages = {
   'live.switchGolfer': 'Cambiar de golfista ({name})',
   'live.selectGolfer': 'Elegir golfista',
   'banner.notLevel': 'La unidad no está nivelada (cabeceo {pitch}°, balanceo {roll}°)',
+  'metric.normalizedCarry': 'Normalizado {value} {unit}',
 
   'display.tvAria': 'Modo pantalla TV',
   'display.streamUnavailable': 'Transmisión de cámara no disponible',

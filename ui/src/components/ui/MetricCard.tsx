@@ -8,6 +8,8 @@ export interface MetricCardProps {
   unit?: string;
   label: string;
   subtext?: string;
+  /** Optional second caption line under `subtext`. */
+  detail?: string;
   variant?: 'default' | 'emphasis';
   size?: 'standard' | 'hero';
   /**
@@ -50,6 +52,7 @@ export function MetricCard({
   unit,
   label,
   subtext,
+  detail,
   variant = 'default',
   size = 'standard',
   labelPosition = 'below',
@@ -86,6 +89,7 @@ export function MetricCard({
   const meta = (
     <>
       {subtext ? <span className="metric-card__subtext metric-card__confidence-label">{subtext}</span> : null}
+      {detail ? <span className="metric-card__subtext metric-card__confidence-label">{detail}</span> : null}
       {confidence ? (
         <div className={`metric-card__confidence metric-card__confidence--${confidence}`}>
           {confidence !== 'experimental' ? (

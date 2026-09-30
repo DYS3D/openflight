@@ -284,6 +284,49 @@ describe('LivePanel', () => {
     });
   });
 
+  describe('normalized carry', () => {
+    function renderCarry(shot: Shot, showNormalizedCarry: boolean) {
+      const html = text(
+        renderToString(
+          <LivePanel
+            shot={shot}
+            shots={[shot]}
+            profileId="james"
+            profileName="James"
+            clubLabel="DR"
+            onSelectMetric={() => {}}
+            showNormalizedCarry={showNormalizedCarry}
+          />
+        )
+      );
+      return html.match(/metric-card__label[^>]*>Carry<[\s\S]*?<\/button>/)?.[0] ?? '';
+    }
+
+    it('adds a secondary line under the carry tile when on and the server sent it', () => {
+      const carry = renderCarry(makeShot({ carry_normalized_yards: 184.4 }), true);
+
+      expect(carry).toMatch(/>Spin-adjusted<\/span><span[^>]*>Normalized 184 yds</);
+    });
+
+    it('shows nothing extra when off or when the shot has no normalized carry', () => {
+      const html = text(
+        renderToString(
+          <LivePanel
+            shot={makeShot({ carry_normalized_yards: 184 })}
+            shots={[makeShot({ carry_normalized_yards: 184 })]}
+            profileId="james"
+            profileName="James"
+            clubLabel="DR"
+            showNormalizedCarry={false}
+          />
+        )
+      );
+
+      expect(html).not.toContain('Normalized');
+      expect(renderCarry(makeShot(), true)).not.toContain('Normalized');
+    });
+  });
+
   it('renders the five-tile grid for a swing-speed shot', () => {
     const swing = makeShot({
       mode: 'swing-speed',

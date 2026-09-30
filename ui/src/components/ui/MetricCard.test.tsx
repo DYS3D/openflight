@@ -63,6 +63,24 @@ describe('MetricCard', () => {
     }
   });
 
+  it('renders an optional second caption line after the subtext', () => {
+    const html = renderToString(
+      <MetricCard
+        value="214"
+        unit="yds"
+        label="Carry"
+        labelPosition="above"
+        subtext="Spin-adjusted"
+        detail="Normalized 184 yds"
+      />
+    );
+
+    expect(html).toMatch(/>Spin-adjusted<\/span><span class="metric-card__subtext[^"]*">Normalized 184 yds</);
+    expect(renderToString(<MetricCard value="214" label="Carry" subtext="Spin-adjusted" />)).not.toContain(
+      'Normalized'
+    );
+  });
+
   it('shows an estimated mark on the title, not beside the value', () => {
     const estimated = renderToString(
       <MetricCard value="8.9" unit="°" label="V. launch" labelPosition="above" estimated />

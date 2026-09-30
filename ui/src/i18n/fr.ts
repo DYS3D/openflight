@@ -252,6 +252,7 @@ export const fr: Messages = {
   'live.switchGolfer': 'Changer de golfeur ({name})',
   'live.selectGolfer': 'Choisir un golfeur',
   'banner.notLevel': 'L’unité n’est pas de niveau (tangage {pitch}°, roulis {roll}°)',
+  'metric.normalizedCarry': 'Normalisé {value} {unit}',
 
   'display.tvAria': 'Mode affichage TV',
   'display.streamUnavailable': 'Flux caméra indisponible',

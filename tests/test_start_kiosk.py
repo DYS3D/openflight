@@ -727,3 +727,55 @@ def test_startup_failure_prints_the_recovery_hint_to_the_terminal():
     ]
 
     assert re.search(r'error ".*\$recovery"', failure_fn), failure_fn
+
+
+def _run_sync_python_env(tmp_path, *, lock_newer: bool, offline_exit: int) -> list[str]:
+    """Run sync_python_env with a fake uv that records each invocation."""
+    script = _script()
+    start = script.index("sync_python_env() {")
+    function = script[start : script.index("\n}\n", start) + 3]
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "pyproject.toml").write_text("")
+    if lock_newer:
+        (project / "uv.lock").write_text("")
+        os.utime(project / "pyproject.toml", (1_000_000, 1_000_000))
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls"
+    fake_uv = bin_dir / "uv"
+    fake_uv.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> "{calls}"\n'
+        f'case "$*" in *--offline*) exit {offline_exit} ;; esac\n'
+        "exit 0\n"
+    )
+    fake_uv.chmod(0o755)
+
+    subprocess.run(
+        ["bash", "-c", f"{function}\nUV_SYNC_ARGS=(--quiet)\nsync_python_env"],
+        cwd=project,
+        env=dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}"),
+        check=True,
+    )
+    return calls.read_text().splitlines()
+
+
+def test_uv_sync_prefers_the_local_lock_without_network(tmp_path):
+    """A boot with no Wi-Fi must not wait on PyPI when uv.lock is current."""
+    assert _run_sync_python_env(tmp_path, lock_newer=True, offline_exit=0) == [
+        "sync --frozen --offline --quiet"
+    ]
+
+
+def test_uv_sync_falls_back_to_frozen_when_the_cache_is_incomplete(tmp_path):
+    assert _run_sync_python_env(tmp_path, lock_newer=True, offline_exit=1) == [
+        "sync --frozen --offline --quiet",
+        "sync --frozen --quiet",
+    ]
+
+
+def test_uv_sync_resolves_when_the_lock_is_missing_or_stale(tmp_path):
+    """uv.lock is gitignored; a pull that changes pyproject.toml must re-resolve."""
+    assert _run_sync_python_env(tmp_path, lock_newer=False, offline_exit=0) == ["sync --quiet"]

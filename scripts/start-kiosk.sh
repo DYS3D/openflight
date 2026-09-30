@@ -378,7 +378,17 @@ if has_server_arg --camera-capture; then
     fi
     UV_SYNC_ARGS+=(--extra camera)
 fi
-uv sync "${UV_SYNC_ARGS[@]}" || show_startup_failure \
+# uv.lock is generated on the Pi (it is gitignored). While it is newer than
+# pyproject.toml, reuse it without the network so a boot with no Wi-Fi still
+# starts; after a pull that changed pyproject.toml, resolve again.
+sync_python_env() {
+    if [ uv.lock -nt pyproject.toml ]; then
+        uv sync --frozen --offline "${UV_SYNC_ARGS[@]}" || uv sync --frozen "${UV_SYNC_ARGS[@]}"
+    else
+        uv sync "${UV_SYNC_ARGS[@]}"
+    fi
+}
+sync_python_env || show_startup_failure \
     "server" \
     "OpenFlight preparation failed" \
     "Dependency preparation failed. Check the terminal log, then relaunch OpenFlight."

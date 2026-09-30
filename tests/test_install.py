@@ -153,6 +153,11 @@ class TestDryRun:
         assert 'OPENFLIGHT_ARGS="--radar-port /dev/ttyAMA0 --iwr6843 --camera-capture"' in out
         assert "flash-iwr6843.sh" in out
 
+    def test_iwr6843_without_a_uart_radar_port_warns(self, tmp_path):
+        result = _dry_run(tmp_path, "--force", "--with-iwr6843")
+        assert result.returncode == 0, result.stderr
+        assert "--radar-port /dev/ttyAMA0" in result.stderr
+
     def test_without_optional_flags_no_camera_packages(self, tmp_path):
         result = _dry_run(tmp_path, "--force")
         assert "picamera2" not in result.stdout

@@ -399,6 +399,11 @@ install_env_file() {
 
 install_service() {
     step "openflight systemd service"
+    if [ "$WITH_IWR6843" = true ] && [[ " $EXTRA_SERVER_ARGS " != *" --radar-port "* ]]; then
+        # USB cannot power both radars, so an IWR6843 build normally moves the
+        # OPS243 to the GPIO UART (docs/build/ops243-uart.md).
+        warn "With the IWR6843 the OPS243 is usually on the GPIO UART; if so, add --server-args \"--radar-port /dev/ttyAMA0\"."
+    fi
     install_env_file
     of_render_unit "$SCRIPT_DIR/setup/openflight.service" | install_root_file "$SERVICE_DEST" || true
     run sudo systemctl daemon-reload

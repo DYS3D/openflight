@@ -406,3 +406,109 @@ class TestFlags:
 
         assert server_module.inclinometer_roll_compensation_enabled is False
         assert server_module.level_monitor is None
+
+
+def _fed_service(*, roll_zero_deg=0.0, roll_deg=2.0, timestamp=99.5):
+    service = InclinometerService(sensor=None, roll_zero_deg=roll_zero_deg, window_samples=4)
+    for index in range(4):
+        service.add_sample(
+            _tilted_sample(pitch_deg=0.5, roll_deg=roll_deg, timestamp=timestamp + index * 0.1)
+        )
+    return service
+
+
+class TestRollZero:
+    def test_default_leaves_roll_unchanged(self):
+        selection = _fed_service().snapshot_for_impact(100.0)
+
+        assert selection.snapshot.roll_deg == pytest.approx(2.0)
+
+    def test_offset_shifts_reported_roll_only(self):
+        selection = _fed_service(roll_zero_deg=-1.5).snapshot_for_impact(100.0)
+
+        assert selection.snapshot.roll_deg == pytest.approx(0.5)
+        assert selection.snapshot.calibrated_pitch_deg == pytest.approx(0.5)
+        assert selection.to_dict()["roll_deg"] == pytest.approx(0.5, abs=1e-3)
+
+    def test_offset_reaches_roll_compensation(self, monkeypatch, socket_events):
+        monkeypatch.setattr(server_module, "inclinometer_service", _fed_service(roll_zero_deg=-1.5))
+        monkeypatch.setattr(
+            server_module,
+            "inclinometer_runtime_config",
+            {"zero_offset_deg": 0.0, "roll_zero_deg": -1.5},
+        )
+        monkeypatch.setattr(server_module, "get_session_logger", lambda: None)
+        monkeypatch.setattr(server_module, "inclinometer_roll_compensation_enabled", True)
+        monkeypatch.setattr(server_module, "iwr6843_runtime", _iwr_runtime(_measurement()))
+        shot = Shot(ball_speed_mph=120.0, timestamp=datetime.now(), impact_timestamp=100.0)
+
+        server_module._snapshot_inclinometer_for_shot(shot)
+        server_module._process_iwr6843_angle(shot)
+
+        vertical, horizontal = level_frame_angles(14.0, -2.0, 0.5)
+        assert shot.inclinometer["roll_zero_deg"] == -1.5
+        assert shot.inclinometer["roll_compensation"]["ball"]["roll_deg"] == pytest.approx(
+            0.5, abs=1e-3
+        )
+        assert shot.launch_angle_vertical == pytest.approx(vertical, abs=1e-3)
+        assert shot.launch_angle_horizontal == pytest.approx(horizontal, abs=1e-3)
+
+    def test_offset_reaches_level_status(self, monkeypatch, socket_events):
+        service = _fed_service(roll_zero_deg=-1.5, timestamp=time.time() - 0.5)
+        monkeypatch.setattr(server_module, "inclinometer_service", service)
+        monkeypatch.setattr(server_module, "level_monitor", LevelMonitor(1.0))
+
+        server_module._poll_level_status()
+
+        assert socket_events == [
+            (
+                "level_status",
+                {"pitch_deg": 0.5, "roll_deg": 0.5, "level": True, "threshold_deg": 1.0},
+            )
+        ]
+
+    @pytest.mark.parametrize(("argv", "expected"), [([], 0.0), (["-1.25"], -1.25)])
+    def test_cli_flag_reaches_init_inclinometer(self, monkeypatch, argv, expected):
+        flag = ["--inclinometer-roll-zero-deg", *argv] if argv else []
+        seen = {}
+
+        def fake_init_inclinometer(**kwargs):
+            seen.update(kwargs)
+            raise SystemExit(0)
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["openflight-server", "--no-logging", "--iwr6843", "--inclinometer", *flag],
+        )
+        for name in (
+            "inclinometer_roll_compensation_enabled",
+            "ballistics_enabled",
+            "air_density",
+            "calculated_spin_enabled",
+            "spin_axis_model",
+            "show_normalized_carry",
+            "battery_provider",
+            "profile_store",
+            "ball_speed_correction_enabled",
+            "ball_speed_correction_distance_ft",
+            "ball_speed_correction_ball_above_radar_ft",
+            "_VERTICAL_RADAR_GATE_BYPASS",
+            "radar_auto_reconnect_enabled",
+        ):
+            monkeypatch.setattr(server_module, name, getattr(server_module, name))
+        monkeypatch.setattr(server_module, "init_session_logger", lambda **_kw: None)
+        monkeypatch.setattr(server_module, "init_iwr6843", lambda **_kw: True)
+        monkeypatch.setattr(
+            server_module,
+            "iwr6843_runtime",
+            SimpleNamespace(calibration=Calibration.identity(), tx_order="default"),
+        )
+        monkeypatch.setattr(server_module, "init_inclinometer", fake_init_inclinometer)
+        monkeypatch.setattr(server_module, "_cleanup_hardware_for_shutdown", lambda: None)
+
+        with pytest.raises(SystemExit):
+            server_module.main()
+
+        assert seen["roll_zero_deg"] == expected
+        assert seen["zero_offset_deg"] == 0.0

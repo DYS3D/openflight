@@ -54,6 +54,7 @@ class InclinometerService:
         sensor: Accelerometer,
         *,
         zero_offset_deg: float = 0.0,
+        roll_zero_deg: float = 0.0,
         sample_hz: float = 10.0,
         window_samples: int = 8,
         history_seconds: float = 15.0,
@@ -65,6 +66,7 @@ class InclinometerService:
             raise ValueError("sample_hz must be positive and window_samples must be at least 2")
         self.sensor = sensor
         self.zero_offset_deg = zero_offset_deg
+        self.roll_zero_deg = roll_zero_deg
         self.sample_hz = sample_hz
         self.window_samples = window_samples
         self.max_snapshot_age_s = max_snapshot_age_s
@@ -145,7 +147,8 @@ class InclinometerService:
                 calibrated_pitch_deg=raw_pitch + self.zero_offset_deg,
                 pitch_std_deg=pitch_std,
                 sample_count=len(samples),
-                roll_deg=statistics.median(roll_degrees(item) for item in samples),
+                roll_deg=statistics.median(roll_degrees(item) for item in samples)
+                + self.roll_zero_deg,
             )
             self._history.append(snapshot)
             return snapshot

@@ -129,6 +129,7 @@ LIS3DH enclosure tilt compensation.
 | --- | --- | --- |
 | `--inclinometer` | flag | Enable LIS3DH enclosure pitch compensation for IWR6843 tilt |
 | `--inclinometer-zero-offset` | float | Degrees added to raw LIS3DH pitch (default: 0) |
+| `--inclinometer-roll-zero-deg` | float | Degrees added to raw LIS3DH roll before roll compensation and the level warning (default: 0) |
 
 ## Ballistics & spin
 

@@ -216,9 +216,11 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
       `+octave_doubled` tags. Offline it changed 1 of 41 committed captures.
 - [ ] **`--inclinometer-roll-compensation`.** Shim the right side of the
       enclosure (viewed from behind): the startup log `roll` must go
-      positive and match a phone level. Then hit shots rolled ~3° with and
-      without the flag; horizontal launch should shift by about roll ×
-      vertical launch (radians).
+      positive and match a phone level. If it reads non-zero when a phone
+      level shows the enclosure level, pass the negated reading as
+      `--inclinometer-roll-zero-deg` and confirm it then reads ~0. Then hit
+      shots rolled ~3° with and without the flag; horizontal launch should
+      shift by about roll × vertical launch (radians).
 - [ ] **`--level-warning-deg 1.5`.** Tilt past 1.5°: log `Enclosure NOT
       level`, UI banner "Unit is not level". Back under 1.2° clears it; it
       must not flap near 1.5°. Reconnect a client and confirm it gets the

@@ -653,3 +653,68 @@ test('unit toggle in the menu sheet updates displayed units', async ({ page }) =
   await expect(page.locator('.metric-card').filter({ hasText: 'Carry' }).locator('.metric-card__unit')).toHaveText('m');
   await expect(page.locator('.metric-card--selected .metric-card__value')).not.toHaveText(imperialSpeed ?? '');
 });
+
+test('scrolls the debug tab by dragging without switching tabs', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 400 });
+  await gotoApp(page);
+  await dismissPicker(page);
+  await page.getByRole('button', { name: 'Debug' }).click();
+  await page.getByRole('button', { name: 'Tuning' }).click();
+
+  const content = page.locator('.debug-panel__tab-content');
+  expect(await content.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  const box = await content.boundingBox();
+  expect(box).toBeTruthy();
+
+  await page.mouse.move(box!.x + 8, box!.y + box!.height - 10);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + 8, box!.y + 10, { steps: 12 });
+  await page.mouse.up();
+
+  await expect.poll(async () => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await expect(page.getByRole('button', { name: 'Tuning' })).toHaveClass(/debug-tabs__tab--active/);
+});
+
+test('scrolls the update change list by dragging', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 400 });
+  await gotoApp(page);
+  await dismissPicker(page);
+  const storeModule = '/src/stores/useSystemStore.ts';
+  // Wait for the server's own (disabled) status so it cannot overwrite the injected one.
+  await expect
+    .poll(() =>
+      page.evaluate(async (path) => {
+        const { useSystemStore } = await import(/* @vite-ignore */ path);
+        return useSystemStore.getState().updateStatus !== null;
+      }, storeModule)
+    )
+    .toBe(true);
+  await page.evaluate(async (path) => {
+    const { useSystemStore } = await import(/* @vite-ignore */ path);
+    useSystemStore.getState().setUpdateStatus({
+      enabled: true,
+      state: 'available',
+      current: 'aaaaaaa',
+      latest: 'bbbbbbb',
+      behind: 9,
+      commits: Array.from({ length: 9 }, (_, i) => ({ sha: `sha${i}`, subject: `Change number ${i + 1}` })),
+      can_apply: true,
+      restart: 'systemd',
+    });
+  }, storeModule);
+  await openMenu(page);
+  await page.getByRole('button', { name: 'Update', exact: true }).click();
+
+  const changes = page.locator('.update-dialog__changes');
+  expect(await changes.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  const box = await changes.boundingBox();
+  expect(box).toBeTruthy();
+
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height - 5);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 5, { steps: 12 });
+  await page.mouse.up();
+
+  await expect.poll(async () => changes.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await expect(page.getByRole('dialog', { name: 'Install update?' })).toBeVisible();
+});

@@ -1,4 +1,5 @@
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
+import { useDragScroll } from '../hooks/useDragScroll';
 import type { DebugReading, RadarConfig, DebugShotLog } from '../types/socket';
 import type { ShotLatency, TriggerDiagnostic, TriggerStatus } from '../types/shot';
 import { t } from '../i18n';
@@ -344,6 +345,10 @@ export function DebugPanel({
   shotLatency,
 }: DebugPanelProps) {
   const [activeTab, setActiveTab] = useState<DebugTab>('status');
+  const contentRef = useRef<HTMLDivElement>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const contentDragScroll = useDragScroll(contentRef);
+  const historyDragScroll = useDragScroll(historyRef);
   const isRollingBuffer = triggerStatus.mode === 'rolling-buffer';
   const isSwingSpeed = triggerStatus.mode === 'swing-speed';
   const tuningDisabled = mockMode && !isSwingSpeed;
@@ -381,7 +386,12 @@ export function DebugPanel({
         </button>
       </div>
 
-      <div className="debug-panel__tab-content">
+      {/* History scrolls its own list; nested drag scrollers would fight over pointer capture. */}
+      <div
+        ref={contentRef}
+        className="debug-panel__tab-content"
+        {...(activeTab === 'history' ? {} : contentDragScroll)}
+      >
         {activeTab === 'status' && (
           <>
             <SystemStatus status={triggerStatus} />
@@ -400,7 +410,7 @@ export function DebugPanel({
         {activeTab === 'history' && isRollingBuffer && (
           <div className="debug-panel__section debug-panel__section--history">
             <h4>Trigger History</h4>
-            <div className="trigger-history">
+            <div ref={historyRef} className="trigger-history" {...historyDragScroll}>
               {recentTriggers.length === 0 ? (
                 <p className="debug-panel__empty">No triggers yet...</p>
               ) : (

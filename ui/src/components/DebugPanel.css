@@ -64,8 +64,15 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
+  /* Own the gesture so a finger drag scrolls the tab; taps still click. */
+  touch-action: none;
+}
+
+.debug-panel__tab-content button {
+  touch-action: none;
 }
 
 /* Sections */
@@ -318,6 +325,8 @@
 .trigger-history {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: none;
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);

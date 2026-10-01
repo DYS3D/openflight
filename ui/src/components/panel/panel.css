@@ -498,6 +498,8 @@
   padding-left: 1.25rem;
   max-height: 25vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: none;
   color: var(--color-text);
   font-size: 0.875rem;
   text-align: left;

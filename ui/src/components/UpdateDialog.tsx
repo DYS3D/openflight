@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+import { useDragScroll } from '../hooks/useDragScroll';
 import { ProgressIndicator } from './ProgressIndicator';
 import { useI18n } from '../i18n/useI18n';
 import type { UpdateStatus } from '../types/socket';
@@ -23,6 +25,8 @@ interface UpdateDialogProps {
  */
 export function UpdateDialog({ status, error, onConfirm, onClose }: UpdateDialogProps) {
   const { t } = useI18n();
+  const changesRef = useRef<HTMLUListElement>(null);
+  const changesDragScroll = useDragScroll(changesRef);
 
   if (status.state === 'updating') {
     return (
@@ -117,7 +121,7 @@ export function UpdateDialog({ status, error, onConfirm, onClose }: UpdateDialog
           {status.current} → {status.latest} · {t('update.changes', { count: String(behind) })}
         </span>
         {commits.length > 0 ? (
-          <ul className="update-dialog__changes">
+          <ul ref={changesRef} className="update-dialog__changes" {...changesDragScroll}>
             {commits.slice(0, MAX_LISTED_CHANGES).map((commit) => (
               <li key={commit.sha}>{commit.subject}</li>
             ))}

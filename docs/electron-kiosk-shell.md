@@ -40,12 +40,12 @@ switches from Chromium to Electron, browser-local `localStorage` looks empty:
 | Data | Storage | Survives the switch? |
 |---|---|---|
 | Profiles and shot logs | Server (`~/.config/openflight/profiles.json`, session JSONL) | Yes |
-| Units, theme, language, pinned Live metric | Chromium `localStorage` | No — re-set in the footer / Live grid |
+| Units, theme, pinned Live metric | Chromium `localStorage` | No — re-set in the footer / Live grid |
 | Validation annotations (comparator device, speed, notes) | `localStorage` key `openflight-validation-entries` | No |
 
 **Before** switching a validation unit to Electron, export the Shots CSV
 (**Export CSV** on the Shots tab) while still on Chromium. After the switch,
-re-enter units, theme, language, and the pinned metric once.
+re-enter units, theme, and the pinned metric once.
 
 This is an accepted one-time reset, not a silent migration. Chromium's LevelDB
 profile is not copied into Electron `userData`.

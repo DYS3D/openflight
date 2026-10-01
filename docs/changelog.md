@@ -15,11 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Node 22.12+ and a successful build.
 - **First switch from Chromium to Electron resets browser-local UI state.**
   Electron persists its own session under `~/.config/openflight-ui` (Linux),
-  not the system Chromium profile. Units, language, theme, pinned Live metric,
+  not the system Chromium profile. Units, theme, pinned Live metric,
   and validation annotations in `localStorage` do not carry over. Export the
   Shots CSV on Chromium before switching. Profiles and shot logs are
   server-owned and unaffected. See
   [Electron Kiosk Shell](electron-kiosk-shell.md#browser-local-state-breaking-on-first-electron-launch).
+
+### Removed
+- **Spanish, French, and Portuguese kiosk translations.** The UI is English
+  only; the footer menu no longer has a Language dropdown and the voice callout
+  always speaks US English. A stored `openflight.locale:v1` value other than
+  `en` falls back to English.
 
 ### Fixed
 - **A crash-looping boot service no longer kills the desktop kiosk.** Every
@@ -83,12 +89,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Instrument-panel kiosk UI.** The dashboard is a tabbed shell (Live, Stats,
   Shots, Camera, Profiles, Debug) instead of the previous stacked shot and stats
   views. Tap a Live metric to pin it top-left while keeping all ten metrics
-  visible. The footer logo opens units, dark/light theme, language, simulator,
+  visible. The footer logo opens units, dark/light theme, simulator,
   and ball-detection status; a persistent footer power button opens the shutdown
   confirmation. Club (or training implement) selection is a Live header action.
   See the [UI README](https://github.com/jewbetcha/openflight/blob/main/ui/README.md).
-- **Kiosk languages.** English, Spanish, French, and Portuguese. Choice is
-  stored in `localStorage` (`openflight.locale:v1`).
+- **Kiosk language.** The UI is English only; copy lives in a single
+  `src/i18n/en.ts` catalog.
 - **Dark and light themes.** Toggle in the footer menu; stored as
   `openflight.theme` (default dark).
 - **Synchronized OV9281 high-speed camera capture.** OpenFlight can now retain

@@ -122,7 +122,7 @@ from the `profiles` roster (joined by `profile_id`), so renaming updates the
 on-screen name for past shots.
 
 **Kiosk shell.** Footer tabs switch views. The footer logo opens a sheet for
-units (MPH/YDS vs KMH/M), dark/light theme, language, and simulator status.
+units (MPH/YDS vs KMH/M), dark/light theme, and simulator status.
 The footer power icon is always visible and opens a
 shutdown confirmation. Change club (or training implement) lives on the Live
 header. Tap a Live metric to pin it top-left while keeping all metrics visible.
@@ -148,27 +148,12 @@ mark to turn it off.
 
 Touch and type conventions for the Pi kiosk are in [`AGENTS.md`](./AGENTS.md).
 
-## Languages
+## Language
 
-UI copy lives in `src/i18n/`. English, Spanish, French, and Portuguese ship
-today. Pick a language from the footer menu (**Language** dropdown). The choice
-is stored in `localStorage` under `openflight.locale:v1`.
-
-### Add a language
-
-1. Copy `src/i18n/en.ts` to `src/i18n/<code>.ts` (use a short BCP 47 language
-   code such as `de` or `ja`).
-2. Translate every value. Keep the same keys; TypeScript will fail the build if
-   a key is missing.
-3. Register it in `src/i18n/index.ts`:
-   - Add the id to `LocaleId`.
-   - Add `{ id, nativeName, htmlLang }` to `LOCALES` (`nativeName` is the
-     language’s own name, shown in the dropdown).
-   - Import the catalog and add it to `catalogs`.
-4. Run `npm test` — a catalog that drifts from English keys fails.
-
-Do not translate profile names, club tile codes (`7i`, `DR`), or unit
-abbreviations (`MPH` / `YDS`).
+The kiosk UI is English only. UI copy lives in `src/i18n/en.ts` and is read
+through `t()` from `src/i18n/`; `<html lang>` is set to `en`. Profile names,
+club tile codes (`7i`, `DR`), and unit abbreviations (`MPH` / `YDS`) are not
+message keys.
 
 ## Project layout
 
@@ -179,7 +164,7 @@ components carry co-located `.css` and `.test.tsx` files.
 src/
   App.tsx                    # tabs, display routing, session wiring
   main.tsx                   # entry point (applies stored theme)
-  i18n/                      # EN/ES/FR/PT catalogs
+  i18n/                      # English message catalog
   theme/                     # dark/light tokens
   services/socketService.ts  # socket connection, events, backend commands
   hooks/useSocket.ts         # connects on mount

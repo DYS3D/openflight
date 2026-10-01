@@ -11,6 +11,7 @@ _GSPRO_CLUB_MAP = {
     "W3": ClubType.WOOD_3,
     "W5": ClubType.WOOD_5,
     "W7": ClubType.WOOD_7,
+    "W9": ClubType.WOOD_9,
     "H3": ClubType.HYBRID_3,
     "H5": ClubType.HYBRID_5,
     "H7": ClubType.HYBRID_7,

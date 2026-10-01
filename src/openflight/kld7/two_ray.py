@@ -158,6 +158,7 @@ _TOUR_LAUNCH_DEG: "dict[ClubType, float]" = {
     ClubType.WOOD_3: 9.3,
     ClubType.WOOD_5: 9.7,
     ClubType.WOOD_7: 11.2,
+    ClubType.WOOD_9: 12.6,
     ClubType.HYBRID_3: 10.2,
     ClubType.HYBRID_5: 11.6,
     ClubType.HYBRID_7: 13.0,

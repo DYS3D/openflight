@@ -853,7 +853,7 @@ def _vertical_soft_launch_lane_deg(club: ClubType) -> tuple[float, float]:
     """Return broad club-family lanes for low-confidence vertical radar candidates."""
     if club == ClubType.DRIVER:
         return (4.0, 22.0)
-    if club in {ClubType.WOOD_3, ClubType.WOOD_5, ClubType.WOOD_7}:
+    if club in {ClubType.WOOD_3, ClubType.WOOD_5, ClubType.WOOD_7, ClubType.WOOD_9}:
         return (5.0, 24.0)
     if club in {ClubType.HYBRID_3, ClubType.HYBRID_5, ClubType.HYBRID_7, ClubType.HYBRID_9}:
         return (6.0, 26.0)

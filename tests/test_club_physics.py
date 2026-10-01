@@ -82,3 +82,19 @@ def test_plausible_spin_range_covers_every_club_and_the_typical_spin():
 
 def test_unknown_plausible_spin_input_uses_unknown_range():
     assert get_plausible_spin_rpm(object()) == CLUB_PLAUSIBLE_SPIN_RPM[ClubType.UNKNOWN]
+
+
+def test_nine_wood_sits_between_the_seven_wood_and_the_long_irons():
+    from openflight.clubs import ClubType
+    from openflight.clubs.physics import get_club_physics, get_plausible_spin_rpm
+    from openflight.gspro.state import gspro_code_to_club
+
+    nine = get_club_physics(ClubType("9-wood"))
+    seven = get_club_physics(ClubType.WOOD_7)
+    assert nine.nominal_loft_deg > seven.nominal_loft_deg
+    assert nine.optimal_launch_deg > seven.optimal_launch_deg
+    assert nine.average_ball_speed_mph < seven.average_ball_speed_mph
+    assert nine.typical_spin_rpm > seven.typical_spin_rpm
+    low, high = get_plausible_spin_rpm(ClubType.WOOD_9)
+    assert low <= nine.typical_spin_rpm <= high
+    assert gspro_code_to_club("W9") is ClubType.WOOD_9

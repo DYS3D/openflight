@@ -59,6 +59,7 @@ def _club_enum(normalized_club: str) -> ClubType:
         "3-wood": ClubType.WOOD_3,
         "5-wood": ClubType.WOOD_5,
         "7-wood": ClubType.WOOD_7,
+        "9-wood": ClubType.WOOD_9,
         "3-hybrid": ClubType.HYBRID_3,
         "5-hybrid": ClubType.HYBRID_5,
         "7-hybrid": ClubType.HYBRID_7,

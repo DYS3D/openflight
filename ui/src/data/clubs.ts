@@ -34,6 +34,7 @@ export const CLUBS_BY_TYPE: Record<string, Club[]> = {
     { id: '3-wood', label: '3W', name: '3 Wood' },
     { id: '5-wood', label: '5W', name: '5 Wood' },
     { id: '7-wood', label: '7W', name: '7 Wood' },
+    { id: '9-wood', label: '9W', name: '9 Wood' },
   ],
 };
 

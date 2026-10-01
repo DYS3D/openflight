@@ -985,6 +985,32 @@ class TestIWR6843ShotIntegration:
         assert shot.launch_angle_horizontal_source is None
         assert shot.launch_angle_horizontal_confidence is None
 
+    @pytest.mark.parametrize(
+        ("spin_rpm", "confidence", "moves"),
+        [(6000.0, 0.15, False), (6000.0, 0.9, True)],
+    )
+    def test_only_trusted_spin_moves_the_estimated_launch_angle(
+        self, monkeypatch, spin_rpm, confidence, moves
+    ):
+        monkeypatch.setattr(server_module, "iwr6843_runtime", None)
+        monkeypatch.setattr(server_module, "camera_capture_config", {})
+
+        def estimate(spin):
+            shot = Shot(
+                ball_speed_mph=150.0,
+                club_speed_mph=104.0,
+                timestamp=datetime.now(),
+                club=ClubType.DRIVER,
+                spin_rpm=spin,
+                spin_confidence=confidence if spin else None,
+            )
+            server_module._ensure_user_facing_launch_angles(shot)
+            return shot.launch_angle_vertical
+
+        no_spin = estimate(None)
+        with_spin = estimate(spin_rpm)
+        assert (with_spin != pytest.approx(no_spin)) is moves
+
     def test_missing_ti_capture_preserves_ops_shot(self, monkeypatch):
         emitted = []
         runtime = SimpleNamespace(

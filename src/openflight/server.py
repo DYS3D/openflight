@@ -883,7 +883,7 @@ def _select_vertical_radar_launch(kld7_angle, shot: Shot) -> tuple[bool, dict]:
         club=shot.club,
         ball_speed_mph=shot.ball_speed_mph,
         club_speed_mph=shot.club_speed_mph,
-        spin_rpm=shot.spin_rpm,
+        spin_rpm=_trusted_spin_rpm(shot),
     )
     details.update(guard_details)
     if not plausible:
@@ -1004,6 +1004,15 @@ def _select_horizontal_radar_launch(kld7_angle, horizontal_limit: float) -> tupl
     return True, details
 
 
+def _trusted_spin_rpm(shot: Shot) -> float | None:
+    """Spin that may steer launch-angle estimates: the same bar as spin-driven carry.
+
+    Experimental (e.g. ungated multitaper) spin stays on the shot for display
+    but must not move the estimated launch angle, carry or simulator VLA.
+    """
+    return shot.spin_rpm if spin_is_trusted(shot, floor=SPIN_CONFIDENCE_RELIABLE) else None
+
+
 def _ensure_user_facing_launch_angles(shot: Shot) -> None:
     """Provide a vertical estimate without inventing a horizontal measurement."""
     estimated: tuple[float, float] | None = None
@@ -1013,7 +1022,7 @@ def _ensure_user_facing_launch_angles(shot: Shot) -> None:
             shot.club,
             shot.ball_speed_mph,
             club_speed_mph=shot.club_speed_mph,
-            spin_rpm=shot.spin_rpm,
+            spin_rpm=_trusted_spin_rpm(shot),
         )
         shot.launch_angle_vertical = estimated[0]
         shot.launch_angle_confidence = estimated[1]
@@ -1040,7 +1049,7 @@ def _ensure_user_facing_launch_angles(shot: Shot) -> None:
                     shot.club,
                     shot.ball_speed_mph,
                     club_speed_mph=shot.club_speed_mph,
-                    spin_rpm=shot.spin_rpm,
+                    spin_rpm=_trusted_spin_rpm(shot),
                 )
             shot.launch_angle_horizontal_confidence = estimated[1]
         shot.launch_angle_horizontal_source = "estimated"

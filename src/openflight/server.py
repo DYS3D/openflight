@@ -3146,6 +3146,12 @@ def _process_iwr6843_angle(shot: Shot) -> float | None:
                 else None
             ),
         )
+        if _gated_stage_cancelled():
+            logger.warning(
+                "[SERVER] IWR6843 result for shot #%s arrived after its budget; discarded",
+                shot.shot_number,
+            )
+            return None
         capture = shot_result.capture
         measurement = shot_result.measurement
         club_path = getattr(shot_result, "club_path", None)
@@ -3319,6 +3325,8 @@ def _emit_iwr6843_trigger_status(
     angle_deg: float | None = None,
 ) -> None:
     """Enrich the existing OPS trigger row with the correlated TI result."""
+    if _gated_stage_cancelled():
+        return
     iwr_status = {"state": state, "reason": reason}
     if angle_deg is not None:
         iwr_status["angle_deg"] = round(angle_deg, 2)

@@ -828,6 +828,28 @@ class TestGatedPostprocessing:
         assert shot.inclinometer == {"applied": True, "roll_deg": 2.0}
         assert self._final_shot()["inclinometer"] == {"applied": True, "roll_deg": 2.0}
 
+    def test_late_iwr6843_stage_logs_and_reports_nothing(self, monkeypatch):
+        runtime = _SlowIwrRuntime(delay_s=0.2)
+        iwr_logs = []
+        monkeypatch.setattr(server_module, "iwr6843_runtime", runtime)
+        monkeypatch.setattr(server_module, "gated_postprocessing", True)
+        monkeypatch.setattr(
+            server_module,
+            "get_session_logger",
+            lambda: SimpleNamespace(
+                log_shot=lambda shot, pipeline_ms=None: None,
+                log_iwr6843_capture=lambda **kwargs: iwr_logs.append(kwargs),
+                log_camera_capture=lambda **_kwargs: None,
+            ),
+        )
+        on_shot_detected(self._shot())
+        _wait_for_shot_finalization_idle()
+        server_module._gated_stage_threads["iwr6843"].join(2.0)
+
+        assert self._final_shot()["iwr6843_status"] == "skipped_budget"
+        assert iwr_logs == []
+        assert [e for e, _p in self.emitted if e == "trigger_diagnostic_update"] == []
+
     def test_late_camera_stage_logs_nothing_for_the_finalized_shot(self, monkeypatch):
         camera = _SlowCameraRuntime(delay_s=0.2)
         camera_logs = []

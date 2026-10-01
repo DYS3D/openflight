@@ -9,6 +9,7 @@ the size budget. Only files OpenFlight itself writes are ever considered.
 from __future__ import annotations
 
 import logging
+import stat
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,8 +40,10 @@ def _stat_unit(paths: Iterable[Path], protected: bool = False) -> Optional[_Unit
     unit = _Unit(protected=protected)
     for path in paths:
         try:
-            info = path.stat()
+            info = path.lstat()
         except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(info.st_mode):
             continue
         unit.files.append(path)
         unit.mtime = max(unit.mtime, info.st_mtime)
@@ -48,8 +51,8 @@ def _stat_unit(paths: Iterable[Path], protected: bool = False) -> Optional[_Unit
     return unit if unit.files else None
 
 
-# Files the --debug toggle writes into ~/openflight_logs.
-DEBUG_LOG_GLOBS = ("debug_*.jsonl", "radar_raw_*.log")
+# Files the --debug toggle and the updater write into ~/openflight_logs.
+DEBUG_LOG_GLOBS = ("debug_*.jsonl", "radar_raw_*.log", "update_*.log")
 
 
 def _collect_debug_units(log_dir: Path, protect: Callable[[Path], bool]) -> List[_Unit]:

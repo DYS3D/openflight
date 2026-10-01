@@ -143,3 +143,28 @@ def test_debug_log_directory_is_pruned_by_its_own_patterns(tmp_path):
     assert set(removed) == {old_debug, old_raw}
     assert keep.exists()
     assert unrelated.exists()
+
+
+def test_updater_logs_are_pruned_from_the_debug_directory(tmp_path):
+    old_update = _write(tmp_path / "update_20200101_000000.log", age_days=200)
+    keep = _write(tmp_path / "update_20260101_000000.log", age_days=1)
+
+    removed = prune_logs(tmp_path, max_age_days=90, max_total_mb=0, now=NOW, kind="debug")
+
+    assert removed == [old_update]
+    assert keep.exists()
+
+
+def test_symlinked_session_logs_are_neither_counted_nor_deleted(tmp_path):
+    outside = _write(tmp_path / "outside" / "big.bin", size=3 * 1024 * 1024, age_days=200)
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "session_20200101_000000_range.jsonl").symlink_to(outside)
+    (log_dir / "radar_raw_20200101_000000.log").symlink_to(outside)
+    real = _write(log_dir / "session_20260101_000000_range.jsonl", age_days=1)
+
+    removed = prune_logs(log_dir, max_age_days=90, max_total_mb=1, now=NOW)
+
+    assert removed == []
+    assert outside.exists()
+    assert real.exists()

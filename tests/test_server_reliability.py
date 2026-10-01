@@ -247,13 +247,13 @@ class TestMonitorSwapLocking:
 
 class TestSetClubPayload:
     @pytest.mark.parametrize("payload", [None, "driver", 7, [], {"club": "not-a-club"}])
-    def test_bad_payloads_do_not_raise_or_emit(self, monkeypatch, payload):
+    def test_bad_payloads_do_not_raise_or_change_the_club(self, monkeypatch, payload):
         emitted = []
         monkeypatch.setattr(server_module, "monitor", None)
         monkeypatch.setattr(server_module.socketio, "emit", lambda *a, **_kw: emitted.append(a))
         server_module.handle_set_club(payload)
         if isinstance(payload, dict):
-            assert emitted == []
+            assert [event for event, *_rest in emitted] == ["club_error"]
         else:
             assert emitted == [("club_changed", {"club": "driver"})]
 

@@ -129,6 +129,46 @@ test('switching golfer mid-round starts a fresh Practice round for the new golfe
 
   await withControlSocket((socket) => simulateShot(socket));
   await expect(page.locator('.practice__totals')).toContainText('1 / 10');
+
+  await withControlSocket(async (socket) => {
+    const activated = waitForEvent<{ profiles: Array<{ id: string; name: string }> }>(socket, 'profiles');
+    socket.emit('get_profiles');
+    const snapshot = await activated;
+    const switched = waitForEvent(socket, 'profiles');
+    socket.emit('set_active_profile', { profile_id: snapshot.profiles.find((p) => p.name === 'Profile 1')!.id });
+    await switched;
+  });
+  await expect(page.locator('.panel-header__subtitle')).toHaveText('Profile 1');
+  await expect(page.locator('.practice__totals')).toContainText('2 / 10');
+});
+
+test('switching to another tab and back keeps the Practice round', async ({ page }) => {
+  await gotoApp(page);
+  await dismissPicker(page);
+  const openPractice = async () => {
+    await page.getByRole('button', { name: 'Open menu' }).click();
+    await page.getByRole('dialog', { name: 'Menu' }).getByRole('button', { name: 'Practice' }).click();
+    await expect(page.locator('.panel-header__title')).toHaveText('Practice');
+  };
+  await openPractice();
+  await page.locator('.practice__mode button').nth(1).click();
+
+  await withControlSocket(async (socket) => {
+    await simulateShot(socket);
+    await simulateShot(socket);
+  });
+  await expect(page.locator('.practice__totals')).toContainText('2 / 10');
+  const target = await page.locator('.practice__big').first().textContent();
+  const cells = await page.locator('.practice__cell').allTextContents();
+
+  await page.getByRole('button', { name: 'Live' }).click();
+  await expect(page.locator('.panel-header__title')).toHaveText('Live');
+  await openPractice();
+
+  await expect(page.locator('.practice__mode [aria-pressed="true"]')).toHaveText('Ladder');
+  await expect(page.locator('.practice__totals')).toContainText('2 / 10');
+  await expect(page.locator('.practice__big').first()).toHaveText(target!);
+  await expect(page.locator('.practice__cell')).toHaveText(cells);
 });
 
 test('clearing the session while Dispersion is open leaves no stale chart or highlight', async ({ page }) => {

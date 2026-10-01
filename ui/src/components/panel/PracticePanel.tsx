@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { Shot } from '../../types/shot';
 import { filterShotsByProfile } from '../../types/shot';
 import { ballShots, carryYards } from '../../utils/shotAnalysis';
@@ -17,24 +17,15 @@ import {
 } from '../../utils/practice';
 import { convertDistanceFromYards, getDistanceUnit, type UnitSystem } from '../../utils/units';
 import { useUnitPreference } from '../../state/useUnitPreference';
+import { startPracticeSession, usePracticeStore } from '../../stores/usePracticeStore';
 import { useI18n } from '../../i18n/useI18n';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { PanelAction } from './PanelAction';
 import { PanelHeader } from './PanelHeader';
 import './PracticePanel.css';
 
-interface PracticeSession {
-  config: PracticeConfig;
-  baseline: ReadonlySet<string>;
-  profileId: string;
-}
-
 function newSeed(): number {
   return Math.floor(Math.random() * 2 ** 31);
-}
-
-function startSession(config: PracticeConfig, shots: readonly Shot[], profileId: string): PracticeSession {
-  return { config, baseline: new Set(shots.map((shot) => shot.timestamp)), profileId };
 }
 
 interface PracticePanelProps {
@@ -43,18 +34,34 @@ interface PracticePanelProps {
   profileName: string;
 }
 
-/** Client-side only: scores the active profile's shots that arrive while the view is open. */
+/**
+ * Client-side only: scores the active profile's shots hit since their round started.
+ * Each golfer keeps their own round while the view is closed; a unit change restarts it.
+ */
 export function PracticePanel({ shots, profileId, profileName }: PracticePanelProps) {
   const { unitSystem } = useUnitPreference();
-  const [session, setSession] = useState(() =>
-    startSession(defaultPracticeConfig(unitSystem, newSeed()), shots, profileId)
-  );
+  const stored = usePracticeStore((state) => state.sessions[profileId]);
+  const lastConfig = usePracticeStore((state) => state.lastConfig);
+  const setSession = usePracticeStore((state) => state.setSession);
 
-  // Another golfer or unit starts a fresh round (adjusted during render, not in an effect).
-  if (session.profileId !== profileId || session.config.unitSystem !== unitSystem) {
-    const config = { ...convertPracticeConfig(session.config, unitSystem), seed: session.config.seed + 1 };
-    setSession(startSession(config, shots, profileId));
-  }
+  const replacement = useMemo(() => {
+    if (stored && stored.config.unitSystem === unitSystem) {
+      return null;
+    }
+    const previous = stored?.config ?? lastConfig;
+    const config = previous
+      ? { ...convertPracticeConfig(previous, unitSystem), seed: newSeed() }
+      : defaultPracticeConfig(unitSystem, newSeed());
+    return startPracticeSession(config, shots);
+  }, [stored, lastConfig, unitSystem, shots]);
+
+  useEffect(() => {
+    if (replacement) {
+      setSession(profileId, replacement);
+    }
+  }, [replacement, profileId, setSession]);
+
+  const session = replacement ?? stored!;
 
   const carries = useMemo(
     () =>
@@ -65,7 +72,7 @@ export function PracticePanel({ shots, profileId, profileName }: PracticePanelPr
   );
   const round = playRound(session.config, carries);
   const restart = (config: PracticeConfig) =>
-    setSession(startSession({ ...config, seed: newSeed() }, shots, profileId));
+    setSession(profileId, startPracticeSession({ ...config, seed: newSeed() }, shots));
 
   return (
     <PracticeBoard

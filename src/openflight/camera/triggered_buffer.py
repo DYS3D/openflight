@@ -193,6 +193,17 @@ def unpack_yuv420_y_plane(
     return image
 
 
+def frame_interval_timestamps_ns(archive) -> np.ndarray:
+    """Per-frame times for measuring the spacing between frames.
+
+    Host timestamps record when the frame callback ran and carry its delivery
+    jitter; sensor timestamps mark exposure start. Archives without sensor
+    timestamps fall back to host time.
+    """
+    key = "sensor_timestamp_ns" if "sensor_timestamp_ns" in archive else "host_timestamp_ns"
+    return np.asarray(archive[key], dtype=np.int64)
+
+
 def timing_summary(frames: Sequence[CameraFrame]) -> dict[str, float | int]:
     """Summarize delivered cadence and discontinuities for a capture."""
     if len(frames) < 2:

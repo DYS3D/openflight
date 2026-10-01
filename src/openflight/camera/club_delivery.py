@@ -898,7 +898,7 @@ def _clubhead_feature_tracks(
 
 def estimate_chained_delivery(
     frames: np.ndarray,
-    host_timestamp_ns: np.ndarray,
+    timestamps_ns: np.ndarray,
     *,
     trigger_index: int | None,
     range_evidence,
@@ -911,7 +911,7 @@ def estimate_chained_delivery(
         return ChainedDelivery(status="rejected_no_ops_speed")
     if frames.ndim != 3 or len(frames) < 20:
         return ChainedDelivery(status="rejected_invalid_frames")
-    timestamps_ns = np.asarray(host_timestamp_ns, dtype=np.int64)
+    timestamps_ns = np.asarray(timestamps_ns, dtype=np.int64)
     if timestamps_ns.shape != (len(frames),):
         return ChainedDelivery(status="rejected_invalid_timing")
 

@@ -19,12 +19,13 @@ from .test_camera_spin_from_pair import blank, render_ball, rodrigues
 FRAME_PERIOD_NS = 3_333_333
 
 
-def _capture_from_images(images, trigger_index: int) -> object:
+def _capture_from_images(images, trigger_index: int, host_delays_ns=None) -> object:
+    delays = host_delays_ns or [0] * len(images)
     frames = tuple(
         CameraFrame(
             image=image,
             sensor_timestamp_ns=index * FRAME_PERIOD_NS,
-            host_timestamp_ns=index * FRAME_PERIOD_NS,
+            host_timestamp_ns=index * FRAME_PERIOD_NS + delays[index],
             exposure_us=40,
             analogue_gain=4.0,
         )
@@ -44,12 +45,14 @@ def _capture_from_images(images, trigger_index: int) -> object:
     return runtime._save_capture(1, 123.0, capture)
 
 
-def _marked_ball_capture():
+def _marked_ball_capture(host_delays_ns=None):
     pytest.importorskip("cv2")
     # 30 deg of backspin between the trigger frame and the next one.
     before = render_ball(blank(), 120.0, 100.0, 40.0)
     after = render_ball(blank(), 135.0, 88.0, 40.0, rodrigues((-1.0, 0.0, 0.0), 30.0))
-    return _capture_from_images([blank(), blank(), before, after, blank()], trigger_index=2)
+    return _capture_from_images(
+        [blank(), blank(), before, after, blank()], trigger_index=2, host_delays_ns=host_delays_ns
+    )
 
 
 def _run_main(monkeypatch, argv):
@@ -113,6 +116,17 @@ class TestFusion:
         assert payload["camera_spin_status"] == "accepted"
         assert payload["spin_rpm"] == 2600.0
         assert "Camera strobe spin: status=accepted" in caplog.text
+
+    def test_spin_uses_sensor_frame_spacing_not_callback_jitter(self, monkeypatch):
+        # Frame callbacks ran late for the trigger frame and on time for the
+        # next, so host times are only ~1 ms apart while exposures are 3.3 ms.
+        capture = _marked_ball_capture(host_delays_ns=[0, 0, 2_300_000, 0, 0])
+        monkeypatch.setattr(server_module, "camera_strobe_spin_enabled", True)
+        shot = Shot(ball_speed_mph=100.0, timestamp=datetime.now())
+
+        server_module._fuse_camera_strobe_spin(shot, capture, capture.archive)
+
+        assert shot.camera_spin_rpm == pytest.approx(1500.0, rel=0.1)
 
     def test_missing_frames_is_rejected(self, monkeypatch):
         monkeypatch.setattr(server_module, "camera_strobe_spin_enabled", True)

@@ -3421,6 +3421,9 @@ def _fuse_camera_club_delivery(
             ChainedDelivery,
             estimate_chained_delivery,
         )
+        from openflight.camera.triggered_buffer import (  # noqa: PLC0415
+            frame_interval_timestamps_ns,
+        )
 
         rejection = _camera_capture_frames_rejection(camera_capture)
         if rejection is not None:
@@ -3448,7 +3451,7 @@ def _fuse_camera_club_delivery(
                     else:
                         fused = estimate_chained_delivery(
                             archive["frames"],
-                            archive["host_timestamp_ns"],
+                            frame_interval_timestamps_ns(archive),
                             trigger_index=trigger_index,
                             range_evidence=shot.iwr6843_club_range_evidence,
                             geometry=CameraDeliveryGeometry(
@@ -3516,6 +3519,9 @@ def _fuse_camera_ball_flight(
             estimate_camera_ball_flight,
             select_camera_assisted_horizontal,
         )
+        from openflight.camera.triggered_buffer import (  # noqa: PLC0415
+            frame_interval_timestamps_ns,
+        )
 
         rejection = _camera_capture_frames_rejection(camera_capture)
         if rejection is not None:
@@ -3564,6 +3570,7 @@ def _fuse_camera_ball_flight(
                         ops_ball_speed_mph=shot.ball_speed_raw_mph or shot.ball_speed_mph,
                         iwr_vertical_deg=shot.launch_angle_vertical,
                         ball_tracker=camera_ball_flight_reference_tracker,
+                        interval_timestamps_ns=frame_interval_timestamps_ns(archive),
                     )
 
         decision = select_camera_assisted_horizontal(
@@ -3659,6 +3666,9 @@ def _fuse_camera_strobe_spin(shot: Shot, camera_capture, camera_archive) -> None
         from openflight.camera.spin_from_pair import (  # noqa: PLC0415
             estimate_spin_from_frames,
         )
+        from openflight.camera.triggered_buffer import (  # noqa: PLC0415
+            frame_interval_timestamps_ns,
+        )
 
         rejection = _camera_capture_frames_rejection(camera_capture)
         if rejection is None and camera_archive is None:
@@ -3675,7 +3685,8 @@ def _fuse_camera_strobe_spin(shot: Shot, camera_capture, camera_archive) -> None
             shot.camera_spin_status = "rejected_insufficient_post_trigger_frames"
             logger.info("[SERVER] Camera strobe spin skipped: no frame after the trigger")
             return
-        gap_s = (int(timestamps_ns[first + 1]) - int(timestamps_ns[first])) / 1e9
+        spacing_ns = frame_interval_timestamps_ns(camera_archive)
+        gap_s = (int(spacing_ns[first + 1]) - int(spacing_ns[first])) / 1e9
         result = estimate_spin_from_frames(frames[first], frames[first + 1], gap_s)
         shot.camera_spin_status = result.status
         shot.camera_spin_rpm = result.spin_rpm

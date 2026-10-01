@@ -473,6 +473,7 @@ def estimate_camera_ball_flight(
     ops_ball_speed_mph: float,
     iwr_vertical_deg: float | None = None,
     ball_tracker=None,
+    interval_timestamps_ns: np.ndarray | None = None,
 ) -> CameraBallEstimate:
     """Estimate horizontal flight with a frozen detector-consensus sweep."""
     if frames.ndim != 3 or len(frames) < 4 or len(timestamps_ns) != len(frames):
@@ -493,6 +494,12 @@ def estimate_camera_ball_flight(
 
     model = _camera_model(anchor, geometry)
     trigger_frame = int(np.argmin(np.abs(timestamps_ns.astype(np.int64) - trigger_ns)))
+    frame_times_ns = timestamps_ns.astype(np.int64)
+    if interval_timestamps_ns is not None and len(interval_timestamps_ns) == len(frames):
+        spacing_ns = np.asarray(interval_timestamps_ns, dtype=np.int64)
+        # Stay on the host clock of trigger_ns at the matched frame, but space
+        # the other frames by their exposure times.
+        frame_times_ns = frame_times_ns[trigger_frame] + (spacing_ns - spacing_ns[trigger_frame])
     frame_indices = list(range(trigger_frame, min(len(frames), trigger_frame + 15)))
     if len(frame_indices) < 4:
         return CameraBallEstimate("rejected_insufficient_post_trigger_frames")
@@ -521,7 +528,7 @@ def estimate_camera_ball_flight(
                             result := _path_estimate(
                                 path=path,
                                 frame_indices=frame_indices,
-                                timestamps_ns=timestamps_ns,
+                                timestamps_ns=frame_times_ns,
                                 trigger_ns=trigger_ns,
                                 range_evidence=depth_evidence,
                                 ops_ball_speed_mph=ops_ball_speed_mph,

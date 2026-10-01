@@ -53,6 +53,45 @@ def test_ball_flight_uses_established_anchor_when_detection_is_missing(monkeypat
     assert result.status != "rejected_reference_ball_not_found"
 
 
+def test_ball_flight_spaces_frames_by_sensor_time_from_trigger_frame(monkeypatch):
+    anchor = ReferenceBall(160.0, 100.0, 14.0, 140)
+    candidate = BallCandidate(160.0, 100.0, 10, 3, 4, 0.7, 0.8, 220)
+    monkeypatch.setattr(ball_flight_module, "detect_reference_ball", lambda _frames: anchor)
+    monkeypatch.setattr(
+        ball_flight_module, "_pixel_paths", lambda _nodes, _anchor: [[(0, candidate)]]
+    )
+    seen = []
+
+    def record(**kwargs):
+        seen.append(kwargs["timestamps_ns"])
+
+    monkeypatch.setattr(ball_flight_module, "_path_estimate", record)
+    sensor_ns = np.arange(20, dtype=np.int64) * 2_000_000
+    # Frame callbacks bunch up after the trigger even though exposures are even.
+    host_ns = sensor_ns + 500_000
+    host_ns[10:] = host_ns[10] + np.arange(10) * 200_000
+
+    estimate_camera_ball_flight(
+        np.zeros((20, 200, 320), dtype=np.uint8),
+        host_ns,
+        interval_timestamps_ns=sensor_ns,
+        trigger_ns=int(host_ns[10]),
+        range_evidence=None,
+        geometry=CameraBallGeometry(
+            camera_height_m=0.2032,
+            radar_height_m=0.1524,
+            tee_range_m=1.524,
+            ball_height_m=0.04,
+            image_width_px=320,
+            image_height_px=200,
+        ),
+        ops_ball_speed_mph=100.0,
+    )
+
+    assert seen
+    np.testing.assert_array_equal(seen[0], host_ns[10] + (sensor_ns - sensor_ns[10]))
+
+
 def _project_world_point(
     point: np.ndarray,
     *,

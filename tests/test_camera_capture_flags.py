@@ -332,6 +332,36 @@ class TestEnrichment:
         assert shot.experimental_fused_status == "accepted"
         assert shot.experimental_camera_horizontal_status.startswith("camera_")
 
+    def test_estimators_space_frames_by_sensor_time(self, monkeypatch):
+        from openflight.camera import ball_flight, club_delivery
+
+        capture = _memory_only_capture()
+        calls = {}
+
+        def fake_ball_flight(_frames, timestamps_ns, **kwargs):
+            calls["ball"] = (timestamps_ns, kwargs["interval_timestamps_ns"])
+            return ball_flight.CameraBallEstimate(status="accepted", confidence_tier="high")
+
+        def fake_delivery(_frames, timestamps_ns, **_kwargs):
+            calls["club"] = timestamps_ns
+            return club_delivery.ChainedDelivery(status="accepted")
+
+        monkeypatch.setattr(ball_flight, "estimate_camera_ball_flight", fake_ball_flight)
+        monkeypatch.setattr(club_delivery, "estimate_chained_delivery", fake_delivery)
+        monkeypatch.setattr(server_module, "iwr6843_runtime", IWR_RUNTIME)
+        monkeypatch.setattr(server_module, "camera_capture_config", CAMERA_CONFIG)
+        monkeypatch.setattr(server_module, "camera_reference_ball_tracker", None)
+        monkeypatch.setattr(server_module, "camera_ball_flight_reference_tracker", None)
+        shot = Shot(ball_speed_mph=100.0, timestamp=datetime.now(), club_speed_mph=90.0)
+
+        server_module._fuse_camera_ball_flight(shot, capture, capture.archive)
+        server_module._fuse_camera_club_delivery(shot, capture, capture.archive)
+
+        sensor_ns = capture.archive["sensor_timestamp_ns"]
+        assert calls["ball"][0] is capture.archive["host_timestamp_ns"]
+        np.testing.assert_array_equal(calls["ball"][1], sensor_ns)
+        np.testing.assert_array_equal(calls["club"], sensor_ns)
+
     @pytest.mark.parametrize(
         ("capture", "expected"),
         [

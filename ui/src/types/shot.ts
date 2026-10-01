@@ -206,6 +206,11 @@ export interface SwingSpeedStatsFilter {
   club?: string | null;
 }
 
+/** The carry the Live panel shows: spin-adjusted when available. */
+export function carryYards(shot: Shot): number {
+  return shot.carry_spin_adjusted ?? shot.estimated_carry_yards;
+}
+
 export function isSwingSpeedShot(shot: Shot | null): boolean {
   return shot?.mode === 'swing-speed' || shot?.club === 'Swing Speed';
 }
@@ -299,7 +304,7 @@ export function computeStats(shots: Shot[]): SessionStats {
   const ballSpeeds = shots.map((s) => s.ball_speed_mph);
   const clubSpeeds = shots.map((s) => s.club_speed_mph).filter((v): v is number => v !== null);
   const smashFactors = shots.map((s) => s.smash_factor).filter((v): v is number => v !== null);
-  const carries = shots.map((s) => s.estimated_carry_yards);
+  const carries = shots.map(carryYards);
 
   const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
   const stdDev = (arr: number[]) => {

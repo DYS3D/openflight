@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Shot } from './shot';
-import { filterShotsByProfile, excludeShotsByProfile } from './shot';
+import { computeStats, filterShotsByProfile, excludeShotsByProfile } from './shot';
 
 describe('filterShotsByProfile', () => {
   const shotWith = (profileId: string | undefined): Shot => ({ profile_id: profileId, ball_speed_mph: 100 }) as Shot;
@@ -44,5 +44,16 @@ describe('excludeShotsByProfile', () => {
     const shots = [shotWith('aaa'), shotWith('bbb')];
 
     expect(excludeShotsByProfile(shots, '')).toEqual(shots);
+  });
+});
+
+describe('computeStats', () => {
+  it('averages the same spin-adjusted carry the Live panel shows', () => {
+    const shots = [
+      { ball_speed_mph: 150, estimated_carry_yards: 240, carry_spin_adjusted: 250 },
+      { ball_speed_mph: 150, estimated_carry_yards: 230, carry_spin_adjusted: null },
+    ] as Shot[];
+
+    expect(computeStats(shots).avg_carry_est).toBe(240);
   });
 });

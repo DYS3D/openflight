@@ -101,6 +101,13 @@ describe('ShotsPanel', () => {
     expect(html).toContain('shots-panel__value--accent');
   });
 
+  it('shows the spin-adjusted carry the Live panel shows', () => {
+    const html = render([makeShot({ carry_spin_adjusted: 224 })]);
+
+    expect(html).toContain('>224<');
+    expect(html).not.toContain('>210<');
+  });
+
   it('renders placeholders rather than blanks for missing values', () => {
     const html = render([makeShot({ club_speed_mph: null, launch_angle_vertical: null, spin_rpm: null })]);
 

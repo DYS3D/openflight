@@ -1,5 +1,5 @@
 import type { Shot, ShotFlight } from '../types/shot';
-import { isSwingSpeedShot } from '../types/shot';
+import { carryYards, isSwingSpeedShot } from '../types/shot';
 import {
   covarianceEllipse,
   fractionInsideEllipse,
@@ -11,10 +11,7 @@ import {
 
 export type ShotWithFlight = Shot & { flight: ShotFlight };
 
-/** The carry the Live panel shows: spin-adjusted when available. */
-export function carryYards(shot: Shot): number {
-  return shot.carry_spin_adjusted ?? shot.estimated_carry_yards;
-}
+export { carryYards };
 
 export function ballShots(shots: readonly Shot[]): Shot[] {
   return shots.filter((shot) => !isSwingSpeedShot(shot) && Number.isFinite(carryYards(shot)));

@@ -277,3 +277,34 @@ for (const viewport of [SHORT_KIOSK, { width: 800, height: 480 }, { width: 1024,
     expect(await coveredTiles()).toEqual([]);
   });
 }
+
+test.describe('footer tabs on an 800×400 kiosk', () => {
+  test.use({ viewport: SHORT_KIOSK });
+
+  for (const metaWidth of [0, 240]) {
+    test(`keeps every tab whole with fallback fonts and a ${metaWidth}px status block`, async ({ page }) => {
+      await withControlSocket(async (socket) => {
+        await resetSession(socket);
+        await setClub(socket, 'driver');
+        await simulateShot(socket);
+      });
+      await gotoApp(page);
+      await page.locator('.picker-overlay__close').click();
+      // A wide fallback font and room for the battery chrome, which mock mode does not report.
+      await page.addStyleTag({
+        content: `:root { --font-body: 'DejaVu Sans', sans-serif; } .panel-footer__meta { min-width: ${metaWidth}px; }`,
+      });
+      const hidden = await page.evaluate(() => {
+        const tabs = document.querySelector<HTMLElement>('.panel-footer__tabs')!;
+        const box = tabs.getBoundingClientRect();
+        return [...tabs.querySelectorAll<HTMLElement>('button')].flatMap((tab) => {
+          const rect = tab.getBoundingClientRect();
+          return rect.left < box.left - 1 || rect.right > box.right + 1 || tab.scrollWidth > tab.clientWidth + 1
+            ? [tab.textContent]
+            : [];
+        });
+      });
+      expect(hidden).toEqual([]);
+    });
+  }
+});

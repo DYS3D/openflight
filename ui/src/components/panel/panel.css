@@ -309,6 +309,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
+  container-type: inline-size;
 }
 
 .panel-footer__tabs {
@@ -338,7 +339,7 @@
   min-height: 44px;
   gap: 0.6vw;
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: min(0.75rem, 2.5cqi);
   letter-spacing: 0.08em;
   color: var(--color-text);
 }

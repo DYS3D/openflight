@@ -316,6 +316,8 @@ NORMALIZED_AIR_DENSITY = air_density_kg_m3(altitude_m=0.0, temperature_c=25.0)
 show_normalized_carry: bool = False
 # --derived-metrics: attach the display-only "derived" block to UI shot payloads.
 derived_metrics_enabled: bool = False
+# --derived-metrics-strict: drop derived keys built on placeholder angles.
+derived_metrics_strict_enabled: bool = False
 
 # Simulator connectors (optional). Populated in main() from config/sim.json +
 # CLI flags; shots fan out to every connected connector. Player/club state is
@@ -1214,7 +1216,7 @@ def _attach_derived_metrics(shot: Shot, trajectory: Trajectory | None) -> None:
     """Attach the --derived-metrics block (rounded for display) and log it once."""
     if not derived_metrics_enabled:
         return
-    derived = derive_metrics(shot, trajectory)
+    derived = derive_metrics(shot, trajectory, strict=derived_metrics_strict_enabled)
     for entry in derived.values():
         if not isinstance(entry["value"], str):
             entry["value"] = round(entry["value"], 2)
@@ -5424,6 +5426,16 @@ def main():
         ),
     )
     parser.add_argument(
+        "--derived-metrics-strict",
+        action="store_true",
+        help=(
+            "With --derived-metrics: omit face angle, face-to-path, curve, side and "
+            "shot shape when the horizontal launch is the neutral estimate or there is "
+            "no spin axis, and dynamic/spin loft when the vertical launch is the club "
+            "table estimate. Default off"
+        ),
+    )
+    parser.add_argument(
         "--interference-check",
         action="store_true",
         help=(
@@ -5963,6 +5975,8 @@ def main():
     show_normalized_carry = args.show_normalized_carry
     global derived_metrics_enabled
     derived_metrics_enabled = args.derived_metrics
+    global derived_metrics_strict_enabled
+    derived_metrics_strict_enabled = args.derived_metrics_strict
     global inclinometer_roll_compensation_enabled
     inclinometer_roll_compensation_enabled = args.inclinometer_roll_compensation
     global radar_auto_reconnect_enabled

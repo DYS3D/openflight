@@ -231,6 +231,7 @@ class TestServerPayload:
     def test_flag_sets_the_runtime_toggle(self, monkeypatch):
         for name in (
             "derived_metrics_enabled",
+            "derived_metrics_strict_enabled",
             "show_normalized_carry",
             "ballistics_enabled",
             "air_density",
@@ -260,3 +261,79 @@ class TestServerPayload:
         monkeypatch.setattr(sys, "argv", [*base_argv, "--derived-metrics"])
         server_module.main()
         assert server_module.derived_metrics_enabled is True
+        assert server_module.derived_metrics_strict_enabled is False
+
+        monkeypatch.setattr(
+            sys, "argv", [*base_argv, "--derived-metrics", "--derived-metrics-strict"]
+        )
+        server_module.main()
+        assert server_module.derived_metrics_strict_enabled is True
+
+
+HORIZONTAL_KEYS = {"face_angle_deg", "face_to_path_deg", "curve_yards", "side_yards", "shot_shape"}
+LOFT_KEYS = {"dynamic_loft_deg", "spin_loft_deg"}
+
+
+class TestStrictDerive:
+    def test_lenient_default_keeps_estimated_horizontal_and_loft_keys(self):
+        shot = _live_shot(
+            launch_angle_horizontal=0.0,
+            launch_angle_horizontal_source="estimated",
+            launch_angle_vertical_source="estimated",
+            spin_axis_deg=None,
+            club_path_deg=-1.0,
+        )
+        derived = derive(shot, _trajectory())
+        assert HORIZONTAL_KEYS | LOFT_KEYS <= set(derived)
+
+    def test_strict_omits_horizontal_keys_for_estimated_start_direction(self):
+        shot = _live_shot(launch_angle_horizontal=0.0, launch_angle_horizontal_source="estimated")
+        derived = derive(shot, _trajectory(), strict=True)
+        assert not HORIZONTAL_KEYS & set(derived)
+        assert LOFT_KEYS <= set(derived)
+        assert "apex_yards" in derived
+
+    def test_strict_omits_horizontal_keys_without_spin_axis(self):
+        derived = derive(_live_shot(spin_axis_deg=None), _trajectory(), strict=True)
+        assert not HORIZONTAL_KEYS & set(derived)
+
+    def test_strict_omits_loft_keys_for_table_vertical_launch(self):
+        shot = _live_shot(launch_angle_vertical_source="estimated", club_path_deg=-1.0)
+        derived = derive(shot, _trajectory(), strict=True)
+        assert not LOFT_KEYS & set(derived)
+        assert HORIZONTAL_KEYS <= set(derived)
+
+    def test_strict_keeps_everything_for_measured_angles_and_spin_axis(self):
+        shot = _live_shot(club_path_deg=-1.0, club_angle_deg=2.0)
+        assert derive(shot, _trajectory(), strict=True) == derive(shot, _trajectory())
+
+
+class TestStrictServerPayload:
+    @staticmethod
+    def _radar_only_shot() -> Shot:
+        return _live_shot(
+            launch_angle_vertical=None,
+            launch_angle_vertical_source=None,
+            launch_angle_horizontal=None,
+            launch_angle_horizontal_source=None,
+            spin_axis_deg=None,
+        )
+
+    def test_radar_only_shot_reports_neutral_face_and_shape_when_off(self, monkeypatch, emitted):
+        monkeypatch.setattr(server_module, "derived_metrics_enabled", True)
+        assert server_module.derived_metrics_strict_enabled is False
+
+        derived = _finalize(self._radar_only_shot())["derived"]
+
+        assert derived["face_angle_deg"]["value"] == 0.0
+        assert derived["shot_shape"]["value"] == "straight"
+        assert LOFT_KEYS <= set(derived)
+
+    def test_radar_only_shot_omits_fabricated_keys_when_on(self, monkeypatch, emitted):
+        monkeypatch.setattr(server_module, "derived_metrics_enabled", True)
+        monkeypatch.setattr(server_module, "derived_metrics_strict_enabled", True)
+
+        derived = _finalize(self._radar_only_shot())["derived"]
+
+        assert not (HORIZONTAL_KEYS | LOFT_KEYS) & set(derived)
+        assert {"smash_factor", "apex_yards", "total_yards"} <= set(derived)

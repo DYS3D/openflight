@@ -39,6 +39,14 @@ CURVE_STRAIGHT_YARDS = 3.0
 CURVE_SEVERE_YARDS = 15.0
 START_DIRECTION_STRAIGHT_DEG = 2.0
 
+# Strict mode: with no measured start direction or spin axis these collapse to
+# the neutral 0° placeholder; with a club-table vertical launch the lofts are
+# just the table echoed back.
+HORIZONTAL_KEYS = frozenset(
+    {"face_angle_deg", "face_to_path_deg", "curve_yards", "side_yards", "shot_shape"}
+)
+LOFT_KEYS = frozenset({"dynamic_loft_deg", "spin_loft_deg"})
+
 
 def _metric(value: float, source: str) -> dict:
     return {"value": float(value), "source": source}
@@ -106,8 +114,21 @@ def _flight(shot: Shot, trajectory: Trajectory) -> dict:
     return derived
 
 
-def derive(shot: Shot, trajectory: Optional[Trajectory] = None) -> dict:
-    """Derived metrics for a shot; keys whose inputs are missing are omitted."""
+def _strict_omitted_keys(shot: Shot) -> set[str]:
+    omitted: set[str] = set()
+    if shot.launch_angle_horizontal_source == "estimated" or shot.spin_axis_deg is None:
+        omitted |= HORIZONTAL_KEYS
+    if shot.launch_angle_vertical_source == "estimated":
+        omitted |= LOFT_KEYS
+    return omitted
+
+
+def derive(shot: Shot, trajectory: Optional[Trajectory] = None, strict: bool = False) -> dict:
+    """Derived metrics for a shot; keys whose inputs are missing are omitted.
+
+    ``strict`` also omits keys whose angle inputs are placeholders (see
+    ``_strict_omitted_keys``) rather than measurements.
+    """
     derived: dict = {}
     if shot.smash_factor is not None:
         source = "estimated" if shot.mode == "mock" else "measured"
@@ -115,6 +136,9 @@ def derive(shot: Shot, trajectory: Optional[Trajectory] = None) -> dict:
     derived.update(_club_delivery(shot))
     if trajectory is not None:
         derived.update(_flight(shot, trajectory))
+    if strict:
+        for key in _strict_omitted_keys(shot):
+            derived.pop(key, None)
     return derived
 
 

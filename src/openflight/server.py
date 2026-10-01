@@ -2443,7 +2443,10 @@ def set_debug_mode(enabled: bool) -> Optional[str]:
     global debug_mode  # pylint: disable=global-statement
 
     with _debug_log_lock, _config_lock:
-        if enabled == debug_mode:
+        # --debug sets debug_mode at startup without opening a file; the first
+        # enable still has to open one.
+        already_logging = not enabled or debug_log_file is not None
+        if enabled == debug_mode and already_logging:
             return str(debug_log_path) if enabled and debug_log_path else None
         debug_mode = enabled
         if enabled:
@@ -4806,6 +4809,9 @@ def start_monitor(
                 "min_speed": int(swing_config.get("trigger_threshold_mph", 30)),
                 "max_speed": int(swing_config.get("max_speed_mph") or 0),
             }
+
+    if debug:
+        set_debug_mode(True)
 
     logger.info(
         "[SERVER] Starting monitor: mode=%s, trigger=%s, sample_rate=%dksps",

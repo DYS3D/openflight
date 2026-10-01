@@ -33,6 +33,14 @@ def _reading(speed=100.0):
 
 
 class TestDebugLogging:
+    def test_debug_mode_set_at_startup_still_opens_a_log_file(self, debug_home, monkeypatch):
+        monkeypatch.setattr(server_module, "debug_mode", True)
+        monkeypatch.setattr(server_module, "debug_log_file", None)
+        path = server_module.set_debug_mode(True)
+        assert path is not None
+        assert server_module.debug_log_file is not None
+        assert server_module.set_debug_mode(True) == path
+
     def test_restart_closes_the_previous_file_and_handler(self, debug_home):
         server_module.start_debug_logging()
         first_file = server_module.debug_log_file

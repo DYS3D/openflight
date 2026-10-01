@@ -1200,15 +1200,20 @@ class TestSessionErrorLogging:
 class TestKLD7Initialization:
     """Tests for K-LD7 startup wiring."""
 
-    def test_start_monitor_applies_cli_debug_mode(self, monkeypatch):
+    def test_start_monitor_applies_cli_debug_mode(self, monkeypatch, tmp_path):
         monkeypatch.setattr(server_module, "monitor", None)
         monkeypatch.setattr(server_module, "debug_mode", False)
         monkeypatch.setattr(server_module, "get_session_logger", lambda: None)
+        monkeypatch.setattr(server_module, "DEBUG_LOG_DIR", tmp_path / "logs")
 
         server_module.start_monitor(mock=True, trigger_type="sound", debug=True)
-
-        assert server_module.debug_mode is True
-        server_module.stop_monitor()
+        try:
+            assert server_module.debug_mode is True
+            assert server_module.debug_log_file is not None
+            assert server_module.debug_log_path.parent == tmp_path / "logs"
+        finally:
+            server_module.stop_monitor()
+            server_module.set_debug_mode(False)
 
     def test_init_kld7_uses_stable_runtime_defaults(self, monkeypatch):
         import openflight.kld7 as kld7_package

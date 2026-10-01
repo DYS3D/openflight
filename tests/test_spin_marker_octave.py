@@ -15,6 +15,7 @@ from spin_synth import synth_capture
 
 from openflight import rolling_buffer as rolling_buffer_package, server as server_module
 from openflight.clubs import ClubType
+from openflight.clubs.physics import get_plausible_spin_rpm
 from openflight.launch_monitor import SPIN_CONFIDENCE_HIGH, spin_is_trusted
 from openflight.rolling_buffer import (
     IQCapture,
@@ -24,6 +25,7 @@ from openflight.rolling_buffer import (
     SpeedTimeline,
     SpinResult,
 )
+from openflight.rolling_buffer.monitor import get_optimal_spin_for_ball_speed
 from openflight.rolling_buffer.types import spin_method_name
 
 SESSION_LOG = Path(__file__).parent.parent / "session_logs" / "session_20260501_180406_range.jsonl"
@@ -102,6 +104,8 @@ def test_default_options_are_off():
     assert processor.spin_octave_check is False
     assert monitor.processor.ball_marker == "none"
     assert monitor.processor.spin_octave_check is False
+    assert processor.spin_octave_prior == "optimal"
+    assert monitor.processor.spin_octave_prior == "optimal"
 
 
 def test_invalid_ball_marker_is_rejected():
@@ -430,6 +434,149 @@ def test_marker_then_octave_check_walk_a_4x_pick_down_to_1x():
     assert both.peak_freq_hz * 60 == pytest.approx(2820, rel=0.03)
     assert both.method == "envelope_fft+marker_dot+octave_halved"
     assert both.octave_corrected
+
+
+def _range_processor(**kwargs) -> RollingBufferProcessor:
+    return RollingBufferProcessor(spin_octave_check=True, spin_octave_prior="range", **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("tones", "ball_speed_mph", "club", "true_rpm", "optimal_correction"),
+    [
+        pytest.param(
+            {2500: 0.04, 5000: 0.05}, 150.0, ClubType.DRIVER, 5000, "halved", id="driver-5000"
+        ),
+        pytest.param(
+            {4200: 0.05, 8400: 0.03}, 100.0, ClubType.IRON_7, 4200, "doubled", id="7-iron-4200"
+        ),
+    ],
+)
+def test_range_prior_keeps_real_spin_the_optimal_prior_octave_corrects(
+    tones, ball_speed_mph, club, true_rpm, optimal_correction
+):
+    capture = _am_capture(tones, ball_speed_mph=ball_speed_mph, fade_hz=48.0, fade_depth=0.15)
+    prior = get_optimal_spin_for_ball_speed(ball_speed_mph, club)
+
+    optimal = RollingBufferProcessor(spin_octave_check=True).detect_spin_multitaper(
+        capture, ball_speed_mph, 5.0, expected_spin_rpm=prior
+    )
+    ranged = _range_processor().detect_spin_multitaper(
+        capture,
+        ball_speed_mph,
+        5.0,
+        expected_spin_rpm=prior,
+        plausible_spin_rpm=get_plausible_spin_rpm(club),
+    )
+
+    assert optimal.method == f"multitaper_ungated+octave_{optimal_correction}"
+    assert optimal.spin_rpm != pytest.approx(true_rpm, rel=0.05)
+    assert ranged.spin_rpm == pytest.approx(true_rpm, rel=0.02)
+    assert ranged.method == "multitaper_ungated"
+    assert not ranged.octave_corrected
+
+
+@pytest.mark.parametrize(
+    ("lines", "plausible_spin_rpm", "corrected_rpm", "correction"),
+    [
+        pytest.param({4000: 0.8, 8000: 1.0}, (3000, 7000), 4000, "halved", id="halved-at-0.8"),
+        pytest.param({4000: 1.0, 8000: 0.9}, (6000, 10000), 8000, "doubled", id="doubled"),
+        pytest.param({4000: 0.75, 8000: 1.0}, (3000, 7000), 8000, None, id="alternate-below-0.8"),
+        pytest.param({4000: 0.9, 8000: 1.0}, (5000, 9000), 8000, None, id="pick-inside-range"),
+        pytest.param(
+            {4000: 0.9, 8000: 1.0}, (4500, 7500), 8000, None, id="alternate-outside-range"
+        ),
+        pytest.param({4000: 0.9, 8000: 1.0}, None, 8000, None, id="no-range"),
+    ],
+)
+def test_range_prior_octave_pick_on_line_spectra(
+    lines, plausible_spin_rpm, corrected_rpm, correction
+):
+    magnitude, freqs = _line_spectrum(lines)
+
+    idx, applied = _range_processor()._octave_corrected_pick(
+        magnitude, freqs, int(np.argmax(magnitude)), 2700.0, plausible_spin_rpm
+    )
+
+    assert idx == _line_index(freqs, corrected_rpm)
+    assert applied == correction
+
+
+def test_range_prior_with_marker_halves_but_never_doubles():
+    marked = _range_processor(ball_marker="dot")
+
+    magnitude, freqs = _line_spectrum({4000: 1.0, 8000: 0.9})
+    pick = int(np.argmax(magnitude))
+    assert marked._octave_corrected_pick(magnitude, freqs, pick, None, (6000, 10000)) == (
+        pick,
+        None,
+    )
+
+    magnitude, freqs = _line_spectrum({4000: 0.9, 8000: 1.0})
+    idx, applied = marked._octave_corrected_pick(
+        magnitude, freqs, int(np.argmax(magnitude)), None, (3000, 7000)
+    )
+    assert (idx, applied) == (_line_index(freqs, 4000), "halved")
+
+
+def test_range_prior_caps_an_octave_corrected_envelope_pick_to_low():
+    capture = _am_capture({4900: 0.045, 9800: 0.05})
+    plausible = get_plausible_spin_rpm(ClubType.IRON_7)
+
+    uncorrected = RollingBufferProcessor().detect_spin(capture, 120.0, 5.0)
+    lone_line = RollingBufferProcessor().detect_spin(_am_capture({4900: 0.045}), 120.0, 5.0)
+    ranged = _range_processor().detect_spin(capture, 120.0, 5.0, plausible_spin_rpm=plausible)
+
+    assert (uncorrected.spin_rpm, uncorrected.quality) == (pytest.approx(9800, rel=0.02), "high")
+    assert lone_line.quality == "high"
+    assert ranged.spin_rpm == pytest.approx(lone_line.spin_rpm, rel=0.01)
+    assert ranged.method == "envelope_fft+octave_halved"
+    assert ranged.quality == "low"
+    assert ranged.confidence <= 0.5
+    assert not ranged.is_reliable
+
+
+def test_range_prior_caps_an_octave_corrected_multitaper_pick():
+    capture = _am_capture({4200: 0.045, 8400: 0.05}, fade_hz=48.0, fade_depth=0.15)
+
+    ranged = _range_processor().detect_spin_multitaper(
+        capture, 120.0, 5.0, plausible_spin_rpm=(3000.0, 7000.0)
+    )
+
+    assert ranged.spin_rpm == pytest.approx(4200, rel=0.02)
+    assert ranged.octave_corrected
+    assert ranged.quality in ("low", "experimental")
+    assert ranged.confidence <= 0.5
+
+
+@pytest.mark.parametrize(
+    ("prior_mode", "expected_range"),
+    [("optimal", None), ("range", get_plausible_spin_rpm(ClubType.IRON_7))],
+)
+def test_process_capture_passes_the_club_range_only_in_range_mode(
+    monkeypatch, prior_mode, expected_range
+):
+    processor = RollingBufferProcessor(spin_octave_check=True, spin_octave_prior=prior_mode)
+    received = {}
+    real_detector = processor.detect_spin_multitaper
+
+    def spy(*args, **kwargs):
+        received.update(kwargs)
+        return real_detector(*args, **kwargs)
+
+    monkeypatch.setattr(processor, "detect_spin_multitaper", spy)
+    i_samples, q_samples = synth_capture(
+        6500, ball_speed_mph=120.0, amplitude=400.0, noise_rms=10.0, seed=4
+    )
+    processor.process_capture(
+        IQCapture(0.0, 0.068, i_samples, q_samples), club_type=ClubType.IRON_7
+    )
+
+    assert received["plausible_spin_rpm"] == expected_range
+
+
+def test_invalid_spin_octave_prior_is_rejected():
+    with pytest.raises(ValueError, match="spin_octave_prior"):
+        RollingBufferProcessor(spin_octave_prior="tour")
 
 
 def test_spin_method_name_tags():

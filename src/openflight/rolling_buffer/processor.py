@@ -14,10 +14,12 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
 from ..clubs import ClubType
+from ..clubs.physics import get_plausible_spin_rpm
 from ..launch_monitor import SPIN_CONFIDENCE_HIGH
 from .multitaper import MultitaperEstimate, estimate_multitaper_spin, repair_clipped_iq
 from .types import (
     BALL_MARKERS,
+    SPIN_OCTAVE_PRIORS,
     ImpactEstimate,
     IQCapture,
     ProcessedCapture,
@@ -172,6 +174,8 @@ class RollingBufferProcessor:
     SPIN_OCTAVE_TOLERANCE = 0.08  # Half/double candidate within ±8% of the target
     SPIN_OCTAVE_HIGH_RATIO = (1.7, 2.3)  # Pick/prior ratio read as a 2x error
     SPIN_OCTAVE_LOW_RATIO = (0.43, 0.6)  # Pick/prior ratio read as a 0.5x error
+    SPIN_OCTAVE_RANGE_MIN_RELATIVE_MAG = 0.8  # Range prior: alternate vs pick magnitude
+    SPIN_OCTAVE_CORRECTED_MAX_CONFIDENCE = 0.5  # Range prior: cap for a moved pick
 
     BALL_SPEED_MATCH_TOLERANCE_MPH = 3.0
     IMPACT_TRANSITION_MIN_DELTA_MPH = 15.0
@@ -184,6 +188,7 @@ class RollingBufferProcessor:
         spin_octave_check: bool = False,
         scale_speed_band: bool = False,
         fast_dsp: bool = False,
+        spin_octave_prior: str = "optimal",
     ):
         """Initialize processor with pre-computed window function.
 
@@ -205,13 +210,24 @@ class RollingBufferProcessor:
             fast_dsp: Use the pre-planned, multi-threaded FFT path and the
                 vectorised peak picker. Numerically equivalent to the default
                 path; off by default.
+            spin_octave_prior: What the octave check compares a pick with.
+                "optimal" (default) uses the club/ball-speed optimal spin.
+                "range" moves only a pick outside the club's plausible spin
+                range, to a half/double peak inside it that is at least
+                SPIN_OCTAVE_RANGE_MIN_RELATIVE_MAG as strong, and caps the
+                moved result to low quality.
         """
         if ball_marker not in BALL_MARKERS:
             raise ValueError(f"ball_marker must be one of {BALL_MARKERS}, got {ball_marker!r}")
+        if spin_octave_prior not in SPIN_OCTAVE_PRIORS:
+            raise ValueError(
+                f"spin_octave_prior must be one of {SPIN_OCTAVE_PRIORS}, got {spin_octave_prior!r}"
+            )
         self.SAMPLE_RATE = sample_rate
         self.hanning_window = np.hanning(self.WINDOW_SIZE)
         self.ball_marker = ball_marker
         self.spin_octave_check = spin_octave_check
+        self.spin_octave_prior = spin_octave_prior
         # Called with every successfully parsed capture (--interference-check).
         self.capture_observer: Optional[Callable[[IQCapture], None]] = None
         if scale_speed_band:
@@ -223,9 +239,10 @@ class RollingBufferProcessor:
         self._scaled_window = self.hanning_window * (self.VOLTAGE_REF / self.ADC_RANGE)
         if ball_marker != "none" or spin_octave_check:
             logger.info(
-                "[PROCESSOR] Spin options: ball_marker=%s, octave_check=%s",
+                "[PROCESSOR] Spin options: ball_marker=%s, octave_check=%s, octave_prior=%s",
                 ball_marker,
                 spin_octave_check,
+                spin_octave_prior,
             )
 
     def parse_capture(
@@ -837,6 +854,7 @@ class RollingBufferProcessor:
         ball_speed_mph: float,
         ball_timestamp_ms: float,
         expected_spin_rpm: Optional[float] = None,
+        plausible_spin_rpm: Optional[Tuple[float, float]] = None,
     ) -> SpinResult:
         """Return an ungated multipath-aware multitaper spin candidate.
 
@@ -844,8 +862,8 @@ class RollingBufferProcessor:
         offline track. Evidence is logged as confidence, but never used to
         suppress a bounded candidate. The result remains ``experimental`` so
         it cannot drive spin-adjusted carry. The evaluated estimator has no
-        spin prior; ``expected_spin_rpm`` is used only by the opt-in octave
-        check.
+        spin prior; ``expected_spin_rpm`` and ``plausible_spin_rpm`` are used
+        only by the opt-in octave check.
         """
         iq, clipped_fraction = repair_clipped_iq(
             np.asarray(capture.i_samples),
@@ -911,7 +929,9 @@ class RollingBufferProcessor:
 
         octave_correction = None
         if self.spin_octave_check:
-            estimate, octave_correction = self._octave_check_multitaper(estimate, expected_spin_rpm)
+            estimate, octave_correction = self._octave_check_multitaper(
+                estimate, expected_spin_rpm, plausible_spin_rpm
+            )
 
         min_rpm, max_rpm = self.MULTITAPER_SPIN_RPM_BAND
         at_lower_rail = estimate.spin_rpm <= min_rpm + self.MULTITAPER_RAIL_MARGIN_RPM
@@ -919,6 +939,8 @@ class RollingBufferProcessor:
         window_seconds = len(ball_envelope) / self.SAMPLE_RATE
         evidence = max(0.0, estimate.peak_to_floor)
         confidence = self.MULTITAPER_MAX_CONFIDENCE * evidence / (evidence + 5.0)
+        if octave_correction and self.spin_octave_prior == "range":
+            confidence = min(confidence, self.SPIN_OCTAVE_CORRECTED_MAX_CONFIDENCE)
         candidate = SpinCandidate(
             rank=1,
             rpm=estimate.spin_rpm,
@@ -958,6 +980,7 @@ class RollingBufferProcessor:
         ball_speed_mph: float,
         ball_timestamp_ms: float,
         expected_spin_rpm: Optional[float] = None,
+        plausible_spin_rpm: Optional[Tuple[float, float]] = None,
     ) -> SpinResult:
         """
         Detect spin rate from amplitude envelope of the ball's Doppler signal.
@@ -1108,9 +1131,10 @@ class RollingBufferProcessor:
         )
         if self.ball_marker != "none":
             peak_idx = self._prefer_marker_fundamental(valid_mag, valid_freqs, peak_idx)
+        octave_correction = None
         if self.spin_octave_check:
             peak_idx, octave_correction = self._octave_corrected_pick(
-                valid_mag, valid_freqs, peak_idx, expected_spin_rpm
+                valid_mag, valid_freqs, peak_idx, expected_spin_rpm, plausible_spin_rpm
             )
             method = spin_method_name("envelope_fft", self.ball_marker, octave_correction)
         peak_freq = float(valid_freqs[peak_idx])
@@ -1437,6 +1461,11 @@ class RollingBufferProcessor:
             if quality in ("high", "medium"):
                 quality = "low"
 
+        if octave_correction and self.spin_octave_prior == "range":
+            confidence = min(confidence, self.SPIN_OCTAVE_CORRECTED_MAX_CONFIDENCE)
+            if quality in ("high", "medium"):
+                quality = "low"
+
         return SpinResult(
             spin_rpm=round(spin_rpm),
             confidence=confidence,
@@ -1727,20 +1756,23 @@ class RollingBufferProcessor:
         freqs: np.ndarray,
         target_hz: float,
         reference_mag: float,
+        min_relative_mag: Optional[float] = None,
     ) -> Optional[int]:
         """Strongest local peak within SPIN_OCTAVE_TOLERANCE of ``target_hz``.
 
-        It must reach SPIN_PRIOR_MIN_RELATIVE_MAG of ``reference_mag`` (the
-        current pick): the strength a prior candidate needs to displace the
-        strongest envelope peak.
+        It must reach ``min_relative_mag`` (default SPIN_PRIOR_MIN_RELATIVE_MAG)
+        of ``reference_mag`` (the current pick): by default the strength a
+        prior candidate needs to displace the strongest envelope peak.
         """
+        if min_relative_mag is None:
+            min_relative_mag = self.SPIN_PRIOR_MIN_RELATIVE_MAG
         if reference_mag <= 0:
             return None
         from scipy.signal import find_peaks  # pylint: disable=import-outside-toplevel
 
         peaks = find_peaks(magnitude)[0]
         near = peaks[np.abs(freqs[peaks] - target_hz) <= self.SPIN_OCTAVE_TOLERANCE * target_hz]
-        strong = near[magnitude[near] >= self.SPIN_PRIOR_MIN_RELATIVE_MAG * reference_mag]
+        strong = near[magnitude[near] >= min_relative_mag * reference_mag]
         if strong.size == 0:
             return None
         return int(strong[np.argmax(magnitude[strong])])
@@ -1776,12 +1808,17 @@ class RollingBufferProcessor:
         freqs: np.ndarray,
         peak_idx: int,
         expected_spin_rpm: Optional[float],
+        plausible_spin_rpm: Optional[Tuple[float, float]] = None,
     ) -> Tuple[int, Optional[str]]:
         """Move a pick at ~2x (~0.5x) the spin prior to a supported half (double).
 
         Returns the new index and "halved", "doubled" or None. Doubling is
         off with a ball marker, whose strongest line is already 1x spin.
+        With spin_octave_prior "range" the prior is ``plausible_spin_rpm``
+        instead of ``expected_spin_rpm``.
         """
+        if self.spin_octave_prior == "range":
+            return self._range_octave_corrected_pick(magnitude, freqs, peak_idx, plausible_spin_rpm)
         if expected_spin_rpm is None or expected_spin_rpm <= 0:
             return peak_idx, None
         pick_hz = float(freqs[peak_idx])
@@ -1817,10 +1854,62 @@ class RollingBufferProcessor:
         )
         return corrected_idx, correction
 
+    def _range_octave_corrected_pick(
+        self,
+        magnitude: np.ndarray,
+        freqs: np.ndarray,
+        peak_idx: int,
+        plausible_spin_rpm: Optional[Tuple[float, float]],
+    ) -> Tuple[int, Optional[str]]:
+        """Move a pick outside the club's plausible range to a half (double) inside it.
+
+        The alternate peak must reach SPIN_OCTAVE_RANGE_MIN_RELATIVE_MAG of
+        the pick. Doubling is off with a ball marker.
+        """
+        if plausible_spin_rpm is None:
+            return peak_idx, None
+        min_rpm, max_rpm = plausible_spin_rpm
+        pick_rpm = float(freqs[peak_idx]) * 60
+        if pick_rpm > max_rpm:
+            target_rpm, correction = pick_rpm / 2, "halved"
+        elif self.ball_marker == "none" and pick_rpm < min_rpm:
+            target_rpm, correction = pick_rpm * 2, "doubled"
+        else:
+            return peak_idx, None
+
+        corrected_idx = self._harmonic_peak_near(
+            magnitude,
+            freqs,
+            target_rpm / 60,
+            magnitude[peak_idx],
+            min_relative_mag=self.SPIN_OCTAVE_RANGE_MIN_RELATIVE_MAG,
+        )
+        if corrected_idx is None or not min_rpm <= freqs[corrected_idx] * 60 <= max_rpm:
+            logger.info(
+                "[PROCESSOR] Spin octave check: %.0f RPM outside the %.0f-%.0f RPM club range; "
+                "no supporting candidate inside it, kept",
+                pick_rpm,
+                min_rpm,
+                max_rpm,
+            )
+            return peak_idx, None
+        logger.info(
+            "[PROCESSOR] Spin octave check %s %.0f RPM -> %.0f RPM "
+            "(club range %.0f-%.0f RPM, relative magnitude %.2f)",
+            correction,
+            pick_rpm,
+            freqs[corrected_idx] * 60,
+            min_rpm,
+            max_rpm,
+            magnitude[corrected_idx] / magnitude[peak_idx],
+        )
+        return corrected_idx, correction
+
     def _octave_check_multitaper(
         self,
         estimate: MultitaperEstimate,
         expected_spin_rpm: Optional[float],
+        plausible_spin_rpm: Optional[Tuple[float, float]] = None,
     ) -> Tuple[MultitaperEstimate, Optional[str]]:
         """Apply the octave check to a multitaper pick using its spectrum."""
         spectrum = estimate.spectrum
@@ -1831,7 +1920,7 @@ class RollingBufferProcessor:
         magnitude = np.sqrt(spectrum.coherent_power[valid_indices])
         pick = int(np.argmin(np.abs(freqs - estimate.spin_hz)))
         corrected, correction = self._octave_corrected_pick(
-            magnitude, freqs, pick, expected_spin_rpm
+            magnitude, freqs, pick, expected_spin_rpm, plausible_spin_rpm
         )
         if correction is None:
             return estimate, None
@@ -2192,7 +2281,8 @@ class RollingBufferProcessor:
                 only to choose among visible envelope peaks.
             expected_spin_for_ball_speed: Optional callback for deriving a
                 spin prior after ball speed has been detected.
-            club_type: Selected club for club-speed transition interpretation.
+            club_type: Selected club for club-speed transition interpretation
+                and, with spin_octave_prior "range", the plausible spin range.
 
         Returns:
             ProcessedCapture with all extracted data, or None if processing fails
@@ -2292,11 +2382,15 @@ class RollingBufferProcessor:
         spin_detector = self.detect_spin_multitaper
         if self.ball_marker != "none":
             spin_detector = self.detect_spin
+        plausible_spin_rpm = None
+        if self.spin_octave_prior == "range":
+            plausible_spin_rpm = get_plausible_spin_rpm(club_type)
         spin = spin_detector(
             capture,
             ball_speed_mph,
             ball_timestamp_ms,
             expected_spin_rpm=expected_spin_rpm,
+            plausible_spin_rpm=plausible_spin_rpm,
         )
 
         logger.info(

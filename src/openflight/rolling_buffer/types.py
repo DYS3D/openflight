@@ -12,6 +12,7 @@ from typing import List, Optional
 from ..launch_monitor import SPIN_CONFIDENCE_RELIABLE
 
 BALL_MARKERS = ("none", "dot", "rct")
+SPIN_OCTAVE_PRIORS = ("optimal", "range")
 
 
 def spin_method_name(

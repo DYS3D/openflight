@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -205,3 +206,60 @@ class TestCli:
     def test_missing_input_is_usage_error(self):
         with pytest.raises(SystemExit):
             harness.main([])
+
+
+SESSION_HEADER = (
+    "timestamp_of,club,ball_speed_of,ball_speed_tm,club_speed_of,club_speed_tm,"
+    "launch_v_of,launch_v_tm,spin_of,spin_tm,carry_of,carry_tm,match_quality\n"
+)
+
+
+def _write_session(tmp_path: Path) -> Path:
+    path = tmp_path / "comparison_new.csv"
+    path.write_text(
+        SESSION_HEADER
+        + "2026-09-30T18:00:00,Driver,150,152,100,101,11,12,2500,2600,240,245,good\n"
+        + "2026-10-01T09:00:00,Pitching Wedge,90,91,75,76,24,25,8500,8800,115,118,good\n"
+        + "2026-10-01T09:01:00,pw,92,93,76,77,23,24,8600,8700,117,119,good\n"
+        + "2026-10-01T09:02:00,pw,60,92,,,,,,,,,ball_speed_mismatch\n"
+        + ",pw,93,94,,,,,,,,,good\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+class TestComparisonSession:
+    def test_scores_a_session_file_without_trackman(self, tmp_path, capsys):
+        path = _write_session(tmp_path)
+        assert harness.main(["--comparison", str(path), "--json"]) == 0
+        stats = json.loads(capsys.readouterr().out)["stats"]
+        ball = {s["club"]: s["n"] for s in stats if s["metric"] == "ball_speed"}
+        assert ball == {"all": 4, "driver": 1, "pw": 3}
+        assert not any(s["metric"] == "carry_model" for s in stats)
+
+    def test_since_keeps_only_later_timestamped_shots(self, tmp_path):
+        path = _write_session(tmp_path)
+        samples = harness.load_comparison_pairs(path, since=datetime(2026, 10, 1))
+        ball = [s for s in samples if s.metric == "ball_speed"]
+        assert [(s.ours, s.club) for s in ball] == [(90.0, "pw"), (92.0, "pw")]
+
+    def test_since_accepts_a_timezone_aware_cutoff(self, tmp_path):
+        path = _write_session(tmp_path)
+        since = datetime(2026, 10, 1, 9, 0, 30, tzinfo=timezone.utc)
+        ball = [s for s in harness.load_comparison_pairs(path, since=since) if s.metric == "ball_speed"]
+        assert [s.ours for s in ball] == [92.0]
+
+    def test_without_since_every_good_row_is_scored(self, tmp_path):
+        ball = [
+            s for s in harness.load_comparison_pairs(_write_session(tmp_path)) if s.metric == "ball_speed"
+        ]
+        assert len(ball) == 4
+
+    def test_since_requires_comparison(self, tmp_path):
+        path = tmp_path / "pairs.csv"
+        path.write_text("metric,ours,reference\ncarry,1,2\n", encoding="utf-8")
+        with pytest.raises(SystemExit):
+            harness.main(["--csv", str(path), "--since", "2026-10-01"])
+
+    def test_missing_session_file_is_an_input_error(self, tmp_path):
+        assert harness.main(["--comparison", str(tmp_path / "missing.csv")]) == 2

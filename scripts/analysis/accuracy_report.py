@@ -26,6 +26,9 @@ Two input sources are supported and can be combined:
    conditions vs TrackMan's measured carry / apex). The comparison file
    yields the sensor metrics ``ball_speed``, ``club_speed``,
    ``launch_angle``, ``spin`` and ``carry`` (OpenFlight vs TrackMan).
+   ``--comparison`` also works on its own, so a new paired session from
+   ``compare_trackman.py`` can be scored directly; ``--since`` keeps only
+   shots at or after a date/time.
 2. ``--csv``: a generic file with columns ``metric, ours, reference[, club]``
    so a comparison against any launch monitor can be pasted in.
 
@@ -41,6 +44,9 @@ Usage::
         --trackman session_logs/OpenFlight-Test.Normalized.csv \\
         --comparison session_logs/comparison_20260506.csv
 
+    uv run python scripts/analysis/accuracy_report.py \\
+        --comparison ~/openflight_sessions/comparison_20261001.csv --since 2026-10-01
+
     uv run python scripts/analysis/accuracy_report.py --csv my_pairs.csv \\
         --json --fail-under 80
 """
@@ -53,6 +59,7 @@ import json
 import math
 import sys
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
@@ -397,18 +404,32 @@ def load_trackman_pairs(
             samples.append(
                 PairedSample("apex_model", row.model_apex_feet, row.measured_apex_feet, row.club)
             )
-    if comparison_csv is None:
-        return samples
+    if comparison_csv is not None:
+        samples.extend(load_comparison_pairs(comparison_csv))
+    return samples
+
+
+def load_comparison_pairs(
+    comparison_csv: Path, since: Optional[datetime] = None
+) -> List[PairedSample]:
+    """OpenFlight-vs-reference sensor metrics from a ``compare_trackman.py`` CSV.
+
+    Only rows whose ``match_quality`` is ``good`` are used. With ``since``,
+    rows whose OpenFlight timestamp is missing or earlier are dropped.
+    """
     sensor_fields = (
         ("ball_speed", "ball_speed_of", "ball_speed_tm"),
         ("launch_angle", "launch_v_of", "launch_v_tm"),
         ("spin", "spin_of", "spin_tm"),
         ("carry", "carry_of", "carry_tm"),
     )
+    samples: List[PairedSample] = []
     # ComparisonRow carries no club speed, so it is read straight from the CSV.
     club_speeds = _club_speed_columns(comparison_csv)
     for comp, club_speed in zip(load_comparison(comparison_csv), club_speeds):
         if comp.match_quality != "good":
+            continue
+        if since is not None and not _is_on_or_after(comp.timestamp_of, since):
             continue
         club = _normalize_club(comp.club_raw)
         for metric, ours_attr, ref_attr in sensor_fields:
@@ -420,6 +441,16 @@ def load_trackman_pairs(
         if club_speed is not None:
             samples.append(PairedSample("club_speed", club_speed[0], club_speed[1], club))
     return samples
+
+
+def _is_on_or_after(timestamp: str, since: datetime) -> bool:
+    try:
+        shot_time = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return False
+    if (shot_time.tzinfo is None) != (since.tzinfo is None):
+        shot_time = shot_time.replace(tzinfo=since.tzinfo)
+    return shot_time >= since
 
 
 def _club_speed_columns(path: Path) -> List[Optional[tuple]]:
@@ -530,7 +561,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--comparison",
         type=Path,
-        help="Paired OF/TM CSV from compare_trackman.py (sensor metrics). Requires --trackman.",
+        help="Paired OF/TM session CSV from compare_trackman.py (sensor metrics).",
+    )
+    parser.add_argument(
+        "--since",
+        type=datetime.fromisoformat,
+        help="Only score --comparison shots at or after this ISO date/time (e.g. 2026-10-01).",
     )
     parser.add_argument(
         "--csv",
@@ -554,24 +590,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.comparison and not args.trackman:
-        parser.error("--comparison requires --trackman")
-    if not args.trackman and not args.csv:
-        parser.error("provide --trackman and/or --csv")
+    if args.since and not args.comparison:
+        parser.error("--since requires --comparison")
+    if not args.trackman and not args.comparison and not args.csv:
+        parser.error("provide --trackman, --comparison and/or --csv")
 
     samples: List[PairedSample] = []
     sources: List[str] = []
+    for path in (args.trackman, args.comparison):
+        if path and not path.exists():
+            print(f"CSV not found: {path}", file=sys.stderr)
+            return 2
     if args.trackman:
-        if not args.trackman.exists():
-            print(f"TrackMan CSV not found: {args.trackman}", file=sys.stderr)
-            return 2
-        if args.comparison and not args.comparison.exists():
-            print(f"Comparison CSV not found: {args.comparison}", file=sys.stderr)
-            return 2
-        samples.extend(load_trackman_pairs(args.trackman, args.comparison))
+        samples.extend(load_trackman_pairs(args.trackman))
         sources.append(str(args.trackman))
-        if args.comparison:
-            sources.append(str(args.comparison))
+    if args.comparison:
+        samples.extend(load_comparison_pairs(args.comparison, since=args.since))
+        sources.append(str(args.comparison))
     for path in args.csv:
         if not path.exists():
             print(f"CSV not found: {path}", file=sys.stderr)

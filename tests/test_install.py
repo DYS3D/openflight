@@ -52,7 +52,7 @@ def _fake_bin(tmp_path: Path, **scripts: str) -> Path:
     return bin_dir
 
 
-def _dry_run(tmp_path: Path, *flags: str) -> subprocess.CompletedProcess[str]:
+def _dry_run(tmp_path: Path, *flags: str, desktop: bool = True) -> subprocess.CompletedProcess[str]:
     """Run the installer with --dry-run as a normal user against temp boot files."""
     home = tmp_path / "home"
     home.mkdir()
@@ -61,7 +61,10 @@ def _dry_run(tmp_path: Path, *flags: str) -> subprocess.CompletedProcess[str]:
     (boot / "config.txt").write_text(BOOT_CONFIG)
     (boot / "cmdline.txt").write_text(BOOT_CMDLINE)
     # Pretend to be a normal user so the root guard passes in CI containers.
-    bin_dir = _fake_bin(tmp_path, id='[ "$1" = "-u" ] && echo 1000 || /usr/bin/id "$@"\n')
+    tools = {"id": '[ "$1" = "-u" ] && echo 1000 || /usr/bin/id "$@"\n'}
+    if desktop:
+        tools["lightdm"] = "exit 0\n"
+    bin_dir = _fake_bin(tmp_path, **tools)
     env = dict(
         os.environ,
         HOME=str(home),
@@ -137,6 +140,24 @@ class TestDryRun:
         assert "Kiosk autostart" in result.stdout
         assert "Skipped (--no-kiosk)" in result.stdout
         assert "do_boot_behaviour" not in result.stdout
+
+    def test_lite_image_without_a_desktop_skips_the_kiosk(self, tmp_path):
+        result = _dry_run(tmp_path, "--force", desktop=False)
+        assert result.returncode == 0, result.stderr
+        assert "No desktop found" in result.stderr
+        assert "Skipped (no desktop)" in result.stdout
+        assert "do_boot_behaviour" not in result.stdout
+        assert "chromium" not in result.stdout
+
+    def test_desktop_image_installs_chromium(self, tmp_path):
+        result = _dry_run(tmp_path, "--force")
+        assert re.search(r"apt-get install -y .*\bchromium", result.stdout)
+        assert "No desktop found" not in result.stderr
+
+    def test_service_starts_on_a_headless_boot(self):
+        text = SERVICE.read_text()
+        assert "WantedBy=multi-user.target" in text
+        assert "After=network.target graphical.target" in text
 
     def test_optional_hardware_flags_reach_packages_and_service(self, tmp_path):
         result = _dry_run(

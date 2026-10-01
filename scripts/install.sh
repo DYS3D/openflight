@@ -95,6 +95,7 @@ WITH_IWR6843=false
 WITH_CAMERA=false
 WITH_UPDATES=false
 CONFIGURE_KIOSK=true
+KIOSK_SKIP_REASON="--no-kiosk"
 EXTRA_SERVER_ARGS=""
 DRY_RUN=false
 FORCE=false
@@ -161,6 +162,25 @@ check_platform() {
     fi
 }
 
+# Pi OS Lite has no desktop: raspi-config's desktop autologin (B4) fails
+# there and Chromium has nothing to draw on.
+has_desktop() {
+    local tool
+    for tool in lightdm labwc wayfire; do
+        command -v "$tool" >/dev/null 2>&1 && return 0
+    done
+    return 1
+}
+
+check_desktop() {
+    if [ "$CONFIGURE_KIOSK" = true ] && ! has_desktop; then
+        warn "No desktop found (lightdm/labwc/wayfire); is this Pi OS Lite? Skipping the kiosk and Chromium."
+        warn "OpenFlight will run headless; open http://$(hostname).local:8080 from a phone or laptop."
+        CONFIGURE_KIOSK=false
+        KIOSK_SKIP_REASON="no desktop"
+    fi
+}
+
 confirm_install() {
     if [ "$ASSUME_YES" = true ] || [ "$DRY_RUN" = true ]; then
         return 0
@@ -200,7 +220,8 @@ install_system_packages() {
     local chromium=chromium packages
     if ! apt-cache show chromium >/dev/null 2>&1; then chromium="chromium-browser"; fi
     packages=(git curl ca-certificates python3 python3-venv python3-dev build-essential
-        swig liblgpio-dev ffmpeg i2c-tools avahi-daemon "$chromium")
+        swig liblgpio-dev ffmpeg i2c-tools avahi-daemon)
+    if [ "$CONFIGURE_KIOSK" = true ]; then packages+=("$chromium"); fi
     if [ "$WITH_CAMERA" = true ]; then
         packages+=(python3-picamera2 rpicam-apps)
     fi
@@ -449,7 +470,7 @@ install_service() {
 
 configure_kiosk() {
     if [ "$CONFIGURE_KIOSK" = false ]; then
-        skip_step "Kiosk autostart" "--no-kiosk"
+        skip_step "Kiosk autostart" "$KIOSK_SKIP_REASON"
         return 0
     fi
     step "Kiosk autostart (desktop autologin, no screen blanking)"
@@ -495,6 +516,7 @@ main() {
         log "Dry run: nothing will be changed."
     fi
     check_platform
+    check_desktop
     confirm_install
 
     install_system_packages

@@ -24,4 +24,6 @@ RestartSec=5
 RestartPreventExitStatus=3
 
 [Install]
-WantedBy=graphical.target
+# multi-user.target so a headless (Pi OS Lite) install starts too; on a
+# desktop image graphical.target pulls it in and After= still orders it.
+WantedBy=multi-user.target

@@ -6,6 +6,7 @@
 
 import { app, BrowserWindow, Menu } from 'electron';
 import { resolveTargetUrl } from './resolveTargetUrl.js';
+import { attachRecovery } from './recovery.js';
 
 const targetUrl = resolveTargetUrl(process.env, process.argv);
 
@@ -27,6 +28,7 @@ function createWindow() {
   // The kiosk shell only ever shows the OpenFlight UI itself; deny any
   // attempt (e.g. target="_blank" links) to pop a second window.
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  attachRecovery(win.webContents, targetUrl);
   win.loadURL(targetUrl);
 
   win.on('closed', () => {

@@ -207,6 +207,27 @@ cleanup() {
     exit "$exit_code"
 }
 
+# Keep a kiosk window up while the server runs. At boot the first launch can
+# race the desktop session (or the browser can crash later); relaunch with a
+# growing delay, up to OPENFLIGHT_KIOSK_RELAUNCHES times (default 10).
+supervise_kiosk() {
+    local url="$1" relaunches=0 max="${OPENFLIGHT_KIOSK_RELAUNCHES:-10}" delay=2
+    while kill -0 "$SERVER_PID" 2>/dev/null; do
+        if [ -n "$BROWSER_PID" ] && kill -0 "$BROWSER_PID" 2>/dev/null; then
+            delay=2
+        elif [ "$relaunches" -lt "$max" ]; then
+            relaunches=$((relaunches + 1))
+            stop_kiosk_browser
+            warn "Kiosk window is not running; relaunching ($relaunches/$max)"
+            launch_kiosk_browser "$url" || true
+            delay=$((delay < 30 ? delay * 2 : 30))
+        fi
+        # A backgrounded sleep keeps SIGTERM handling immediate.
+        sleep "$delay" &
+        wait $! 2>/dev/null || true
+    done
+}
+
 acquire_instance_lock() {
     # One kiosk per web port. The default lives in /tmp rather than
     # XDG_RUNTIME_DIR because openflight.service and a desktop session have
@@ -457,4 +478,5 @@ else
     log "Startup splash will continue to OpenFlight"
 fi
 log "OpenFlight is running. Press Ctrl+C to stop."
+supervise_kiosk "http://$HOST:$WEB_PORT"
 wait "$SERVER_PID"

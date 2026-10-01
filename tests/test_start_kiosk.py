@@ -948,3 +948,60 @@ class TestKioskDisplayWait:
         output = _run_kiosk_launch(tmp_path, wait_s=5, electron_body="exit 7", socket_after_s=0)
         assert "KIOSK NOT STARTED: the kiosk shell exited during start-up (exit 7)" in output
         assert "NOT_LAUNCHED" in output
+
+
+def _supervisor_function() -> str:
+    script = _script()
+    return script[script.index("supervise_kiosk() {") : script.index("acquire_instance_lock() {")]
+
+
+def _run_supervisor(tmp_path, *, server_s: int, max_relaunches: int) -> str:
+    harness = tmp_path / "supervise.sh"
+    harness.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -eo pipefail",
+                "warn() { printf 'WARN %s\\n' \"$1\"; }",
+                "stop_kiosk_browser() { BROWSER_PID=''; }",
+                "launch_kiosk_browser() {",
+                "  printf 'LAUNCH %s\\n' \"$1\"",
+                "  sleep 0.1 & BROWSER_PID=$!",
+                "}",
+                _supervisor_function(),
+                f"sleep {server_s} & SERVER_PID=$!",
+                "BROWSER_PID=''",
+                f"OPENFLIGHT_KIOSK_RELAUNCHES={max_relaunches}",
+                'supervise_kiosk "http://127.0.0.1:8080"',
+                "printf 'DONE\\n'",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["bash", str(harness)], capture_output=True, text=True, timeout=30, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip().endswith("DONE")
+    return result.stdout
+
+
+@pytest.mark.skipif(os.name == "nt", reason="needs bash process control")
+def test_a_dead_kiosk_window_is_relaunched(tmp_path):
+    """At boot the first window can race the desktop session; it must come back."""
+    output = _run_supervisor(tmp_path, server_s=7, max_relaunches=5)
+    assert output.count("LAUNCH http://127.0.0.1:8080") == 2
+
+
+@pytest.mark.skipif(os.name == "nt", reason="needs bash process control")
+def test_kiosk_relaunches_stop_at_the_cap(tmp_path):
+    output = _run_supervisor(tmp_path, server_s=7, max_relaunches=1)
+    assert output.count("LAUNCH") == 1
+    assert "relaunching (1/1)" in output
+
+
+def test_launcher_supervises_the_kiosk_before_waiting_on_the_server():
+    script = _script()
+    tail = script[script.index('log "OpenFlight is running. Press Ctrl+C to stop."') :]
+    assert tail.index("supervise_kiosk") < tail.index('wait "$SERVER_PID"')

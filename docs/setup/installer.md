@@ -81,7 +81,10 @@ argument, edit the file. After editing it, apply the change with
 At boot the kiosk waits up to 60 s for the desktop's display to appear before
 opening the browser (set `OPENFLIGHT_DISPLAY_WAIT_S` in the env file to change
 it). If the display never appears, or the browser exits during start-up, the
-journal shows `KIOSK NOT STARTED` and the server keeps running.
+journal shows `KIOSK NOT STARTED` and the server keeps running. While the
+server runs, a kiosk window that is missing or has died is relaunched with a
+growing delay (2 s up to 30 s), up to 10 times (`OPENFLIGHT_KIOSK_RELAUNCHES`);
+each attempt logs `Kiosk window is not running; relaunching`.
 
 ## Stable device names
 

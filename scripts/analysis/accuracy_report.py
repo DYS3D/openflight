@@ -6,10 +6,12 @@ the same footing:
 
 * per metric and per club: n, bias (mean of ours - reference), SD of the
   differences, 95 % Bland-Altman limits of agreement (bias +/- 1.96 SD),
-  MAE, RMSE, ICC(2,1) (two-way random, absolute agreement, single
-  measure) and Pearson r;
+  t-based 95 % confidence intervals on the bias and on each limit, MAE,
+  RMSE, ICC(2,1) (two-way random, absolute agreement, single measure)
+  and Pearson r;
 * PASS / WARN against target bars taken from published launch-monitor
-  comparisons;
+  comparisons, or INCONCLUSIVE when fewer than ``MIN_TARGET_N`` pairs
+  back the statistic (not counted in the pass percentage);
 * a "tour envelope" sanity check that feeds PGA Tour average launch
   conditions through the ballistic model and reports the % error of
   carry, apex and landing angle against TrackMan's published averages.
@@ -64,6 +66,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
 import numpy as np
+from scipy import stats as scipy_stats
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT / "src") not in sys.path:
@@ -87,6 +90,7 @@ from openflight.ballistics import (  # noqa: E402
 )
 
 GENERIC_COLUMNS = ("metric", "ours", "reference")
+MIN_TARGET_N = 20
 
 
 @dataclass
@@ -114,6 +118,12 @@ class AgreementStats:
     rmse: float
     icc: float
     pearson_r: float
+    bias_ci_low: float = float("nan")
+    bias_ci_high: float = float("nan")
+    loa_low_ci_low: float = float("nan")
+    loa_low_ci_high: float = float("nan")
+    loa_high_ci_low: float = float("nan")
+    loa_high_ci_high: float = float("nan")
 
 
 @dataclass
@@ -126,6 +136,8 @@ class TargetCheck:
     comparison: str  # "<=" or ">="
     passed: bool
     source: str
+    n: int
+    status: str  # "PASS", "WARN" or "INCONCLUSIVE" (n < MIN_TARGET_N)
 
 
 @dataclass
@@ -232,6 +244,13 @@ def agreement_stats(
     else:
         pearson = nan
     icc = icc_2_1(np.column_stack([a, b])) if n > 1 else nan
+    if n > 1:
+        t_crit = float(scipy_stats.t.ppf(0.975, n - 1))
+        bias_half = t_crit * sd_diff / math.sqrt(n)
+        # Bland & Altman (1999): SE of each limit ~ SD * sqrt(1/n + 1.96^2 / (2 (n - 1))).
+        loa_half = t_crit * sd_diff * math.sqrt(1.0 / n + 1.96**2 / (2.0 * (n - 1)))
+    else:
+        bias_half = loa_half = nan
     return AgreementStats(
         metric=metric,
         club=club,
@@ -244,6 +263,12 @@ def agreement_stats(
         rmse=rmse,
         icc=icc,
         pearson_r=pearson,
+        bias_ci_low=bias - bias_half,
+        bias_ci_high=bias + bias_half,
+        loa_low_ci_low=bias - loa - loa_half,
+        loa_low_ci_high=bias - loa + loa_half,
+        loa_high_ci_low=bias + loa - loa_half,
+        loa_high_ci_high=bias + loa + loa_half,
     )
 
 
@@ -303,6 +328,10 @@ def check_targets(
                 passed = value <= target.threshold
             else:
                 passed = value >= target.threshold
+            if row.n < MIN_TARGET_N:
+                status = "INCONCLUSIVE"
+            else:
+                status = "PASS" if passed else "WARN"
             checks.append(
                 TargetCheck(
                     metric=row.metric,
@@ -313,6 +342,8 @@ def check_targets(
                     comparison=target.comparison,
                     passed=passed,
                     source=target.source,
+                    n=row.n,
+                    status=status,
                 )
             )
     return checks
@@ -472,10 +503,15 @@ class Report:
     sources: List[str] = field(default_factory=list)
 
     @property
+    def conclusive_checks(self) -> List[TargetCheck]:
+        return [c for c in self.checks if c.status != "INCONCLUSIVE"]
+
+    @property
     def pass_pct(self) -> float:
-        if not self.checks:
+        conclusive = self.conclusive_checks
+        if not conclusive:
             return float("nan")
-        return 100.0 * sum(1 for c in self.checks if c.passed) / len(self.checks)
+        return 100.0 * sum(1 for c in conclusive if c.passed) / len(conclusive)
 
     def to_json(self) -> str:
         payload = {
@@ -524,17 +560,32 @@ def format_report(report: Report) -> str:
             f"{_fmt(s.icc, 6, 3)} {_fmt(s.pearson_r, 6, 3)}"
         )
     lines.append("")
+    lines.append("--- 95% confidence intervals (t-based) ---")
+    lines.append(
+        f"{'metric':14s} {'club':16s} {'n':>4s} {'bias_ci':>19s} "
+        f"{'loa_low_ci':>19s} {'loa_high_ci':>19s}"
+    )
+    for s in report.stats:
+        lines.append(
+            f"{s.metric:14s} {s.club:16s} {s.n:4d} "
+            f"[{_fmt(s.bias_ci_low)}, {_fmt(s.bias_ci_high)}] "
+            f"[{_fmt(s.loa_low_ci_low)}, {_fmt(s.loa_low_ci_high)}] "
+            f"[{_fmt(s.loa_high_ci_low)}, {_fmt(s.loa_high_ci_high)}]"
+        )
+    lines.append("")
     lines.append("--- Target bars ---")
     if not report.checks:
         lines.append("(no metric with a published target had >= 2 pairs)")
     for c in report.checks:
-        verdict = "PASS" if c.passed else "WARN"
+        note = f" (n={c.n} < {MIN_TARGET_N})" if c.status == "INCONCLUSIVE" else ""
         lines.append(
-            f"{verdict}  {c.metric:12s} {c.club:12s} {c.stat:8s} "
-            f"{_fmt(c.value, 9, 3)} {c.comparison} {c.threshold:<8g} [{c.source}]"
+            f"{c.status:12s} {c.metric:12s} {c.club:12s} {c.stat:8s} "
+            f"{_fmt(c.value, 9, 3)} {c.comparison} {c.threshold:<8g} [{c.source}]{note}"
         )
-    if report.checks:
+    if report.conclusive_checks:
         lines.append(f"targets passed: {report.pass_pct:.0f}%")
+    elif report.checks:
+        lines.append(f"targets passed: n/a (every target has fewer than {MIN_TARGET_N} pairs)")
     lines.append("")
     lines.append("--- Tour envelope (PGA Tour averages, TrackMan) ---")
     lines.append(
@@ -621,7 +672,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(format_report(report))
 
     if args.fail_under is not None:
-        if not report.checks or report.pass_pct < args.fail_under:
+        if not report.conclusive_checks or report.pass_pct < args.fail_under:
             print(
                 f"FAIL: {report.pass_pct:.0f}% of target bars passed "
                 f"(required {args.fail_under:g}%)",

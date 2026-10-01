@@ -66,6 +66,24 @@ class TestAgreementStats:
         assert 0.0 < stats.pearson_r <= 1.0
         assert stats.icc == pytest.approx(harness.icc_2_1(list(zip(ours, reference))))
 
+    def test_t_based_confidence_intervals(self):
+        stats = harness.agreement_stats([10.0, 12.0, 14.0, 16.0], [9.0, 12.0, 13.0, 18.0])
+        # n = 4, SD = sqrt(2), t(0.975, 3) = 3.18245.
+        # bias half-width = t * SD / sqrt(4) = 2.25033
+        # LoA half-width = t * SD * sqrt(1/4 + 1.96^2 / 6) = 4.24655
+        loa = 1.96 * 2**0.5
+        assert stats.bias_ci_low == pytest.approx(-2.2503294, abs=1e-6)
+        assert stats.bias_ci_high == pytest.approx(2.2503294, abs=1e-6)
+        assert stats.loa_low_ci_low == pytest.approx(-loa - 4.2465490, abs=1e-6)
+        assert stats.loa_low_ci_high == pytest.approx(-loa + 4.2465490, abs=1e-6)
+        assert stats.loa_high_ci_low == pytest.approx(loa - 4.2465490, abs=1e-6)
+        assert stats.loa_high_ci_high == pytest.approx(loa + 4.2465490, abs=1e-6)
+
+    def test_confidence_intervals_need_two_pairs(self):
+        single = harness.agreement_stats([1.0], [3.0])
+        assert single.bias_ci_low != single.bias_ci_low
+        assert single.loa_high_ci_high != single.loa_high_ci_high
+
     def test_empty_and_single_pair(self):
         empty = harness.agreement_stats([], [])
         assert empty.n == 0 and empty.bias != empty.bias
@@ -81,11 +99,11 @@ class TestTargets:
     def test_pass_and_warn_per_metric(self):
         samples = [
             harness.PairedSample("ball_speed", 100.0 + i * 5, 100.5 + i * 5, "driver")
-            for i in range(6)
+            for i in range(20)
         ]
         samples += [
             harness.PairedSample("launch_angle", 10.0 + i, 13.0 + i * 0.5, "driver")
-            for i in range(6)
+            for i in range(20)
         ]
         checks = harness.check_targets(harness.compute_stats(samples))
         by_key = {(c.metric, c.stat): c.passed for c in checks if c.club == "all"}
@@ -94,11 +112,34 @@ class TestTargets:
         assert by_key[("launch_angle", "abs_bias")] is False
 
     def test_driver_only_spin_sd_bar_applies_per_club(self):
-        driver = [harness.PairedSample("spin", 2500.0 + i * 30, 2500.0, "driver") for i in range(5)]
-        wedge = [harness.PairedSample("spin", 9000.0 + i * 900, 9000.0, "pw") for i in range(5)]
+        driver = [
+            harness.PairedSample("spin", 2500.0 + i * 30, 2500.0, "driver") for i in range(20)
+        ]
+        wedge = [harness.PairedSample("spin", 9000.0 + i * 900, 9000.0, "pw") for i in range(20)]
         checks = harness.check_targets(harness.compute_stats(driver + wedge))
         sd_checks = {c.club: c.passed for c in checks if c.stat == "sd_diff"}
         assert sd_checks == {"driver": True}
+
+    def test_fewer_than_twenty_pairs_are_inconclusive(self):
+        def checks_for(n):
+            samples = [harness.PairedSample("carry", 100.0 + i, 100.0 + i) for i in range(n)]
+            return harness.check_targets(harness.compute_stats(samples))
+
+        assert {c.status for c in checks_for(19)} == {"INCONCLUSIVE"}
+        assert {c.status for c in checks_for(20)} == {"PASS"}
+
+    def test_inconclusive_checks_are_left_out_of_pass_pct(self):
+        samples = [harness.PairedSample("carry", 100.0 + i, 100.0 + i) for i in range(20)]
+        samples += [harness.PairedSample("ball_speed", 100.0 + i, 110.0 + i) for i in range(5)]
+        report = harness.build_report(samples)
+        assert {c.metric: c.status for c in report.checks} == {
+            "carry": "PASS",
+            "ball_speed": "INCONCLUSIVE",
+        }
+        assert report.pass_pct == pytest.approx(100.0)
+        text = harness.format_report(report)
+        assert "INCONCLUSIVE" in text and "(n=5 < 20)" in text
+        assert "95% confidence intervals" in text
 
     def test_fewer_than_two_pairs_are_not_judged(self):
         checks = harness.check_targets(
@@ -190,11 +231,17 @@ class TestCommittedCapture:
 class TestCli:
     def test_fail_under_exit_code(self, tmp_path, capsys):
         path = tmp_path / "pairs.csv"
-        lines = ["metric,ours,reference"] + [f"ball_speed,{100 + i},{110 + i}" for i in range(5)]
+        lines = ["metric,ours,reference"] + [f"ball_speed,{100 + i},{110 + i}" for i in range(20)]
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         assert harness.main(["--csv", str(path), "--fail-under", "50"]) == 1
         assert "WARN" in capsys.readouterr().out
         assert harness.main(["--csv", str(path)]) == 0
+
+    def test_fail_under_fails_when_every_target_is_inconclusive(self, tmp_path):
+        path = tmp_path / "pairs.csv"
+        lines = ["metric,ours,reference"] + [f"carry,{100 + i},{100 + i}" for i in range(5)]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        assert harness.main(["--csv", str(path), "--fail-under", "50"]) == 1
 
     def test_json_output(self, tmp_path, capsys):
         path = tmp_path / "pairs.csv"
@@ -202,6 +249,8 @@ class TestCli:
         assert harness.main(["--csv", str(path), "--json"]) == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["stats"][0]["metric"] == "carry"
+        assert {"bias_ci_low", "loa_low_ci_low", "loa_high_ci_high"} <= set(payload["stats"][0])
+        assert payload["targets"][0]["status"] == "INCONCLUSIVE"
 
     def test_missing_input_is_usage_error(self):
         with pytest.raises(SystemExit):

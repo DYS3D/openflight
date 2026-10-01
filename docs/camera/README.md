@@ -23,6 +23,11 @@ Required hardware:
 - Rigid, focusable camera mount.
 - Shared sound-trigger wiring on BCM17 when using OPS and IWR6843 capture.
 
+The InnoMaker OV9281 is not auto-detected. `scripts/install.sh --with-camera`
+enables it in `/boot/firmware/config.txt` (`camera_auto_detect=0` and
+`dtoverlay=ov9281,cam0`); pass `--camera-port cam1` if the camera is on
+CAM/DISP 1. Reboot, then `rpicam-hello --list-cameras` must list it.
+
 Power the Pi off before connecting or disconnecting the ribbon cable. Confirm
 that the cable contacts face the correct direction for both the Pi connector
 and camera board before applying power.

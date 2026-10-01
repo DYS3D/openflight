@@ -19,6 +19,8 @@
 #   --yes                Do not ask for confirmation
 #   --with-iwr6843       Also run the IWR6843 angle radar (adds --iwr6843 to the service)
 #   --with-camera        Install camera packages (adds --camera-capture to the service)
+#                        and enable the OV9281 overlay in config.txt
+#   --camera-port PORT   CAM/DISP connector the camera is on: cam0 (default) or cam1
 #   --with-updates       Offer GitHub updates on the touchscreen (adds --update-check)
 #   --no-kiosk           Leave desktop autologin and screen blanking alone
 #   --server-args "..."  Extra server flags for the service, e.g. "--radar-port /dev/ttyAMA0"
@@ -84,6 +86,7 @@ UDEV_RULES_DEST="/etc/udev/rules.d/99-openflight.rules"
 ENV_FILE="/etc/default/openflight"
 SERVICE_DEST="/etc/systemd/system/openflight.service"
 UART_MARKER="# OpenFlight UART"
+CAMERA_MARKER="# OpenFlight camera"
 HARDWARE_GROUPS=(dialout gpio i2c video)
 # Overridable so tests can point the boot-file edits at a temp directory.
 BOOT_DIR="${OPENFLIGHT_BOOT_DIR:-/boot/firmware}"
@@ -93,6 +96,7 @@ TOTAL_STEPS=11
 ASSUME_YES=false
 WITH_IWR6843=false
 WITH_CAMERA=false
+CAMERA_PORT=cam0
 WITH_UPDATES=false
 CONFIGURE_KIOSK=true
 KIOSK_SKIP_REASON="--no-kiosk"
@@ -112,6 +116,7 @@ parse_args() {
             --yes|-y) ASSUME_YES=true; shift ;;
             --with-iwr6843) WITH_IWR6843=true; shift ;;
             --with-camera) WITH_CAMERA=true; shift ;;
+            --camera-port) CAMERA_PORT="${2?--camera-port needs cam0 or cam1}"; shift 2 ;;
             --with-updates) WITH_UPDATES=true; shift ;;
             --no-kiosk) CONFIGURE_KIOSK=false; shift ;;
             --server-args) EXTRA_SERVER_ARGS="${2?--server-args needs a value}"; shift 2 ;;
@@ -122,6 +127,10 @@ parse_args() {
             *) die "Unknown option: $1 (try --help)" ;;
         esac
     done
+    case "$CAMERA_PORT" in
+        cam0|cam1) ;;
+        *) die "--camera-port must be cam0 or cam1, got $CAMERA_PORT" ;;
+    esac
     # The value lands inside double quotes in a systemd EnvironmentFile.
     case "$EXTRA_SERVER_ARGS" in
         *[\"\\\$\`]*) die "--server-args must not contain quotes, \\, \$ or backticks" ;;
@@ -320,6 +329,27 @@ update_uart_boot_config() {
     fi
 }
 
+# Enable the InnoMaker OV9281 on the chosen CAM/DISP connector. It is not
+# auto-detected, and an overlay without a port means CAM/DISP 1 on a Pi 5, so
+# the port is always written. Re-running with another port moves it.
+update_camera_boot_config() {
+    local config="$1" port="${2:-cam0}" lines=()
+    if grep -qE '^camera_auto_detect=' "$config" 2>/dev/null; then
+        sed -i 's/^camera_auto_detect=.*/camera_auto_detect=0/' "$config"
+    else
+        lines+=("camera_auto_detect=0")
+    fi
+    if grep -qE '^dtoverlay=ov9281' "$config" 2>/dev/null; then
+        sed -i "s/^dtoverlay=ov9281.*/dtoverlay=ov9281,$port/" "$config"
+    else
+        lines+=("dtoverlay=ov9281,$port")
+    fi
+    if [ "${#lines[@]}" -gt 0 ]; then
+        printf '\n[all]\n%s\n' "$CAMERA_MARKER" >>"$config"
+        printf '%s\n' "${lines[@]}" >>"$config"
+    fi
+}
+
 # Remove a serial console from the kernel command line. A console on the radar
 # UART sends boot output into the OPS243 RxD pin, where it parses as commands.
 strip_serial_console() {
@@ -373,7 +403,15 @@ configure_uart() {
         edit_boot_file "$(boot_file cmdline.txt)" strip_serial_console
     fi
     edit_boot_file "$(boot_file config.txt)" update_uart_boot_config_for "$generation"
+    if [ "$WITH_CAMERA" = true ]; then
+        log "OV9281 camera on $CAMERA_PORT (CAM/DISP ${CAMERA_PORT#cam})"
+        edit_boot_file "$(boot_file config.txt)" update_camera_boot_config_for "$CAMERA_PORT"
+    fi
     run sudo systemctl disable --now serial-getty@ttyAMA0.service
+}
+
+update_camera_boot_config_for() {
+    update_camera_boot_config "$2" "$1"
 }
 
 # edit_boot_file passes the file last; update_uart_boot_config wants it first.
@@ -549,7 +587,7 @@ main() {
     echo
     log "Install complete."
     if [ "$REBOOT_NEEDED" = true ]; then
-        log "Reboot to apply group and UART changes: sudo reboot"
+        log "Reboot to apply group, UART and camera changes: sudo reboot"
     fi
     log "After rebooting, check the hardware with: $PROJECT_DIR/scripts/openflight-doctor.sh"
     if [ "$WITH_IWR6843" = true ]; then

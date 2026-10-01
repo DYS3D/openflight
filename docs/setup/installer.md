@@ -52,7 +52,8 @@ no new backup is made.
 | --- | --- |
 | `--yes` | Skip the confirmation (required when there is no terminal, e.g. piped installs) |
 | `--with-iwr6843` | Add `--iwr6843` to the service arguments and print the firmware flash command |
-| `--with-camera` | Install the camera packages and add `--camera-capture` to the service arguments |
+| `--with-camera` | Install the camera packages, add `--camera-capture` to the service arguments, and enable the OV9281 in `config.txt` (`camera_auto_detect=0`, `dtoverlay=ov9281,<port>`, with a timestamped backup) |
+| `--camera-port cam0\|cam1` | Which CAM/DISP connector the camera is on (default `cam0`). A Pi 5 treats an overlay without a port as CAM/DISP 1, so the port is always written; re-run with the other value to move it |
 | `--with-updates` | Add `--update-check` to the service arguments ([Software updates](updates.md)) |
 | `--no-kiosk` | Leave desktop autologin and screen blanking alone |
 | `--server-args "..."` | Other server flags for the service, e.g. `"--radar-port /dev/ttyAMA0 --altitude-ft 850"` |

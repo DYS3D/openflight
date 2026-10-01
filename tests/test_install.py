@@ -200,6 +200,16 @@ class TestDryRun:
         assert result.returncode == 0, result.stderr
         assert "--radar-port /dev/ttyAMA0" in result.stderr
 
+    def test_with_camera_writes_the_overlay_for_the_chosen_port(self, tmp_path):
+        result = _dry_run(tmp_path, "--force", "--with-camera", "--camera-port", "cam1")
+        assert result.returncode == 0, result.stderr
+        assert "+dtoverlay=ov9281,cam1" in result.stdout
+
+    def test_bad_camera_port_is_refused(self, tmp_path):
+        result = _dry_run(tmp_path, "--force", "--with-camera", "--camera-port", "cam2")
+        assert result.returncode != 0
+        assert "cam0 or cam1" in result.stderr
+
     def test_without_optional_flags_no_camera_packages(self, tmp_path):
         result = _dry_run(tmp_path, "--force")
         assert "picamera2" not in result.stdout
@@ -258,6 +268,28 @@ class TestUartBootConfig:
         assert "enable_uart=1" not in text  # Pi 5: that is the debug-connector UART
         assert text.count("dtparam=uart0=on") == 1
         assert "\n[all]\n# OpenFlight UART" in text
+
+    @pytest.mark.parametrize("port", ["cam0", "cam1"])
+    def test_camera_overlay_names_the_port_once(self, tmp_path, port):
+        config = tmp_path / "config.txt"
+        config.write_text("camera_auto_detect=1\n[pi5]\ndtoverlay=vc4-kms-v3d\n")
+        for _ in range(2):
+            result = _call(INSTALLER, 'update_camera_boot_config "$1" "$2"', str(config), port)
+            assert result.returncode == 0, result.stderr
+        text = config.read_text()
+        assert text.count("camera_auto_detect=") == 1
+        assert "camera_auto_detect=0" in text
+        assert text.count(f"dtoverlay=ov9281,{port}") == 1
+        assert "\n[all]\n# OpenFlight camera\n" in text
+
+    def test_rerun_with_another_port_moves_the_camera(self, tmp_path):
+        config = tmp_path / "config.txt"
+        config.write_text("dtoverlay=ov9281\n")
+        _call(INSTALLER, 'update_camera_boot_config "$1" cam0', str(config))
+        _call(INSTALLER, 'update_camera_boot_config "$1" cam1', str(config))
+        text = config.read_text()
+        assert "dtoverlay=ov9281,cam1" in text
+        assert "cam0" not in text
 
     def test_pi4_moves_bluetooth_off_the_header_uart(self, tmp_path):
         config = tmp_path / "config.txt"

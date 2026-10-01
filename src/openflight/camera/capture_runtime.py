@@ -335,9 +335,11 @@ class CameraCaptureRuntime:
         if self._camera is not None:
             try:
                 self._camera.stop()
-                self._camera.close()
             finally:
-                self._camera = None
+                try:
+                    self._camera.close()
+                finally:
+                    self._camera = None
         self._ready.put(None)
         if self._worker is not None:
             self._worker.join(timeout=3.0)

@@ -920,3 +920,24 @@ def test_unclaimed_captures_expire_by_age(tmp_path, monkeypatch):
     _run_save_loop(runtime, [old, old, time.time()], monkeypatch)
 
     assert [c.sequence for c in runtime._captures] == [3]
+
+
+def test_stop_closes_camera_even_when_camera_stop_fails(tmp_path):
+    class FailingStopCamera:
+        closed = False
+
+        def stop(self):
+            raise RuntimeError("libcamera stop failed")
+
+        def close(self):
+            self.closed = True
+
+    runtime = CameraCaptureRuntime(output_dir=tmp_path)
+    camera = FailingStopCamera()
+    runtime._camera = camera
+
+    with pytest.raises(RuntimeError, match="libcamera stop failed"):
+        runtime.stop()
+
+    assert camera.closed
+    assert runtime._camera is None

@@ -7,6 +7,7 @@ import time
 
 import numpy as np
 
+from openflight.iwr6843.driver import DumpRestartError
 from openflight.iwr6843.dump import pack_dump
 from openflight.iwr6843.monitor import IWR6843Capture, IWR6843CaptureMonitor
 
@@ -324,6 +325,32 @@ def test_capture_monitor_surfaces_dump_failure_without_hanging(tmp_path):
     assert capture is not None
     assert not capture.valid
     assert capture.error == "serial disconnected"
+    monitor.stop()
+
+
+def test_capture_monitor_reconfigures_when_firmware_restart_fails(tmp_path):
+    config = tmp_path / "radar.cfg"
+    config.write_text("sensorStart\n", encoding="utf-8")
+    radar = FakeRadar(
+        b"", error=DumpRestartError("IWR6843 dump completed but firmware restart failed")
+    )
+    monitor = IWR6843CaptureMonitor(
+        config_path=config,
+        output_dir=tmp_path / "dumps",
+        radar=radar,
+        button_factory=FakeButton,
+    )
+    monitor.start()
+    edge = time.time()
+    assert monitor.notify_trigger(edge)
+
+    capture = monitor.capture_for_shot(edge, timeout_s=1.0)
+    deadline = time.monotonic() + 1.0
+    while len(radar.configs) < 2 and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert capture is not None and not capture.valid
+    assert radar.configs == [str(config), str(config)]
     monitor.stop()
 
 

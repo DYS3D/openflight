@@ -15,7 +15,7 @@ from typing import Callable
 import serial
 
 from openflight.gpio_factory import ensure_lgpio_pin_factory
-from openflight.iwr6843.driver import IWR6843Radar
+from openflight.iwr6843.driver import DumpRestartError, IWR6843Radar
 from openflight.iwr6843.dump import HEADER, parse_header, payload_nbytes
 from openflight.radar_reconnect import (
     RADAR_STATE_CONNECTED,
@@ -246,6 +246,7 @@ class IWR6843CaptureMonitor:
             error = None
             metadata = None
             link_error: Exception | None = None
+            restart_error: DumpRestartError | None = None
             try:
                 logger.info(
                     "[IWR6843] Trigger #%d: dumping firmware-frozen L3 ring",
@@ -261,6 +262,8 @@ class IWR6843CaptureMonitor:
                 raw = None
                 if self.radar_auto_reconnect and isinstance(exc, (serial.SerialException, OSError)):
                     link_error = exc
+                elif isinstance(exc, DumpRestartError):
+                    restart_error = exc
                 else:
                     logger.warning("[IWR6843] Capture #%d failed: %s", sequence, exc, exc_info=True)
             completed = time.time()
@@ -294,6 +297,21 @@ class IWR6843CaptureMonitor:
             )
             if link_error is not None:
                 self._reconnect_radar(link_error)
+            elif restart_error is not None:
+                self._restart_capture(restart_error)
+
+    def _restart_capture(self, error: DumpRestartError) -> None:
+        """Re-send the config so capture resumes after a failed firmware restart."""
+        logger.warning("[IWR6843] %s; re-sending config", error)
+        try:
+            self.radar.send_config(str(self.config_path))
+        except (serial.SerialException, OSError, RuntimeError) as exc:
+            if self.radar_auto_reconnect:
+                self._reconnect_radar(exc)
+            else:
+                logger.error("[IWR6843] Could not restart capture: %s", exc)
+            return
+        logger.info("[IWR6843] Capture restarted after firmware restart failure")
 
     def _set_radar_state(self, state: str) -> None:
         """Record the serial link state and report it without breaking capture."""

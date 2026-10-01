@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from openflight.iwr6843.driver import IWR6843Radar
+from openflight.iwr6843.driver import DumpRestartError, IWR6843Radar
 from openflight.iwr6843.dump import TEMP_REPORT_KEYS, pack_dump
 
 
@@ -173,7 +173,7 @@ def test_read_dump_reports_firmware_restart_error_after_binary_payload():
     radar = IWR6843Radar.__new__(IWR6843Radar)
     radar.ser = FakeSerial(b"l3dump\r\n" + raw + b"Error: RF restart failed\r\n")
 
-    with pytest.raises(RuntimeError, match="RF restart failed"):
+    with pytest.raises(DumpRestartError, match="RF restart failed"):
         radar.read_dump(timeout_s=0.1)
 
 

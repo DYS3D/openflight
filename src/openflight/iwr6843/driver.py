@@ -28,6 +28,11 @@ _PORT_GLOBS = ("/dev/ttyUSB*", "/dev/tty.SLAB_USBtoUART*")
 # udev symlink to the CP2105 Enhanced interface (scripts/setup/99-openflight.rules).
 STABLE_CLI_PORT = "/dev/openflight-iwr-cli"
 
+
+class DumpRestartError(RuntimeError):
+    """The dump was sent but the firmware could not restart capture afterwards."""
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -225,7 +230,7 @@ class IWR6843Radar:
                 buf[expected:], timeout_s=min(1.0, max(0.0, timeout_s - elapsed))
             )
             if b"Error" in trailer:
-                raise RuntimeError(
+                raise DumpRestartError(
                     f"IWR6843 dump completed but firmware restart failed: "
                     f"{trailer.decode(errors='replace').strip()}"
                 )

@@ -788,6 +788,59 @@ class TestGatedPostprocessing:
         assert shot.inclinometer == {"applied": True, "roll_deg": 2.0}
         assert self._final_shot()["inclinometer"] == {"applied": True, "roll_deg": 2.0}
 
+    def test_late_camera_stage_logs_nothing_for_the_finalized_shot(self, monkeypatch):
+        camera = _SlowCameraRuntime(delay_s=0.2)
+        camera_logs = []
+        monkeypatch.setattr(server_module, "camera_capture_runtime", camera)
+        monkeypatch.setattr(server_module, "gated_postprocessing", True)
+        monkeypatch.setattr(
+            server_module,
+            "get_session_logger",
+            lambda: SimpleNamespace(
+                log_shot=lambda shot, pipeline_ms=None: None,
+                log_camera_capture=lambda **kwargs: camera_logs.append(kwargs),
+            ),
+        )
+        on_shot_detected(self._shot())
+        _wait_for_shot_finalization_idle()
+        server_module._gated_stage_threads["camera"].join(2.0)
+
+        assert self._final_shot()["camera_status"] == "skipped_budget"
+        assert camera_logs == []
+
+    def test_on_time_camera_stage_still_logs_its_capture(self, monkeypatch):
+        camera = _SlowCameraRuntime(delay_s=0.0)
+        camera_logs = []
+        monkeypatch.setattr(server_module, "camera_capture_runtime", camera)
+        monkeypatch.setattr(server_module, "gated_postprocessing", True)
+        monkeypatch.setattr(server_module, "_GATED_CAMERA_BUDGET_S", 1.0)
+        monkeypatch.setattr(
+            server_module,
+            "get_session_logger",
+            lambda: SimpleNamespace(
+                log_shot=lambda shot, pipeline_ms=None: None,
+                log_camera_capture=lambda **kwargs: camera_logs.append(kwargs),
+            ),
+        )
+        on_shot_detected(self._shot())
+        _wait_for_shot_finalization_idle()
+
+        assert "camera_status" not in self._final_shot()
+        assert [log["capture_error"] for log in camera_logs] == ["no_matching_camera_capture"]
+
+    def test_stage_budgets_are_configurable(self, monkeypatch):
+        from tests.test_server import _run_main_until_start_monitor
+
+        _run_main_until_start_monitor(monkeypatch, [])
+        assert server_module._GATED_IWR6843_BUDGET_S == pytest.approx(0.4)
+        assert server_module._GATED_CAMERA_BUDGET_S == pytest.approx(0.4)
+        _run_main_until_start_monitor(
+            monkeypatch,
+            ["--gated-iwr6843-budget-ms", "250", "--gated-camera-budget-ms", "2500"],
+        )
+        assert server_module._GATED_IWR6843_BUDGET_S == pytest.approx(0.25)
+        assert server_module._GATED_CAMERA_BUDGET_S == pytest.approx(2.5)
+
     def test_gated_flag_default_is_off(self, monkeypatch):
         from tests.test_server import _run_main_until_start_monitor
 

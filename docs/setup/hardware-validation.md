@@ -242,8 +242,10 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
       shots (short post-impact window). Do not expect measured spin.
 - [ ] **`--gated-postprocessing`.** With the IWR6843, hit shots; the angle
       must still arrive within 400 ms or be marked `skipped_budget` with the
-      next shot unaffected. Raise the budget or leave off if the IWR driver
-      misbehaves when abandoned mid-dump.
+      next shot unaffected. Raise the budget (`--gated-iwr6843-budget-ms`,
+      `--gated-camera-budget-ms`) or leave off if the IWR driver misbehaves
+      when abandoned mid-dump. With the camera, a skipped clip must leave no
+      `camera_capture` session entry and no replay for that shot.
 - [ ] **`--derived-metrics`** + menu → Display → More metrics: Total, Roll,
       Apex, Hang time, Land angle, Curve, Side, Face-to-path, Spin loft, Shot
       shape appear; sanity-check smash and face-to-path against a reference.

@@ -353,6 +353,9 @@ gated_postprocessing = False
 _GATED_IWR6843_BUDGET_S = 0.4
 _GATED_CAMERA_BUDGET_S = 0.4
 _gated_stage_threads: dict[str, threading.Thread] = {}
+# Set inside a gated worker thread: the event fires when its shot moved on
+# without it, so a late stage must not log or register anything for it.
+_gated_stage_local = threading.local()
 _shot_sequence_number = 0
 _shot_sequence_lock = threading.Lock()
 _shot_callback_lock = threading.Lock()
@@ -3651,8 +3654,10 @@ def _run_gated_stage(
     # reach the finalized shot through the shared reference.
     staged_shot.inclinometer = copy.deepcopy(shot.inclinometer)
     result: dict[str, float | None] = {}
+    cancelled = threading.Event()
 
     def worker() -> None:
+        _gated_stage_local.cancelled = cancelled
         try:
             result["ms"] = run(staged_shot)
         except Exception as error:  # pylint: disable=broad-exception-caught
@@ -3663,6 +3668,7 @@ def _run_gated_stage(
     thread.start()
     thread.join(budget_s)
     if thread.is_alive():
+        cancelled.set()
         logger.warning(
             "[SERVER] Shot #%s %s skipped: did not finish within %.0f ms budget",
             shot.shot_number,
@@ -3675,6 +3681,20 @@ def _run_gated_stage(
     for shot_field in fields(Shot):
         setattr(shot, shot_field.name, getattr(staged_shot, shot_field.name))
     return result.get("ms")
+
+
+def _positive_float(value: str) -> float:
+    """argparse type for a budget that must be greater than zero."""
+    number = float(value)
+    if not number > 0:
+        raise ValueError(f"must be greater than 0, got {value}")
+    return number
+
+
+def _gated_stage_cancelled() -> bool:
+    """True inside a gated stage whose shot was already finalized without it."""
+    event = getattr(_gated_stage_local, "cancelled", None)
+    return event is not None and event.is_set()
 
 
 def _enrich_shot_from_optional_hardware(shot: Shot) -> _ShotEnrichmentResult:
@@ -3921,6 +3941,12 @@ def _process_camera_for_shot(shot: Shot) -> float | None:
                 timeout_s=2.0,
             )
             camera_capture_ms = (time.time() - camera_capture_start) * 1000.0
+            if _gated_stage_cancelled():
+                logger.warning(
+                    "[SERVER] Camera result for shot #%s arrived after its budget; discarded",
+                    shot.shot_number,
+                )
+                return camera_capture_ms
             session_log = get_session_logger()
             if session_log:
                 shot_number = _shot_number_for_log(shot, session_log)
@@ -3963,6 +3989,8 @@ def _process_camera_for_shot(shot: Shot) -> float | None:
             exc=error,
         )
 
+    if _gated_stage_cancelled():
+        return camera_capture_ms
     _attach_camera_replay(shot, camera_capture)
 
     if shot.mode != "mock":
@@ -5604,6 +5632,21 @@ def main():
         ),
     )
     parser.add_argument(
+        "--gated-iwr6843-budget-ms",
+        type=_positive_float,
+        default=400.0,
+        help="With --gated-postprocessing: IWR6843 stage budget in ms (default: 400)",
+    )
+    parser.add_argument(
+        "--gated-camera-budget-ms",
+        type=_positive_float,
+        default=400.0,
+        help=(
+            "With --gated-postprocessing: camera stage budget in ms (default: 400). The "
+            "camera waits up to 2 s for its clip, so raise this when clips are skipped"
+        ),
+    )
+    parser.add_argument(
         "--iwr6843",
         action="store_true",
         help="Enable TI IWR6843 L3 capture and LCMF-v1 vertical launch angle",
@@ -6096,7 +6139,10 @@ def main():
         logger.info("Raw radar readings display ENABLED - signed speed values will be shown")
 
     global gated_postprocessing  # pylint: disable=global-statement
+    global _GATED_IWR6843_BUDGET_S, _GATED_CAMERA_BUDGET_S  # pylint: disable=global-statement
     gated_postprocessing = args.gated_postprocessing
+    _GATED_IWR6843_BUDGET_S = args.gated_iwr6843_budget_ms / 1000.0
+    _GATED_CAMERA_BUDGET_S = args.gated_camera_budget_ms / 1000.0
     if gated_postprocessing:
         logger.info(
             "Gated post-processing ENABLED (IWR6843 %.0f ms, camera %.0f ms budgets)",

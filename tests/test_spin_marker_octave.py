@@ -643,7 +643,19 @@ class TestServerSpinOptions:
             "ball_marker": marker,
             "octave_check": octave,
             "octave_prior": prior,
+            "cap_prior": False,
+            "ball_speed_magnitude_gate": False,
         }
+
+    @pytest.mark.parametrize("flags_on", [False, True])
+    def test_prior_cap_and_magnitude_gate_flags_reach_the_monitor(self, monkeypatch, flags_on):
+        argv = ["--cap-spin-prior", "--ball-speed-magnitude-gate"] if flags_on else []
+        received = self._run_main(monkeypatch, argv)
+        assert received["cap_spin_prior"] is flags_on
+        assert received["ball_speed_magnitude_gate"] is flags_on
+        spin = server_module._session_start_config()["spin"]
+        assert spin["cap_prior"] is flags_on
+        assert spin["ball_speed_magnitude_gate"] is flags_on
 
     def test_unknown_spin_octave_prior_is_a_usage_error(self, monkeypatch):
         with pytest.raises(SystemExit):

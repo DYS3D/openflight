@@ -4742,6 +4742,8 @@ def start_monitor(
     ball_marker: str = "none",
     spin_octave_check: bool = False,
     spin_octave_prior: str = "optimal",
+    cap_spin_prior: bool = False,
+    ball_speed_magnitude_gate: bool = False,
     interference_check: bool = False,
     radar_profile: str = DEFAULT_RADAR_PROFILE,
     fast_dsp: bool = False,
@@ -4759,6 +4761,8 @@ def start_monitor(
         ball_marker: Rolling-buffer spin ball marker mode (none, dot, rct)
         spin_octave_check: Correct rolling-buffer ~2x/~0.5x spin picks
         spin_octave_prior: Octave check prior ("optimal" or "range")
+        cap_spin_prior: Clamp the spin prior to the club max and detector ceiling
+        ball_speed_magnitude_gate: Skip weak ball-speed bins (clipping aliases)
         interference_check: Track the OPS243 noise floor and emit radar_health
         radar_profile: OPS243 rolling-buffer profile (standard or low-latency);
             low-latency overrides sample_rate_ksps and the pre-trigger split
@@ -4806,6 +4810,8 @@ def start_monitor(
             ball_marker=ball_marker,
             spin_octave_check=spin_octave_check,
             spin_octave_prior=spin_octave_prior,
+            cap_spin_prior=cap_spin_prior,
+            ball_speed_magnitude_gate=ball_speed_magnitude_gate,
             interference_check=interference_check,
             scale_speed_band=profile.scale_speed_band,
             fast_dsp=fast_dsp,
@@ -5986,6 +5992,23 @@ def main():
         ),
     )
     parser.add_argument(
+        "--cap-spin-prior",
+        action="store_true",
+        help=(
+            "Clamp the club/ball-speed spin prior to the club's plausible max spin and "
+            "the detector's 12000 rpm ceiling (affects wedge spin picks). Off by default"
+        ),
+    )
+    parser.add_argument(
+        "--ball-speed-magnitude-gate",
+        action="store_true",
+        help=(
+            "Ignore ball-speed bins whose peak magnitude is below 15%% of the strongest "
+            "outbound peak (rejects weak clipping aliases above the ball). Changes ball "
+            "speed; off by default"
+        ),
+    )
+    parser.add_argument(
         "--spin-axis-model",
         choices=SPIN_AXIS_MODELS,
         default="legacy",
@@ -6189,6 +6212,8 @@ def main():
         "ball_marker": args.ball_marker,
         "octave_check": args.spin_octave_check,
         "octave_prior": args.spin_octave_prior,
+        "cap_prior": args.cap_spin_prior,
+        "ball_speed_magnitude_gate": args.ball_speed_magnitude_gate,
     }
     ballistics_enabled = args.ballistics
     battery_provider = args.battery
@@ -6485,6 +6510,8 @@ def main():
             ball_marker=args.ball_marker,
             spin_octave_check=args.spin_octave_check,
             spin_octave_prior=args.spin_octave_prior,
+            cap_spin_prior=args.cap_spin_prior,
+            ball_speed_magnitude_gate=args.ball_speed_magnitude_gate,
             interference_check=args.interference_check,
             radar_profile=args.radar_profile,
             fast_dsp=args.fast_dsp,

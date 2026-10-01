@@ -44,6 +44,7 @@ from .access import (
 )
 from .ballistics import (
     AIR_DENSITY_STD,
+    LaunchConditions,
     Trajectory,
     air_density_kg_m3,
     resolve_launch,
@@ -4052,20 +4053,13 @@ def _finalize_shot_detected(
     # angle missing → resolve_launch returns None). This is the only place
     # that writes carry_spin_adjusted for a live shot.
     trajectory: Trajectory | None = None
+    conditions: LaunchConditions | None = None
     if shot.mode != "mock":
         conditions = resolve_launch(shot) if ballistics_enabled else None
         if conditions is not None:
             trajectory = simulate(conditions, air_density=air_density)
             shot.carry_spin_adjusted = trajectory.carry_yards
             shot.flight = _flight_payload(trajectory)
-            if show_normalized_carry:
-                shot.carry_normalized_yards = simulate(
-                    conditions, air_density=NORMALIZED_AIR_DENSITY
-                ).carry_yards
-                logger.info(
-                    "[SERVER] Normalized carry: %.0f yds (sea level, 77 °F, 0%% RH)",
-                    shot.carry_normalized_yards,
-                )
             logger.info(
                 "[SERVER] Ballistic carry: %.0f yds (spin: %.0f rpm, source: %s)",
                 shot.carry_spin_adjusted,
@@ -4109,6 +4103,19 @@ def _finalize_shot_detected(
     latency_ms = shot.latency_ms()
     _log_shot_latency(shot, latency_ms)
 
+    # The normalized carry is a second full RK4 run. A first "shot" emit goes
+    # out without it and it follows as a shot_update, so it never delays the
+    # numbers on screen; a deferred shot_update already followed the first
+    # numbers, so it just carries the value.
+    normalize = show_normalized_carry and conditions is not None
+    if normalize and emit_event != "shot":
+        _attach_normalized_carry(shot, conditions)
+    shot_data = _emit_final_shot(shot, emit_event, latency_ms)
+    if normalize and emit_event == "shot":
+        _attach_normalized_carry(shot, conditions)
+        if shot_data is not None:
+            _emit_final_shot(shot, "shot_update", latency_ms)
+
     # Log shot with all data (radar + spin + camera) in one entry
     try:
         session_log = get_session_logger()
@@ -4134,31 +4141,7 @@ def _finalize_shot_detected(
             exc=e,
         )
 
-    # Emit shot with launch angle data included
-    try:
-        shot_data = shot_to_dict(shot)
-        shot_data["latency_ms"] = latency_ms
-        stats = monitor.get_session_stats() if monitor else {}
-        socketio.emit(emit_event, {"shot": shot_data, "stats": stats})
-
-        # Log shot info
-        angle_str = ""
-        if shot.launch_angle_vertical is not None:
-            angle_str = ", Launch: %.1f°" % shot.launch_angle_vertical
-        logger.info(
-            "[SERVER] Shot: ball=%.1f mph, carry=%.0f yds%s",
-            shot.ball_speed_mph,
-            shot.estimated_carry_yards,
-            angle_str,
-        )
-    except Exception as e:
-        logger.error("[SERVER] Failed to emit shot: %s", e, exc_info=True)
-        log_session_error(
-            "WebSocket shot emit failed",
-            component="server",
-            context={"stage": f"emit_{emit_event}", "ball_speed_mph": shot.ball_speed_mph},
-            exc=e,
-        )
+    if shot_data is None:
         return
 
     # Forward to simulator connectors (optional)
@@ -4183,6 +4166,45 @@ def _finalize_shot_detected(
             socketio.emit("debug_shot", debug_log_entry)
         except Exception as e:
             logger.warning("Debug logging error: %s", e)
+
+
+def _attach_normalized_carry(shot: Shot, conditions: LaunchConditions) -> None:
+    shot.carry_normalized_yards = simulate(
+        conditions, air_density=NORMALIZED_AIR_DENSITY
+    ).carry_yards
+    logger.info(
+        "[SERVER] Normalized carry: %.0f yds (sea level, 77 °F, 0%% RH)",
+        shot.carry_normalized_yards,
+    )
+
+
+def _emit_final_shot(shot: Shot, emit_event: str, latency_ms) -> dict | None:
+    """Send the finished shot to every client; None when the emit failed."""
+    try:
+        shot_data = shot_to_dict(shot)
+        shot_data["latency_ms"] = latency_ms
+        stats = monitor.get_session_stats() if monitor else {}
+        socketio.emit(emit_event, {"shot": shot_data, "stats": stats})
+
+        angle_str = ""
+        if shot.launch_angle_vertical is not None:
+            angle_str = ", Launch: %.1f°" % shot.launch_angle_vertical
+        logger.info(
+            "[SERVER] Shot: ball=%.1f mph, carry=%.0f yds%s",
+            shot.ball_speed_mph,
+            shot.estimated_carry_yards,
+            angle_str,
+        )
+        return shot_data
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("[SERVER] Failed to emit shot: %s", e, exc_info=True)
+        log_session_error(
+            "WebSocket shot emit failed",
+            component="server",
+            context={"stage": f"emit_{emit_event}", "ball_speed_mph": shot.ball_speed_mph},
+            exc=e,
+        )
+        return None
 
 
 def _finish_shot_detected(

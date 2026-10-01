@@ -240,6 +240,24 @@ class TestNormalizedCarry:
         assert payload["carry_normalized_yards"] == round(expected)
         assert shot.to_dict()["carry_normalized_yards"] == pytest.approx(expected)
 
+    def test_on_follows_the_shot_as_an_update_so_it_never_delays_it(
+        self, monkeypatch, emitted
+    ):
+        monkeypatch.setattr(server_module, "show_normalized_carry", True)
+        _finalize(_live_shot())
+
+        events = [event for event, _payload in emitted if event in ("shot", "shot_update")]
+        assert events == ["shot", "shot_update"]
+        first = next(p for e, p in emitted if e == "shot")["shot"]
+        update = next(p for e, p in emitted if e == "shot_update")["shot"]
+        assert "carry_normalized_yards" not in first
+        assert update["carry_normalized_yards"] > 0
+        assert update["timestamp"] == first["timestamp"]
+
+    def test_off_sends_no_update(self, emitted):
+        _finalize(_live_shot())
+        assert [e for e, _p in emitted if e == "shot_update"] == []
+
     def test_on_differs_from_actual_carry_at_altitude(self, monkeypatch, emitted):
         monkeypatch.setattr(server_module, "show_normalized_carry", True)
         monkeypatch.setattr(server_module, "air_density", air_density_kg_m3(altitude_m=1609.0))

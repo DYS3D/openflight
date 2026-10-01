@@ -290,6 +290,12 @@ See [Software updates](updates.md). Validate on the Pi before relying on it.
       refused and the file left alone. `git checkout -- <file>` afterwards.
 - [ ] **Offline.** Unplug the network and tap **Check now**: "Can't check for
       updates" with a git error, and nothing else changes.
+- [ ] **Stop mid-install.** Start an update that rebuilds the UI and run
+      `sudo systemctl stop openflight` during "Building the interface". The
+      journal must show "rolling it back before exiting", the stop must wait
+      for it, and `git log -1` must still be the old commit with the old UI.
+- [ ] **Moved after check.** Tap **Check now**, push another commit, then
+      **Update now**: refused with "check for updates again".
 
 ## 11. Installer and stable device names
 

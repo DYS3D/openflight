@@ -60,6 +60,17 @@ If any step fails, the previous commit, `uv.lock`, Python packages, UI packages
 and UI build are put back, and OpenFlight restarts on the old version. The menu
 then shows "Last update failed; the previous version was restored".
 
+A disk-full or permission error during the install is rolled back the same
+way and shown as "The update could not write its files"; the full error is in
+the update log only. If the updater itself crashes, the server does not
+restart into a possibly half-updated checkout: the menu says so and you
+restart it over SSH.
+
+Stopping or rebooting the Pi during an install (`systemctl stop`, the power
+button, SIGTERM) stops the install at its next step and rolls it back before
+the server exits. The service allows up to 30 minutes for that
+(`TimeoutStopSec=1800`); the launcher waits for it too.
+
 ## Safety rules
 
 - **Only the touchscreen can check or install.** Phones, tablets and TVs on the
@@ -72,6 +83,12 @@ then shows "Last update failed; the previous version was restored".
   instead. The one exception is `ui/package-lock.json`: npm sometimes rewrites
   it on its own, so the updater restores it before merging.
 - **Nothing runs until you tap.** Checking only runs `git fetch`.
+- **Exactly what was listed.** **Update now** installs the commit the last
+  check showed. If more commits were pushed since, it is refused with "check
+  for updates again", so nothing you have not seen gets installed.
+- **No prompts.** Git runs with `GIT_TERMINAL_PROMPT=0` and SSH in batch mode,
+  so a missing credential fails the check instead of hanging it, and a
+  timed-out command is killed with all of its child processes.
 
 ## Over SSH
 

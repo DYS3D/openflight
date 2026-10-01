@@ -8,7 +8,7 @@ import time
 import pytest
 
 from openflight import server as server_module, update_service as svc_module
-from openflight.update_service import KIOSK_ONLY, UPDATE_EXIT_CODE, UpdateService
+from openflight.update_service import CRASH_MESSAGE, KIOSK_ONLY, UPDATE_EXIT_CODE, UpdateService
 from openflight.updater import (
     STATE_AVAILABLE,
     STATE_FAILED,
@@ -152,6 +152,18 @@ class TestUpdateService:
         assert answers == [True]
         assert h.updater.stop_requests == 1
         assert h.exit_codes == [UPDATE_EXIT_CODE]
+
+    def test_crash_sends_a_fixed_message_and_does_not_restart(self, tmp_path):
+        crash = OSError(28, "No space left on device", "/home/jcross/openflight/uv.lock")
+        h = Harness(tmp_path, updater=FakeUpdater(raises=crash))
+        h.service.client_connected("phone", False)
+        h.service.request_apply(True)
+        payload = h.last("phone")
+        assert payload["state"] == STATE_FAILED
+        assert payload["error"] == CRASH_MESSAGE
+        assert "/home/" not in json.dumps(payload)
+        assert h.exit_codes == []
+        assert h.service.applying is False
 
     def test_updater_exception_is_contained(self, tmp_path):
         h = Harness(

@@ -48,6 +48,10 @@ RESTART_DELAY_S = 3.0
 DEFAULT_RESULT_FILE = Path.home() / ".local" / "state" / "openflight" / "last_update.json"
 
 KIOSK_ONLY = "Updates can only be started from the OpenFlight touchscreen"
+CRASH_MESSAGE = (
+    "The update stopped unexpectedly and was not finished. "
+    "Restart OpenFlight over SSH and check the update log."
+)
 
 Emit = Callable[[str, dict, Optional[str]], None]
 
@@ -239,9 +243,20 @@ class UpdateService:
             result = self.updater.apply(self._on_step)
         except UpdateError as error:
             result = ApplyResult(False, None, None, str(error), error.detail, rolled_back=True)
-        except Exception as error:  # pylint: disable=broad-except
-            logger.exception("[UPDATE] Update crashed")
-            result = ApplyResult(False, None, None, f"Update crashed: {error}")
+        except Exception:  # pylint: disable=broad-except
+            # The checkout may be half-updated, so restarting into it could
+            # crash-loop. Keep this process up and tell clients only a fixed
+            # message; the traceback (with local paths) stays in the journal.
+            logger.exception("[UPDATE] Update crashed; not restarting")
+            self.updater.status.step = None
+            self.updater.status.state = STATE_FAILED
+            self.updater.status.error = CRASH_MESSAGE
+            self.updater.status.rolled_back = False
+            self.last_result = self._save_result(ApplyResult(False, None, None, CRASH_MESSAGE))
+            with self._lock:
+                self._applying = False
+            self.publish()
+            return
 
         status.step = None
         if result.ok:

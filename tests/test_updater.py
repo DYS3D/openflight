@@ -271,6 +271,21 @@ class TestApply:
         updater.request_stop()
         assert updater.apply().ok
 
+    def test_filesystem_error_mid_install_rolls_back_without_leaking_paths(self, repos, tools):
+        old = repos.pi_head()
+        repos.commit("ui change", {"ui/src/main.ts": "export const v = 2;\n"})
+
+        def full_disk():
+            raise OSError(28, "No space left on device", str(repos.pi / "ui"))
+
+        tools.on_call["build"] = full_disk
+        result = _updater(repos, tools).apply()
+        assert not result.ok and result.rolled_back
+        assert result.error == upd.FILESYSTEM_ERROR
+        assert "No space left" in result.detail
+        assert repos.pi_head() == old
+        assert (repos.pi / "uv.lock").read_text() == "lock v1"
+
     def test_incomplete_rollback_is_reported(self, repos, tools):
         repos.commit("new dependency", {"pyproject.toml": "[project]\nname='z'\n"})
         tools.fail_always.add("uv sync")

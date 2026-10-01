@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REMOTE = "origin"
+FILESYSTEM_ERROR = "The update could not write its files (disk full or permissions)"
 DEFAULT_BRANCH = "main"
 DEFAULT_CHECK_HOURS = 6.0
 MAX_LISTED_COMMITS = 10
@@ -418,6 +419,8 @@ class Updater:
                 self._git("checkout", "--", *regenerated)
         except UpdateError as error:
             return ApplyResult(False, None, None, str(error), error.detail)
+        except OSError as error:
+            return ApplyResult(False, None, None, FILESYSTEM_ERROR, repr(error))
 
         lock_file = root / "uv.lock"
         lock_backup = root / "uv.lock.update-backup"
@@ -467,10 +470,16 @@ class Updater:
                 [_find_uv(), "run", "--no-sync", "python", "-c", "import openflight.server"],
                 SMOKE_TIMEOUT_S,
             )
-        except UpdateError as error:
+        except (UpdateError, OSError) as error:
             progress("Rolling back")
             rolled_back = self._rollback(head, lock_backup, npm_ran, ui_swapped)
-            return ApplyResult(False, head, None, str(error), error.detail, rolled_back=rolled_back)
+            if isinstance(error, UpdateError):
+                message, detail = str(error), error.detail
+            else:
+                # Raw OSError text carries home-directory paths; it goes to the log only.
+                message, detail = FILESYSTEM_ERROR, repr(error)
+                self._log_lines.append(f"filesystem error: {detail}")
+            return ApplyResult(False, head, None, message, detail, rolled_back=rolled_back)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 

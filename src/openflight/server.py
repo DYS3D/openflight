@@ -4179,7 +4179,10 @@ def _finish_shot_detected(
     # Optional hardware may return after the coordinator has timed out this
     # shot. Mutate a shallow dataclass copy so a late result cannot change the
     # already-finalized OPS object retained by the monitor.
-    enriched_shot = replace(shot) if _has_slow_shot_enrichment(shot) else shot
+    enriched_shot = shot
+    if _has_slow_shot_enrichment(shot):
+        enriched_shot = replace(shot)
+        enriched_shot.pipeline_marks = dict(shot.pipeline_marks or {})
     enrichment = _ShotEnrichmentResult()
     try:
         enrichment = _enrich_shot_from_optional_hardware(enriched_shot)

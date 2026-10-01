@@ -2859,6 +2859,28 @@ class TestOnShotDetected:
         assert len(updates) == 1
         assert updates[0]["shot"]["timestamp"] == shot.timestamp.isoformat()
 
+    def test_late_enrichment_marks_never_reach_the_finalized_shot(self, monkeypatch):
+        """A late camera mark_stage must not mutate the finalized shot's marks while
+        latency_ms() iterates them (RuntimeError: dictionary changed size)."""
+        shot = Shot(ball_speed_mph=150.0, timestamp=datetime.now(), club=ClubType.DRIVER)
+        shot.mark_stage("ops", 1.0)
+        enriched = []
+
+        def late_camera(staged):
+            staged.mark_stage("camera", 2.0)
+            enriched.append(staged)
+            return server_module._ShotEnrichmentResult()
+
+        monkeypatch.setattr(server_module, "_has_slow_shot_enrichment", lambda _shot: True)
+        monkeypatch.setattr(server_module, "_enrich_shot_from_optional_hardware", late_camera)
+        monkeypatch.setattr(server_module, "_queue_shot_finalization", lambda *_a, **_k: None)
+
+        server_module._finish_shot_detected(shot, emit_event="shot_update")
+
+        assert enriched and enriched[0] is not shot
+        assert "camera" in enriched[0].pipeline_marks
+        assert shot.pipeline_marks == {"ops": 1.0}
+
     def test_deferred_shots_are_fifo_on_one_worker(self, monkeypatch):
         processed = []
         worker_targets = []

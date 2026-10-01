@@ -313,6 +313,42 @@ class TestServiceConfig:
             result.stdout
         )
 
+    def test_rerun_keeps_earlier_server_args(self, tmp_path):
+        """A later `--with-updates` re-run must not drop an earlier `--radar-port`."""
+        env_file = tmp_path / "openflight"
+        env_file.write_text('OPENFLIGHT_ARGS="--radar-port /dev/ttyAMA0 --mock"\n')
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1"; shift; ENV_FILE="$1"; shift; parse_args "$@"; render_env_file',
+                "test",
+                str(INSTALLER),
+                str(env_file),
+                "--with-updates",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert 'OPENFLIGHT_ARGS="--radar-port /dev/ttyAMA0 --mock --update-check"' in result.stdout
+
+    @pytest.mark.parametrize(
+        ("old", "new", "merged"),
+        [
+            ("--radar-port /dev/ttyAMA0", "--radar-port /dev/ttyUSB0", "--radar-port /dev/ttyUSB0"),
+            ("--mock --update-check", "--update-check", "--mock --update-check"),
+            ("--altitude-ft=850 --mock", "--altitude-ft=900", "--mock --altitude-ft=900"),
+            ("", "--iwr6843", "--iwr6843"),
+            ("--mock", "", "--mock"),
+        ],
+    )
+    def test_merge_replaces_only_repeated_options(self, old, new, merged):
+        result = _call(INSTALLER, 'merge_server_args "$1" "$2"', old, new)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == merged
+
     def test_updates_are_off_unless_asked_for(self):
         default = _call(INSTALLER, "parse_args; render_env_file")
         assert "--update-check" not in default.stdout

@@ -384,9 +384,37 @@ server_args() {
     printf '%s' "${args[*]:-}"
 }
 
+# OPENFLIGHT_ARGS from an existing env file, so a re-run can keep it.
+existing_server_args() {
+    [ -f "$ENV_FILE" ] || return 0
+    sed -n 's/^OPENFLIGHT_ARGS="\(.*\)"$/\1/p' "$ENV_FILE" | tail -n 1
+}
+
+# Merge two server argument strings: an option given again in $2 replaces
+# that option (and its values) from $1; every other earlier option is kept.
+merge_server_args() {
+    local -a old=() new=() merged=()
+    local -A replaced=()
+    local token skipping=false
+    read -ra old <<<"$1"
+    read -ra new <<<"$2"
+    for token in "${new[@]}"; do
+        if [[ "$token" == --* ]]; then replaced["${token%%=*}"]=1; fi
+    done
+    for token in "${old[@]}"; do
+        if [[ "$token" == --* ]]; then
+            skipping=false
+            if [ -n "${replaced["${token%%=*}"]:-}" ]; then skipping=true; fi
+        fi
+        if [ "$skipping" = false ]; then merged+=("$token"); fi
+    done
+    merged+=("${new[@]}")
+    printf '%s' "${merged[*]:-}"
+}
+
 render_env_file() {
     printf '# Written by scripts/install.sh; read by openflight.service.\n'
-    printf 'OPENFLIGHT_ARGS="%s"\n' "$(server_args)"
+    printf 'OPENFLIGHT_ARGS="%s"\n' "$(merge_server_args "$(existing_server_args)" "$(server_args)")"
 }
 
 install_env_file() {
@@ -394,6 +422,11 @@ install_env_file() {
     if [ -f "$ENV_FILE" ] && [ -z "$(server_args)" ]; then
         log "Keeping $ENV_FILE"
         return 0
+    fi
+    if [ -n "$(existing_server_args)" ]; then
+        log "Keeping earlier server arguments from $ENV_FILE: $(existing_server_args)"
+        log "Server arguments now: $(merge_server_args "$(existing_server_args)" "$(server_args)")"
+        log "To drop one, edit $ENV_FILE and run: sudo systemctl restart openflight"
     fi
     if [ -f "$ENV_FILE" ] && [ "$(cat "$ENV_FILE")" != "$(render_env_file)" ]; then
         run sudo cp "$ENV_FILE" "$(backup_path "$ENV_FILE")"

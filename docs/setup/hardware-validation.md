@@ -240,7 +240,8 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
       and →final. Expect capture ≈ post-trigger span + serial dump time; the
       dump dominates.
 - [ ] **`--fast-dsp`.** Same shots; ball/club speed and spin must be
-      identical to the baseline; `[LATENCY] →processed` a few ms lower.
+      numerically equivalent (to ~1e-9) to the baseline;
+      `[LATENCY] →processed` a few ms lower.
 - [ ] **`--radar-profile low-latency`.** Confirm the log shows the 50 ksps
       preset with S#20 and that captures arrive with ~51 ms trigger offset
       (~31 ms post-trigger) and 4096 samples. Compare ball speed and spin

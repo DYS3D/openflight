@@ -5667,7 +5667,7 @@ def main():
         action="store_true",
         help=(
             "Pre-planned multi-threaded FFT and vectorised peak picking in the "
-            "rolling-buffer processor. Numerically equivalent; off by default"
+            "rolling-buffer processor. Numerically equivalent (to ~1e-9); off by default"
         ),
     )
     parser.add_argument(

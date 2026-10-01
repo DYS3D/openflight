@@ -9,6 +9,7 @@ import queue
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,11 @@ RASPBERRY_PI_DIST_PACKAGES = Path("/usr/lib/python3/dist-packages")
 OV9281_VERTICAL_OFFSET_PATH = Path("/sys/module/ov9282/parameters/strip_y_offset")
 AUTO_EXPOSURE_STARTUP_SETTLE_S = 0.3
 ARCHIVE_SHUTDOWN_TIMEOUT_S = 10.0
+# Unclaimed captures (false triggers, shots whose OPS side never arrived) each
+# hold a clip, ~15 MB of frames with frames_in_memory. Same bounds as the
+# IWR6843 monitor's pending queue, sized for the server's enrichment wait.
+_MAX_PENDING_CAPTURES = 4
+_MAX_PENDING_CAPTURE_AGE_S = 60.0
 
 
 def vertical_crop_limits(width: int, height: int) -> dict[str, int] | None:
@@ -234,7 +240,7 @@ class CameraCaptureRuntime:
         self._ready: queue.Queue[TriggeredCapture | None] = queue.Queue()
         self._archive_worker: threading.Thread | None = None
         self._archive_queue: queue.Queue[_ArchiveJob | None] = queue.Queue()
-        self._captures: list[SavedCameraCapture] = []
+        self._captures: deque[SavedCameraCapture] = deque(maxlen=_MAX_PENDING_CAPTURES)
         self._condition = threading.Condition()
         self._trigger_epochs: queue.Queue[float] = queue.Queue()
         self._trigger_auto_exposure: queue.Queue[dict] = queue.Queue()
@@ -597,13 +603,14 @@ class CameraCaptureRuntime:
         deadline = time.monotonic() + timeout_s
         with self._condition:
             while True:
+                self._discard_expired_captures()
                 if impact_timestamp is None and self._captures:
-                    return self._captures.pop(0)
+                    return self._captures.popleft()
 
                 if impact_timestamp is not None:
                     cutoff = impact_timestamp - self.settings.match_tolerance_s
                     while self._captures and self._captures[0].trigger_timestamp < cutoff:
-                        stale = self._captures.pop(0)
+                        stale = self._captures.popleft()
                         logger.warning(
                             "[CAMERA] Discarding unmatched capture #%d (edge %.3f, shot %.3f)",
                             stale.sequence,
@@ -615,12 +622,23 @@ class CameraCaptureRuntime:
                         and abs(self._captures[0].trigger_timestamp - impact_timestamp)
                         <= self.settings.match_tolerance_s
                     ):
-                        return self._captures.pop(0)
+                        return self._captures.popleft()
 
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return None
                 self._condition.wait(timeout=remaining)
+
+    def _discard_expired_captures(self) -> None:
+        """Drop completed captures nobody claimed in time. Caller holds the lock."""
+        cutoff = time.time() - _MAX_PENDING_CAPTURE_AGE_S
+        while self._captures and self._captures[0].completed_timestamp < cutoff:
+            expired = self._captures.popleft()
+            logger.warning(
+                "[CAMERA] Discarding capture #%d unclaimed for over %.0fs",
+                expired.sequence,
+                _MAX_PENDING_CAPTURE_AGE_S,
+            )
 
     def _start_gpio_trigger(self) -> None:
         button_factory = self._button_factory
@@ -846,6 +864,12 @@ class CameraCaptureRuntime:
                     error=str(exc),
                 )
             with self._condition:
+                self._discard_expired_captures()
+                if len(self._captures) == self._captures.maxlen:
+                    logger.warning(
+                        "[CAMERA] Discarding unclaimed capture #%d: pending queue full",
+                        self._captures[0].sequence,
+                    )
                 self._captures.append(saved)
                 self._condition.notify_all()
 

@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 
 import numpy as np
 import pytest
@@ -879,3 +880,43 @@ def test_vertical_crop_update_rejects_unsafe_or_unaligned_offsets(tmp_path, offs
 
     with pytest.raises(ValueError, match="vertical crop"):
         runtime.update_vertical_crop(offset)
+
+
+def _run_save_loop(runtime, completed_timestamps, monkeypatch):
+    """Publish one saved capture per completion time through the save loop."""
+    stamps = iter(completed_timestamps)
+
+    def fake_save(sequence, trigger_epoch, _capture, **_kwargs):
+        return capture_runtime.SavedCameraCapture(
+            sequence=sequence,
+            trigger_timestamp=trigger_epoch,
+            completed_timestamp=next(stamps),
+            path=None,
+            metadata={},
+        )
+
+    monkeypatch.setattr(runtime, "_save_capture", fake_save)
+    runtime._running = True
+    for _ in completed_timestamps:
+        runtime._ready.put(make_capture())
+    runtime._ready.put(None)
+    runtime._save_loop()
+
+
+def test_unclaimed_captures_are_capped(tmp_path, monkeypatch):
+    runtime = CameraCaptureRuntime(output_dir=tmp_path)
+    now = time.time()
+
+    _run_save_loop(runtime, [now] * 10, monkeypatch)
+
+    assert len(runtime._captures) == capture_runtime._MAX_PENDING_CAPTURES
+    assert [c.sequence for c in runtime._captures] == list(range(7, 11))
+
+
+def test_unclaimed_captures_expire_by_age(tmp_path, monkeypatch):
+    runtime = CameraCaptureRuntime(output_dir=tmp_path)
+    old = time.time() - capture_runtime._MAX_PENDING_CAPTURE_AGE_S - 1.0
+
+    _run_save_loop(runtime, [old, old, time.time()], monkeypatch)
+
+    assert [c.sequence for c in runtime._captures] == [3]

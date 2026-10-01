@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hmac
 import ipaddress
+import logging
 import os
 import secrets
 import socket
@@ -26,6 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional
 from urllib.parse import urlsplit
+
+logger = logging.getLogger(__name__)
 
 TOKEN_ENV = "OPENFLIGHT_AUTH_TOKEN"
 DEFAULT_TOKEN_PATH = Path.home() / ".config" / "openflight" / "token"
@@ -74,7 +77,16 @@ def load_or_create_token(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(24)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o600)
+    except FileExistsError:
+        existing = _read_token(path)
+        if existing:
+            return existing
+        # An empty file or a symlink: replace the entry itself, never its target.
+        path.unlink()
+        fd = os.open(path, flags, 0o600)
     os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(token + "\n")
@@ -83,9 +95,14 @@ def load_or_create_token(
 
 def _read_token(path: Path) -> str:
     try:
-        return path.read_text(encoding="utf-8").strip()
+        token = path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         return ""
+    if token and path.stat().st_mode & 0o077:
+        logger.warning(
+            "Token file %s is not private (mode looser than 0600); run chmod 600 on it", path
+        )
+    return token
 
 
 def local_addresses() -> set[str]:

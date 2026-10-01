@@ -31,6 +31,40 @@ class TestTokenFile:
         path.write_text("from-file\n")
         assert access.load_or_create_token(path, {access.TOKEN_ENV: "env"}) == "env"
 
+    def test_dangling_symlink_target_is_never_created(self, tmp_path):
+        victim = tmp_path / "outside" / "victim"
+        victim.parent.mkdir()
+        path = tmp_path / "token"
+        path.symlink_to(victim)
+        token = access.load_or_create_token(path, {})
+        assert not victim.exists()
+        assert not path.is_symlink() and path.read_text().strip() == token
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+    def test_token_created_concurrently_is_reused_not_truncated(self, tmp_path, monkeypatch):
+        path = tmp_path / "token"
+        path.write_text("winner\n")
+        os.chmod(path, 0o600)
+        reads = iter(["", "winner"])
+        monkeypatch.setattr(access, "_read_token", lambda _path: next(reads))
+        assert access.load_or_create_token(path, {}) == "winner"
+        assert path.read_text() == "winner\n"
+
+    def test_loose_token_file_mode_warns(self, tmp_path, caplog):
+        path = tmp_path / "token"
+        path.write_text("secret\n")
+        os.chmod(path, 0o644)
+        with caplog.at_level("WARNING", logger="openflight.access"):
+            assert access.load_or_create_token(path, {}) == "secret"
+        assert "chmod 600" in caplog.text
+
+    def test_private_token_file_does_not_warn(self, tmp_path, caplog):
+        path = tmp_path / "token"
+        access.load_or_create_token(path, {})
+        with caplog.at_level("WARNING", logger="openflight.access"):
+            access.load_or_create_token(path, {})
+        assert caplog.records == []
+
     def test_print_token_cli(self, tmp_path, capsys):
         path = tmp_path / "token"
         assert access.main(["print-token", "--token-file", str(path)]) == 0

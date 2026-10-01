@@ -225,6 +225,36 @@ class TestKLD7SerialIO:
 
         assert radar._get_response() == FakeResponse.OK
 
+    def test_robust_get_response_rejects_empty_response_payload(self, monkeypatch):
+        fake_kld7 = ModuleType("kld7")
+        fake_device = ModuleType("kld7.device")
+
+        class FakeKLD7Exception(Exception):
+            pass
+
+        class FakeResponse(int):
+            OK = 0
+            MAX_RESPONSE = 10
+
+        fake_kld7.KLD7Exception = FakeKLD7Exception
+        fake_device.Response = FakeResponse
+        monkeypatch.setitem(sys.modules, "kld7", fake_kld7)
+        monkeypatch.setitem(sys.modules, "kld7.device", fake_device)
+
+        from openflight.kld7.serial_io import install_robust_read_packet
+
+        class EmptyResponsePort:
+            timeout = 0.5
+
+            def read(self, _size):
+                return b"RESP" + (0).to_bytes(4, "little")
+
+        radar = SimpleNamespace(_port=EmptyResponsePort())
+        install_robust_read_packet(radar)
+
+        with pytest.raises(FakeKLD7Exception, match="incorrect payload length"):
+            radar._get_response()
+
     def test_robust_read_packet_records_packet_timing(self, monkeypatch):
         fake_kld7 = ModuleType("kld7")
 

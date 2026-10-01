@@ -181,7 +181,7 @@ def install_robust_read_packet(radar: Any) -> None:
         while stale_packets <= _MAX_STALE_RESPONSE_PACKETS:
             reply, payload = _robust_read_packet(device)
             if reply == "RESP":
-                if len(payload) != 1:
+                if payload is None or len(payload) != 1:
                     raise KLD7Exception("Response packet with incorrect payload length")
                 code = payload[0]
                 return Response(code if code < Response.MAX_RESPONSE else -1)

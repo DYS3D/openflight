@@ -67,6 +67,40 @@ class TestPolicyDefaults:
         assert not policy.origin_ok("https://evil.example")
         assert not policy.origin_ok("file://")
 
+    def test_pi_os_lan_ip_origin_is_accepted(self, tmp_path, monkeypatch):
+        """Pi OS maps the hostname to 127.0.1.1, so the LAN IP never reaches allowed_hosts."""
+        monkeypatch.setattr(access.socket, "gethostname", lambda: "openflight")
+        monkeypatch.setattr(
+            access.socket, "getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("127.0.1.1", 0))]
+        )
+        monkeypatch.setattr(access, "_primary_ipv4", lambda: None)
+        monkeypatch.setattr(access, "_interface_ip_cache", (float("-inf"), frozenset()))
+        policy = access.AccessPolicy.from_args(
+            _args(auth_required=True, auth_token_file=str(tmp_path / "t")), environ={}
+        )
+        assert "192.168.0.221" not in policy.allowed_hosts
+        assert policy.origin_ok("http://192.168.0.221:8080", "192.168.0.221:8080")
+        assert not policy.origin_ok("http://192.168.0.99:8080", "192.168.0.221:8080")
+        assert not policy.origin_ok("http://evil.example", "evil.example")
+        assert not policy.origin_ok("http://192.168.0.221:8080")
+
+    def test_interface_address_is_accepted_without_matching_host(self, monkeypatch):
+        monkeypatch.setattr(access, "_primary_ipv4", lambda: "192.168.0.221")
+        monkeypatch.setattr(access, "_interface_ip_cache", (float("-inf"), frozenset()))
+        policy = access.AccessPolicy(enabled=True, token="t")
+        assert policy.origin_ok("http://192.168.0.221:8080", "openflight.local:8080")
+        assert not policy.origin_ok("http://192.168.0.50:8080", "openflight.local:8080")
+
+    def test_interface_addresses_are_cached_briefly(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(access, "_primary_ipv4", lambda: calls.append(1) or "10.0.0.7")
+        monkeypatch.setattr(access, "_interface_ip_cache", (float("-inf"), frozenset()))
+        assert access.interface_addresses(now=100.0) == {"10.0.0.7"}
+        assert access.interface_addresses(now=120.0) == {"10.0.0.7"}
+        assert len(calls) == 1
+        access.interface_addresses(now=131.0)
+        assert len(calls) == 2
+
     def test_loopback_is_exempt(self):
         policy = access.AccessPolicy(enabled=True, token="t")
         assert policy.client_is_exempt("127.0.0.1")
@@ -191,6 +225,17 @@ class TestFlagOn:
             locked_server,
             LAN,
             headers={access.TOKEN_HEADER: "s3cret", "Origin": "http://golfpi:8080"},
+        )
+        assert response.status_code == 404
+
+    def test_phone_opening_the_pi_by_ip_is_served(self, locked_server, monkeypatch):
+        monkeypatch.setattr(access, "_primary_ipv4", lambda: None)
+        monkeypatch.setattr(access, "_interface_ip_cache", (float("-inf"), frozenset()))
+        response = _http(
+            locked_server,
+            LAN,
+            headers={access.TOKEN_HEADER: "s3cret", "Origin": "http://192.168.0.221:8080"},
+            base_url="http://192.168.0.221:8080",
         )
         assert response.status_code == 404
 

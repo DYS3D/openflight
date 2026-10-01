@@ -151,7 +151,7 @@ def _access_refusal(auth=None, *, allow_ui_shell: bool = False) -> Optional[tupl
     """Why the current request must be refused under --auth-required, or None."""
     if not access_policy.enabled:
         return None
-    if not access_policy.origin_ok(request.headers.get("Origin")):
+    if not access_policy.origin_ok(request.headers.get("Origin"), request.host):
         return "Origin not allowed", 403
     if access_policy.client_is_exempt(request.remote_addr):
         return None

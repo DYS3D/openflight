@@ -20,6 +20,8 @@ import os
 import secrets
 import socket
 import sys
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional
@@ -101,6 +103,45 @@ def local_addresses() -> set[str]:
     return names
 
 
+_INTERFACE_IP_CACHE_S = 30.0
+_interface_ip_lock = threading.Lock()
+_interface_ip_cache: tuple[float, frozenset[str]] = (float("-inf"), frozenset())
+
+
+def _primary_ipv4() -> Optional[str]:
+    # Connecting a UDP socket sends nothing; it only asks the kernel which
+    # interface address would route off-box. Pi OS resolves the hostname to
+    # 127.0.1.1, so getaddrinfo never sees the LAN address.
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("192.0.2.1", 9))
+            return probe.getsockname()[0]
+    except OSError:
+        return None
+
+
+def interface_addresses(now: Optional[float] = None) -> frozenset[str]:
+    """This machine's current routable IPv4 address, refreshed at most every 30 s."""
+    global _interface_ip_cache  # pylint: disable=global-statement
+    now = time.monotonic() if now is None else now
+    with _interface_ip_lock:
+        expires, addresses = _interface_ip_cache
+        if now < expires:
+            return addresses
+        primary = _primary_ipv4()
+        addresses = frozenset({primary} if primary and not is_loopback_address(primary) else ())
+        _interface_ip_cache = (now + _INTERFACE_IP_CACHE_S, addresses)
+        return addresses
+
+
+def _is_ip_literal(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return True
+
+
 @dataclass(frozen=True)
 class AccessPolicy:
     """What ``--auth-required`` enforces. ``enabled=False`` means today's open server."""
@@ -139,11 +180,13 @@ class AccessPolicy:
     def token_ok(self, provided: object) -> bool:
         return token_matches(provided, self.token)
 
-    def origin_ok(self, origin: Optional[str]) -> bool:
+    def origin_ok(self, origin: Optional[str], request_host: Optional[str] = None) -> bool:
         """Browsers must come from the Pi's own name/IP, localhost or a configured origin.
 
         Requests without an Origin header (curl, native apps, same-origin
-        navigations) are not cross-origin and pass.
+        navigations) are not cross-origin and pass. An IP-literal origin is
+        also accepted when it is the address the request was sent to
+        (``request_host``) or one of the Pi's current interface addresses.
         """
         if not self.enabled or not origin:
             return True
@@ -153,7 +196,13 @@ class AccessPolicy:
         hostname = parts.hostname.lower()
         if is_loopback_address(hostname) or hostname == "localhost":
             return True
-        return hostname in self.allowed_hosts
+        if hostname in self.allowed_hosts:
+            return True
+        if not _is_ip_literal(hostname):
+            return False
+        if request_host and urlsplit(f"//{request_host}").hostname == hostname:
+            return True
+        return hostname in interface_addresses()
 
 
 def add_access_args(parser: argparse.ArgumentParser) -> None:

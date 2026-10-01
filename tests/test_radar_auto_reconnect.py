@@ -600,6 +600,35 @@ class TestIwr6843AutoReconnect:
         assert harness.factory_ports == [None]
 
 
+    def test_stop_during_reopen_closes_the_new_radar(self, tmp_path, monkeypatch):
+        harness = IwrHarness(
+            tmp_path,
+            monkeypatch,
+            auto_reconnect=True,
+            dump_errors=[serial.SerialException("device disconnected")],
+        )
+        monitor = harness.monitor
+        real_send_config = FakeIwrRadar.send_config
+
+        def send_config_while_stopping(radar, path):
+            real_send_config(radar, path)
+            if radar is harness.replacement:
+                # stop() gave up joining the worker while this config was in flight.
+                monitor._running = False
+
+        monkeypatch.setattr(FakeIwrRadar, "send_config", send_config_while_stopping)
+        monitor.start()
+        edge = time.time()
+        monitor.notify_trigger(edge)
+        monitor.capture_for_shot(edge, timeout_s=2.0)
+        monitor._worker.join(timeout=2.0)
+
+        assert not monitor._worker.is_alive()
+        assert harness.replacement is not None
+        assert harness.replacement.closed
+        assert monitor.radar is not harness.replacement
+
+
 class TestIwr6843AutoReconnectOff:
     def test_flag_off_by_default(self, tmp_path):
         monitor = IWR6843CaptureMonitor(

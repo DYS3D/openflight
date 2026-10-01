@@ -356,6 +356,10 @@ class IWR6843CaptureMonitor:
                 failed_attempts += 1
                 self._wait_before_retry(failed_attempts, exc)
                 continue
+            if not self._running:
+                # stop() may have given up joining this thread while send_config ran.
+                self._close_quietly(radar)
+                return
             self.radar = radar
             logger.info(
                 "[IWR6843] Reconnected on %s after %d failed attempt(s) in %.0fs",

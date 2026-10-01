@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import getpass
 import glob
 import grp
 import os
@@ -128,8 +129,14 @@ def check_udev_rules(path: Path = UDEV_RULES) -> CheckResult:
 def check_serial_permissions(
     user_groups: Optional[set[str]] = None,
     existing_groups: Optional[set[str]] = None,
+    configured_groups: Optional[set[str]] = None,
 ) -> CheckResult:
-    """Without dialout every radar open fails with 'Permission denied'."""
+    """Without dialout every radar open fails with 'Permission denied'.
+
+    ``configured_groups`` is the user's membership in /etc/group. It differs
+    from the running process's groups right after ``usermod -aG`` (as in the
+    installer's own self-check) until the user logs in again.
+    """
 
     def run():
         existing = existing_groups
@@ -138,10 +145,20 @@ def check_serial_permissions(
         current = user_groups
         if current is None:
             current = {grp.getgrgid(gid).gr_name for gid in os.getgroups()}
+        configured = configured_groups
+        if configured is None:
+            user = getpass.getuser()
+            configured = {group.gr_name for group in grp.getgrall() if user in group.gr_mem}
         wanted = [g for g in HARDWARE_GROUPS if g in existing]
         missing = [g for g in wanted if g not in current]
         if not missing:
             return "pass", "member of " + ", ".join(wanted), ""
+        if all(g in configured for g in missing):
+            return (
+                "skip",
+                "added to " + ", ".join(missing) + "; takes effect after you log out and back in",
+                "Reboot (or log out and back in), then run scripts/openflight-doctor.sh",
+            )
         return (
             "fail",
             "missing groups: " + ", ".join(missing),

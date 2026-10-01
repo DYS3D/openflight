@@ -53,11 +53,23 @@ class TestPermissions:
 
     def test_missing_dialout_fails_with_usermod_hint(self):
         result = self_test.check_serial_permissions(
-            user_groups={"pi", "gpio"}, existing_groups={"dialout", "gpio", "i2c"}
+            user_groups={"pi", "gpio"},
+            existing_groups={"dialout", "gpio", "i2c"},
+            configured_groups={"gpio"},
         )
         assert result.status == "fail"
         assert "dialout" in result.detail
         assert "usermod -aG dialout,i2c" in result.hint
+
+    def test_groups_added_by_the_installer_need_a_new_login_not_a_fix(self):
+        """usermod -aG updates /etc/group, but the installer's own shell keeps its old groups."""
+        result = self_test.check_serial_permissions(
+            user_groups={"pi"},
+            existing_groups={"dialout", "gpio", "i2c"},
+            configured_groups={"dialout", "gpio", "i2c"},
+        )
+        assert result.status == "skip"
+        assert "log out and back in" in result.detail
 
     def test_groups_the_os_lacks_are_not_required(self):
         result = self_test.check_serial_permissions(

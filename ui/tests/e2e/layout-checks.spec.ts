@@ -127,12 +127,24 @@ for (const viewport of TV_VIEWPORTS) {
         }
         const text = await page.locator('body').innerText();
         expect(text, `${path} shows a non-number`).not.toMatch(/NaN|Infinity|undefined/);
-        // The default /display page already scrolls vertically on a 16:9 TV; the TV layout must not.
-        const overflow = await page.evaluate((fullScreen) => {
+        const overflow = await page.evaluate(() => {
           const root = document.documentElement;
-          return root.scrollWidth > root.clientWidth + 1 || (fullScreen && root.scrollHeight > root.clientHeight + 1);
-        }, path.includes('tv'));
+          return root.scrollWidth > root.clientWidth + 1 || root.scrollHeight > root.clientHeight + 1;
+        });
         expect(overflow, `${path} overflows the screen`).toBe(false);
+        const spilled = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>('.display-mode .metric-card, .display-shot-chip')].flatMap(
+            (card) => {
+              const box = card.getBoundingClientRect();
+              const spills = [...card.querySelectorAll('*')].some((child) => {
+                const rect = child.getBoundingClientRect();
+                return rect.right > box.right + 1 || rect.bottom > box.bottom + 1;
+              });
+              return spills ? [card.innerText] : [];
+            }
+          )
+        );
+        expect(spilled, `${path} values spill out of their tiles`).toEqual([]);
       }
       expect(errors).toEqual([]);
     });

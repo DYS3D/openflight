@@ -425,3 +425,53 @@ class TestEnvDoesNotTouchUserConfig:
         assert user_roster.read_text(encoding="utf-8") == "do-not-touch"
         assert isolated.exists()
         assert isolated != user_roster
+
+
+class TestConcurrentSaves:
+    def test_a_slow_earlier_save_cannot_overwrite_a_later_roster(self, tmp_path):
+        import threading
+
+        path = tmp_path / "profiles.json"
+        store = ProfileStore(path)
+        store.add("Alex")
+        first_write_started = threading.Event()
+        release_first_write = threading.Event()
+        real_write = store._write
+        calls = []
+
+        def slow_first_write(payload):
+            calls.append(payload)
+            if len(calls) == 1:
+                first_write_started.set()
+                release_first_write.wait(5)
+            real_write(payload)
+
+        store._write = slow_first_write
+        earlier = threading.Thread(target=store.save)
+        earlier.start()
+        assert first_write_started.wait(5)
+        later = threading.Thread(target=store.add, args=("Blake",))
+        later.start()
+        release_first_write.set()
+        earlier.join(5)
+        later.join(5)
+
+        names = [p["name"] for p in json.loads(path.read_text())["profiles"]]
+        assert "Blake" in names
+
+    def test_cap_is_checked_under_the_lock(self, tmp_path):
+        import threading
+
+        store = ProfileStore(tmp_path / "profiles.json")
+        start = threading.Barrier(MAX_PROFILES + 5)
+
+        def add(index):
+            start.wait(5)
+            store.add(f"Golfer {index}")
+
+        threads = [threading.Thread(target=add, args=(i,)) for i in range(MAX_PROFILES + 5)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(5)
+        assert len(store.snapshot()["profiles"]) <= MAX_PROFILES

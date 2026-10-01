@@ -107,6 +107,7 @@ class ProfileStore:
         self._path = resolve_profiles_path(path)
         # One kiosk, one writer -- an in-process lock is enough; no file locking.
         self._lock = threading.Lock()
+        self._save_lock = threading.Lock()
         self._profiles: List[Profile] = []
         self._active_id: str = ""
         self._load()
@@ -134,10 +135,12 @@ class ProfileStore:
     def add(self, name: Any) -> Optional[Profile]:
         """Append a profile and make it active. None when rejected."""
         cleaned = clean_profile_name(name)
-        if not cleaned or len(self._profiles) >= MAX_PROFILES:
+        if not cleaned:
             return None
 
         with self._lock:
+            if len(self._profiles) >= MAX_PROFILES:
+                return None
             profile = Profile(id=uuid.uuid4().hex, name=cleaned, created_at=_utc_now_iso())
             self._profiles.append(profile)
             self._active_id = profile.id
@@ -182,8 +185,14 @@ class ProfileStore:
 
     def save(self) -> None:
         """Write the roster atomically. Never raises into a caller."""
-        with self._lock:
-            payload = self._payload()
+        # One writer at a time, snapshotting inside it, so a later mutation's
+        # roster can never be replaced on disk by an earlier snapshot.
+        with self._save_lock:
+            with self._lock:
+                payload = self._payload()
+            self._write(payload)
+
+    def _write(self, payload: dict) -> None:
         temp_path = self._path.with_name(f"{self._path.name}.{uuid.uuid4().hex}.tmp")
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)

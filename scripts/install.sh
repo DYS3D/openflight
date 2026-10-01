@@ -2,7 +2,7 @@
 #
 # OpenFlight installer for a Raspberry Pi 5 running Raspberry Pi OS Bookworm.
 #
-# Installs system packages, uv and the Python environment, Node.js 22 and the
+# Installs system packages, uv and the Python environment, Node.js and the
 # UI build; enables the GPIO UART with the serial console off; adds you to the
 # hardware groups; installs udev rules that name the radars
 # /dev/openflight-ops243, /dev/openflight-iwr-cli and /dev/openflight-iwr-data;
@@ -249,16 +249,29 @@ install_python_env() {
     fi
 }
 
+# The Node.js major the UI is built and tested with in CI (.node-version).
+node_major() {
+    local version=""
+    if [ -f "$PROJECT_DIR/.node-version" ]; then
+        version="$(tr -d 'v[:space:]' <"$PROJECT_DIR/.node-version")"
+    fi
+    version="${version%%.*}"
+    [[ "$version" =~ ^[0-9]+$ ]] || version="${OPENFLIGHT_MIN_NODE%%.*}"
+    printf '%s' "$version"
+}
+
 install_node_and_ui() {
-    step "Node.js ${OPENFLIGHT_MIN_NODE%%.*} and UI build"
+    local major
+    major="$(node_major)"
+    step "Node.js and UI build"
     if openflight_node_meets_min; then
         log "Node.js $(openflight_node_version) found"
     else
-        log "Installing Node.js 22.x from NodeSource..."
+        log "Installing Node.js ${major}.x from NodeSource..."
         if [ "$DRY_RUN" = true ]; then
-            printf '[dry-run] curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -\n'
+            printf '[dry-run] curl -fsSL https://deb.nodesource.com/setup_%s.x | sudo -E bash -\n' "$major"
         else
-            curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+            curl -fsSL "https://deb.nodesource.com/setup_${major}.x" | sudo -E bash -
         fi
         run sudo apt-get install -y nodejs
     fi
@@ -293,10 +306,12 @@ update_uart_boot_config() {
     if grep -qF "$UART_MARKER" "$config" 2>/dev/null; then
         return 0
     fi
-    grep -qE '^enable_uart=1' "$config" 2>/dev/null || lines+=("enable_uart=1")
     if [ "$generation" -ge 5 ]; then
+        # On a Pi 5 enable_uart=1 only affects the separate debug UART
+        # connector; the header UART is UART0.
         grep -qE '^dtparam=uart0=on' "$config" 2>/dev/null || lines+=("dtparam=uart0=on")
     else
+        grep -qE '^enable_uart=1' "$config" 2>/dev/null || lines+=("enable_uart=1")
         grep -qE '^dtoverlay=disable-bt' "$config" 2>/dev/null || lines+=("dtoverlay=disable-bt")
     fi
     printf '\n[all]\n%s\n' "$UART_MARKER" >>"$config"

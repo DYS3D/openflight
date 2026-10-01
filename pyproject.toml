@@ -93,6 +93,11 @@ docs = [
     "zensical>=0.0.57,<0.1",
 ]
 
+[tool.uv]
+# Use Raspberry Pi OS's own Python (3.11 on Bookworm) rather than a uv-managed
+# one, so the plain and --with-camera (system-site-packages) venvs match.
+python-preference = "system"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

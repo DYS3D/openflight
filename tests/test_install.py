@@ -20,7 +20,7 @@ INSTALL_STEPS = [
     "System packages",
     "uv (Python package manager)",
     "Python environment (uv sync)",
-    "Node.js 22 and UI build",
+    "Node.js and UI build",
     "GPIO UART on, serial console off, I2C on",
     "Hardware groups",
     "udev rules",
@@ -154,6 +154,17 @@ class TestDryRun:
         assert re.search(r"apt-get install -y .*\bchromium", result.stdout)
         assert "No desktop found" not in result.stderr
 
+    def test_node_major_follows_dot_node_version(self, tmp_path):
+        (tmp_path / ".node-version").write_text("v24.3.1\n")
+        result = _call(INSTALLER, 'PROJECT_DIR="$1"; node_major', str(tmp_path))
+        assert result.stdout == "24"
+        (tmp_path / ".node-version").unlink()
+        result = _call(INSTALLER, 'PROJECT_DIR="$1"; node_major', str(tmp_path))
+        assert result.stdout == "22"
+
+    def test_repo_prefers_the_system_python(self):
+        assert 'python-preference = "system"' in (PROJECT_ROOT / "pyproject.toml").read_text()
+
     def test_service_waits_for_an_update_rollback_on_stop(self):
         assert "TimeoutStopSec=1800" in SERVICE.read_text()
 
@@ -238,7 +249,7 @@ class TestUartBootConfig:
 
         text = config.read_text()
         assert text.count("# OpenFlight UART") == 1
-        assert text.count("enable_uart=1") == 1
+        assert "enable_uart=1" not in text  # Pi 5: that is the debug-connector UART
         assert text.count("dtparam=uart0=on") == 1
         assert "\n[all]\n# OpenFlight UART" in text
 
@@ -247,13 +258,14 @@ class TestUartBootConfig:
         config.write_text("")
         _call(INSTALLER, 'update_uart_boot_config "$1" 4', str(config))
         text = config.read_text()
+        assert "enable_uart=1" in text
         assert "dtoverlay=disable-bt" in text
         assert "dtparam=uart0=on" not in text
 
     def test_does_not_duplicate_existing_settings(self, tmp_path):
         config = tmp_path / "config.txt"
         config.write_text("enable_uart=1\n")
-        _call(INSTALLER, 'update_uart_boot_config "$1"', str(config))
+        _call(INSTALLER, 'update_uart_boot_config "$1" 4', str(config))
         assert config.read_text().count("enable_uart=1") == 1
 
     def _edit(self, config: Path, *, dry_run: bool = False):

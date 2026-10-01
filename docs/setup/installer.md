@@ -33,8 +33,8 @@ Reboot when it finishes, then run the [doctor](#check-the-install).
 | System packages | `apt-get install` of git, curl, python3-dev, python3-venv, build-essential, swig, liblgpio-dev, ffmpeg, i2c-tools, avahi-daemon and Chromium (Chromium only when a desktop is installed; plus `python3-picamera2 rpicam-apps` with `--with-camera`) |
 | uv | Installs [uv](https://docs.astral.sh/uv/) if it is not already on the path |
 | Python environment | `uv sync` (`--extra camera` with a system-site-packages venv under `--with-camera`) |
-| Node.js and UI | Installs Node.js 22 from NodeSource if the installed one is older than 22.12, then `npm ci` and `npm run build` in `ui/` |
-| UART | `raspi-config nonint do_serial_hw 0` (UART on), `do_serial_cons 1` (no serial console), `do_i2c 0`; adds `enable_uart=1` and `dtparam=uart0=on` under an `# OpenFlight UART` block in `/boot/firmware/config.txt` |
+| Node.js and UI | If the installed Node.js is older than 22.12, installs the major in `.node-version` (the one CI builds with) from NodeSource, then `npm ci` and `npm run build` in `ui/` |
+| UART | `raspi-config nonint do_serial_hw 0` (UART on), `do_serial_cons 1` (no serial console), `do_i2c 0`; adds `dtparam=uart0=on` (Pi 5) or `enable_uart=1` and `dtoverlay=disable-bt` (Pi 3/4) under an `# OpenFlight UART` block in `/boot/firmware/config.txt` |
 | Groups | Adds you to `dialout`, `gpio`, `i2c` and `video` |
 | udev rules | Installs `scripts/setup/99-openflight.rules` as `/etc/udev/rules.d/99-openflight.rules` |
 | Service | Installs `openflight.service` for your user and checkout, writes `/etc/default/openflight`, enables the service |

@@ -114,7 +114,7 @@ class TestDryRun:
         )
         assert "[dry-run] write /etc/udev/rules.d/99-openflight.rules" in out
         assert "openflight-ops243" in out
-        assert "[dry-run] sudo systemctl enable openflight.service" in out
+        assert "[dry-run] sudo systemctl reenable openflight.service" in out
         assert "sync" in out and "npm" in out
         assert "self_test.py --software-only" in out
         assert "[dry-run] update " + str(tmp_path / "boot" / "config.txt") in out
@@ -177,7 +177,11 @@ class TestDryRun:
     def test_service_starts_on_a_headless_boot(self):
         text = SERVICE.read_text()
         assert "WantedBy=multi-user.target" in text
-        assert "After=network.target graphical.target" in text
+        assert "After=network.target" in text
+        # Wanted by multi-user.target but ordered after graphical.target is an
+        # ordering cycle: systemd drops the job and the kiosk never starts at boot.
+        unit_lines = [line for line in text.splitlines() if not line.startswith("#")]
+        assert not any("graphical.target" in line for line in unit_lines)
 
     def test_optional_hardware_flags_reach_packages_and_service(self, tmp_path):
         result = _dry_run(

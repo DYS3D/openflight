@@ -1,7 +1,9 @@
 [Unit]
 Description=OpenFlight Golf Launch Monitor
-After=network.target graphical.target
-Wants=graphical.target
+# Not ordered after graphical.target: the unit is wanted by multi-user.target,
+# which graphical.target follows, so that ordering is a cycle and systemd
+# silently drops the start at boot. The launcher waits for the desktop itself.
+After=network.target
 # A launcher that fails during preparation exits within a second. Without a
 # limit systemd retried it every 5 s indefinitely, and each attempt's cleanup
 # killed the desktop session's kiosk. Five failures in five minutes stops the
@@ -31,5 +33,5 @@ SuccessExitStatus=130 143
 
 [Install]
 # multi-user.target so a headless (Pi OS Lite) install starts too; on a
-# desktop image graphical.target pulls it in and After= still orders it.
+# desktop image graphical.target pulls multi-user.target in.
 WantedBy=multi-user.target

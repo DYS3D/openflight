@@ -518,7 +518,8 @@ install_service() {
     install_env_file
     of_render_unit "$SCRIPT_DIR/setup/openflight.service" | install_root_file "$SERVICE_DEST" || true
     run sudo systemctl daemon-reload
-    run sudo systemctl enable openflight.service
+    # reenable also drops links from older units (graphical.target.wants).
+    run sudo systemctl reenable openflight.service
 }
 
 configure_kiosk() {

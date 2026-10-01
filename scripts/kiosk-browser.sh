@@ -37,7 +37,7 @@ launch_kiosk_browser() {
     _confirm_kiosk_running
 }
 
-# At boot the service reaches graphical.target before the autologin desktop
+# At boot the service can start before the autologin desktop
 # has created its X / Wayland socket, and a browser started then exits
 # immediately. Wait up to $1 seconds (0 checks once) for the session and
 # export what the browser needs to reach it.

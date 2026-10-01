@@ -39,6 +39,15 @@ def _maybe(rng: random.Random, value, p_none: float = 0.3):
     return None if rng.random() < p_none else value
 
 
+def _poll_until(condition, timeout_s: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while not condition():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.005)
+    return True
+
+
 def _random_shot(rng: random.Random, mode: str = "rolling-buffer") -> Shot:
     club_speed = rng.choice([None, 0.0, rng.uniform(1.0, 140.0), 1e-9, 500.0])
     return Shot(
@@ -272,12 +281,11 @@ class TestRadarHealthFuzz:
                 monitor.observe(
                     IQCapture(sample_time=0.0, trigger_time=0.0, i_samples=[1, 2], q_samples=[3])
                 )
-                time.sleep(0.2)
+                assert _poll_until(lambda: monitor._pending is None)
                 assert monitor._thread.is_alive()
                 good = self._capture(5.0, np.random.default_rng(7))
                 monitor.observe(good)
-                time.sleep(0.3)
-            assert monitor.noise_floor_db is not None
+                assert _poll_until(lambda: monitor.noise_floor_db is not None)
         finally:
             monitor.stop()
 

@@ -65,7 +65,22 @@ def _install(**kwargs):
         return ensure_lgpio_pin_factory(**kwargs)
 
 
+@pytest.fixture(autouse=True)
+def _no_label_scan():
+    """Keep detection off the host's real /dev/gpiochip* nodes."""
+    with patch("openflight.gpio_factory._gpiochip_labels", return_value={}):
+        yield
+
+
 class TestChipDetection:
+    def test_header_chip_found_by_label_when_numbering_moves(self):
+        # Field failure 2026-10-01: a Pi 5 kernel exposed neither gpiochip4
+        # nor gpiochip0, so the fallback opened a missing chip 0.
+        labels = {10: "gpio-brcmstb@107d508500", 13: "pinctrl-rp1"}
+        with patch("openflight.gpio_factory._gpiochip_labels", return_value=labels), \
+             patch.object(os.path, "exists", return_value=False):
+            assert detect_gpio_chip() == 13
+
     def test_pi5_header_chip_used_when_present(self):
         with patch.object(os.path, "exists", lambda p: p == "/dev/gpiochip4"):
             assert detect_gpio_chip() == 4

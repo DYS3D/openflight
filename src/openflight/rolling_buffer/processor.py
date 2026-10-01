@@ -189,6 +189,7 @@ class RollingBufferProcessor:
         scale_speed_band: bool = False,
         fast_dsp: bool = False,
         spin_octave_prior: str = "optimal",
+        cap_spin_prior: bool = False,
     ):
         """Initialize processor with pre-computed window function.
 
@@ -218,6 +219,10 @@ class RollingBufferProcessor:
                 range, to a half/double peak inside it that is at least
                 SPIN_OCTAVE_RANGE_MIN_RELATIVE_MAG as strong, and caps the
                 moved result to low quality.
+            cap_spin_prior: Clamp the club/ball-speed spin prior to the
+                club's plausible maximum and the detector ceiling
+                (SPIN_MAX_SEAM_HZ). Wedge priors otherwise exceed what the
+                detector can report. Off by default.
         """
         if ball_marker not in BALL_MARKERS:
             raise ValueError(f"ball_marker must be one of {BALL_MARKERS}, got {ball_marker!r}")
@@ -230,6 +235,7 @@ class RollingBufferProcessor:
         self.ball_marker = ball_marker
         self.spin_octave_check = spin_octave_check
         self.spin_octave_prior = spin_octave_prior
+        self.cap_spin_prior = cap_spin_prior
         # Called with every successfully parsed capture (--interference-check).
         self.capture_observer: Optional[Callable[[IQCapture], None]] = None
         if scale_speed_band:
@@ -2388,6 +2394,12 @@ class RollingBufferProcessor:
 
         if expected_spin_rpm is None and expected_spin_for_ball_speed is not None:
             expected_spin_rpm = expected_spin_for_ball_speed(ball_speed_mph)
+        if self.cap_spin_prior and expected_spin_rpm is not None:
+            expected_spin_rpm = min(
+                expected_spin_rpm,
+                get_plausible_spin_rpm(club_type)[1],
+                self.SPIN_MAX_SEAM_HZ * 60,
+            )
 
         # Spin detection via amplitude envelope demodulation on raw I/Q
         # A marker's once-per-revolution line usually sits in the 25-90 Hz

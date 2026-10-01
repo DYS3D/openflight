@@ -70,18 +70,29 @@ class ConnectorConfig:
     omit_unsupported_fields: bool = False
 
 
+def _parse_bool(value: object) -> bool:
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1", "yes", "on"):
+            return True
+        if lowered in ("false", "0", "no", "off", ""):
+            return False
+        raise ValueError(f"not a boolean: {value!r}")
+    return bool(value)
+
+
 def _with_defaults(connector_type: str, data: dict) -> ConnectorConfig:
     base = dict(_DEFAULTS[connector_type])
     base.update(data)
     return ConnectorConfig(
         type=connector_type,
-        enabled=bool(base.get("enabled", False)),
+        enabled=_parse_bool(base.get("enabled", False)),
         host=str(base.get("host", "127.0.0.1")),
         port=int(base["port"]),
         units=str(base.get("units", "Yards")),
         device_id=str(base.get("device_id", "OpenFlight")),
         heartbeat_interval_s=float(base.get("heartbeat_interval_s", 5.0)),
-        omit_unsupported_fields=bool(base.get("omit_unsupported_fields", False)),
+        omit_unsupported_fields=_parse_bool(base.get("omit_unsupported_fields", False)),
     )
 
 

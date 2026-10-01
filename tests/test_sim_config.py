@@ -140,3 +140,21 @@ def test_malformed_connector_entry_skipped_others_kept(tmp_path):
         {"type": "opengolfsim", "enabled": True, "port": 3111},
     ]})
     assert [c.type for c in load_sim_config(config_path=p)] == ["opengolfsim"]
+
+
+def test_string_booleans_parsed(tmp_path):
+    p = _write(tmp_path, {"connectors": [
+        {"type": "gspro", "enabled": "false"},
+        {"type": "opengolfsim", "enabled": "True", "omit_unsupported_fields": "false"},
+    ]})
+    cfgs = load_sim_config(config_path=p)
+    assert [c.type for c in cfgs] == ["opengolfsim"]
+    assert cfgs[0].omit_unsupported_fields is False
+
+
+def test_unrecognised_boolean_string_skips_connector(tmp_path):
+    p = _write(tmp_path, {"connectors": [
+        {"type": "gspro", "enabled": "maybe"},
+        {"type": "opengolfsim", "enabled": True},
+    ]})
+    assert [c.type for c in load_sim_config(config_path=p)] == ["opengolfsim"]

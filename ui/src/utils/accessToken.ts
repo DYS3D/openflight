@@ -30,9 +30,32 @@ export function resolveAccessToken(search: string, storage: TokenStorage | null)
   }
 }
 
+type UrlHistory = Pick<History, 'replaceState' | 'state'>;
+
+export function removeTokenFromAddressBar(href: string, history: UrlHistory): void {
+  const url = new URL(href);
+  if (!url.searchParams.has('token')) return;
+  url.searchParams.delete('token');
+  history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function isRemembered(storage: TokenStorage | null, token: string): boolean {
+  try {
+    return storage?.getItem(STORAGE_KEY) === token;
+  } catch {
+    return false;
+  }
+}
+
 export function getAccessToken(): string | null {
-  const search = typeof window === 'undefined' ? '' : window.location.search;
-  return resolveAccessToken(search, browserStorage());
+  if (typeof window === 'undefined') return null;
+  const storage = browserStorage();
+  const token = resolveAccessToken(window.location.search, storage);
+  // Keep the token in the URL when storage is unavailable; it is the only copy.
+  if (token && isRemembered(storage, token)) {
+    removeTokenFromAddressBar(window.location.href, window.history);
+  }
+  return token;
 }
 
 export function accessHeaders(token: string | null = getAccessToken()): Record<string, string> {

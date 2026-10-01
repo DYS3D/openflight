@@ -190,6 +190,19 @@ check_desktop() {
     fi
 }
 
+# The server refuses hardware flags together with --mock and would exit at
+# every start; catch that before anything is installed.
+check_server_args() {
+    local merged flag
+    merged=" $(merge_server_args "$(existing_server_args)" "$(server_args)") "
+    [[ "$merged" == *" --mock "* ]] || return 0
+    for flag in --camera-capture --iwr6843; do
+        if [[ "$merged" == *" $flag "* ]]; then
+            die "$flag cannot be used with --mock (the server would not start). Remove --mock from $ENV_FILE once the radar is connected, then re-run."
+        fi
+    done
+}
+
 confirm_install() {
     if [ "$ASSUME_YES" = true ] || [ "$DRY_RUN" = true ]; then
         return 0
@@ -571,6 +584,7 @@ main() {
     fi
     check_platform
     check_desktop
+    check_server_args
     confirm_install
 
     install_system_packages

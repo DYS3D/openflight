@@ -412,6 +412,46 @@ class TestServiceConfig:
         assert result.returncode == 0, result.stderr
         assert 'OPENFLIGHT_ARGS="--radar-port /dev/ttyAMA0 --mock --update-check"' in result.stdout
 
+    @pytest.mark.parametrize("flag", ["--with-camera", "--with-iwr6843"])
+    def test_hardware_flags_with_a_saved_mock_are_refused_up_front(self, tmp_path, flag):
+        env_file = tmp_path / "openflight"
+        env_file.write_text('OPENFLIGHT_ARGS="--mock --update-check"\n')
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1"; shift; ENV_FILE="$1"; shift; parse_args "$@"; check_server_args',
+                "test",
+                str(INSTALLER),
+                str(env_file),
+                flag,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "cannot be used with --mock" in result.stderr
+
+    def test_hardware_flags_without_mock_are_accepted(self, tmp_path):
+        env_file = tmp_path / "openflight"
+        env_file.write_text('OPENFLIGHT_ARGS="--update-check"\n')
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1"; shift; ENV_FILE="$1"; shift; parse_args "$@"; check_server_args',
+                "test",
+                str(INSTALLER),
+                str(env_file),
+                "--with-camera",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
     @pytest.mark.parametrize(
         ("old", "new", "merged"),
         [

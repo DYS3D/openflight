@@ -78,6 +78,11 @@ kept, the result is printed, and a timestamped backup is kept. To drop an
 argument, edit the file. After editing it, apply the change with
 `sudo systemctl restart openflight`.
 
+The server refuses `--camera-capture` and `--iwr6843` together with `--mock`, so
+the installer stops before changing anything if the saved arguments still
+contain `--mock` and you add `--with-camera` or `--with-iwr6843`. Remove `--mock`
+from `/etc/default/openflight` once the radar is connected, then re-run.
+
 At boot the kiosk waits up to 60 s for the desktop's display to appear before
 opening the browser (set `OPENFLIGHT_DISPLAY_WAIT_S` in the env file to change
 it). If the display never appears, or the browser exits during start-up, the

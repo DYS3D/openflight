@@ -306,6 +306,52 @@ class TestRateLimit:
         assert not open_server._rate_limited(LAN, now=102.5)
 
 
+class TestCrossSiteGuard:
+    """Default on: another site's page cannot change state or open the socket."""
+
+    @staticmethod
+    def _post(srv, origin=None, host="192.168.0.221:8080"):
+        headers = {"Origin": origin} if origin else {}
+        return srv.app.test_client().post(
+            "/api/no-such-action",
+            headers=headers,
+            base_url=f"http://{host}",
+            environ_base={"REMOTE_ADDR": LAN},
+        )
+
+    def test_other_site_cannot_post(self, open_server, monkeypatch):
+        monkeypatch.setattr(open_server, "cross_site_policy", access.AccessPolicy(enabled=True))
+        assert self._post(open_server, "https://evil.example").status_code == 403
+
+    @pytest.mark.parametrize(
+        "origin",
+        [None, "http://192.168.0.221:8080", "http://openflight.lan:8080", "http://127.0.0.1:5173"],
+    )
+    def test_same_site_loopback_and_originless_posts_pass(self, open_server, monkeypatch, origin):
+        monkeypatch.setattr(open_server, "cross_site_policy", access.AccessPolicy(enabled=True))
+        host = (
+            "openflight.lan:8080" if origin and "openflight.lan" in origin else "192.168.0.221:8080"
+        )
+        assert self._post(open_server, origin, host).status_code != 403
+
+    def test_reads_stay_open(self, open_server, monkeypatch):
+        monkeypatch.setattr(open_server, "cross_site_policy", access.AccessPolicy(enabled=True))
+        response = _http(open_server, LAN, headers={"Origin": "https://evil.example"})
+        assert response.status_code == 404
+
+    def test_other_site_cannot_open_the_socket(self, open_server, monkeypatch):
+        monkeypatch.setattr(open_server, "cross_site_policy", access.AccessPolicy(enabled=True))
+        assert not _socket(
+            open_server, LAN, headers={"Origin": "https://evil.example"}
+        ).is_connected()
+        assert _socket(open_server, LAN).is_connected()
+
+    def test_allow_cross_origin_restores_the_open_server(self, open_server, monkeypatch):
+        monkeypatch.setattr(open_server, "cross_site_policy", None)
+        assert self._post(open_server, "https://evil.example").status_code != 403
+        assert _socket(open_server, LAN, headers={"Origin": "https://evil.example"}).is_connected()
+
+
 class TestSocketRateLimit:
     @staticmethod
     def _limited(client) -> list:
@@ -395,3 +441,15 @@ def test_werkzeug_override_is_still_required_under_systemd(monkeypatch):
     sio = flask_socketio.SocketIO(probe, async_mode="threading")
     with pytest.raises(RuntimeError, match="allow_unsafe_werkzeug"):
         sio.run(probe, host="127.0.0.1", port=0)
+
+
+class TestCrossSiteFlag:
+    def test_guard_is_on_by_default_and_flag_turns_it_off(self, monkeypatch):
+        from tests.test_server import _run_main_until_start_monitor
+
+        monkeypatch.setattr(server_module, "cross_site_policy", None)
+        _run_main_until_start_monitor(monkeypatch, [])
+        assert server_module.cross_site_policy is not None
+        assert server_module.cross_site_policy.enabled
+        _run_main_until_start_monitor(monkeypatch, ["--allow-cross-origin"])
+        assert server_module.cross_site_policy is None

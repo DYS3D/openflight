@@ -41,7 +41,9 @@ from .access import (
     TOKEN_QUERY_PARAM,
     AccessPolicy,
     add_access_args,
+    allowed_hosts_from_args,
     is_loopback_address,
+    same_site_ok,
 )
 from .ballistics import (
     AIR_DENSITY_STD,
@@ -118,6 +120,8 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # --auth-required (off by default) and the request limits. Set in main().
 access_policy: AccessPolicy = AccessPolicy.disabled()
+# Default cross-site guard (see same_site_ok); None with --allow-cross-origin.
+cross_site_policy: Optional[AccessPolicy] = AccessPolicy(enabled=True)
 request_rate_limit_per_s: float = 0.0
 _rate_buckets: dict[str, list[float]] = {}
 _rate_lock = threading.Lock()
@@ -150,9 +154,9 @@ def _serves_ui_shell() -> bool:
 
 
 def _access_refusal(auth=None, *, allow_ui_shell: bool = False) -> Optional[tuple[str, int]]:
-    """Why the current request must be refused under --auth-required, or None."""
+    """Why the current request must be refused (cross-site guard, --auth-required), or None."""
     if not access_policy.enabled:
-        return None
+        return _cross_site_refusal()
     if not access_policy.origin_ok(request.headers.get("Origin"), request.host):
         return "Origin not allowed", 403
     if access_policy.client_is_exempt(request.remote_addr):
@@ -162,6 +166,22 @@ def _access_refusal(auth=None, *, allow_ui_shell: bool = False) -> Optional[tupl
     if allow_ui_shell and _serves_ui_shell():
         return None
     return "Device token required", 401
+
+
+def _cross_site_refusal() -> Optional[tuple[str, int]]:
+    """Refuse state changes and socket connections from another site's page.
+
+    Plain reads stay open. Requests without an Origin header (curl, the
+    launcher's /api/shutdown, native apps) are not cross-site and pass.
+    """
+    if cross_site_policy is None:
+        return None
+    is_socket = request.path.startswith("/socket.io")
+    if request.method in ("GET", "HEAD", "OPTIONS") and not is_socket:
+        return None
+    if same_site_ok(cross_site_policy, request.headers.get("Origin"), request.host):
+        return None
+    return "Cross-site request refused (start with --allow-cross-origin to permit)", 403
 
 
 def _rate_limited(
@@ -6169,6 +6189,12 @@ def main():
         access_policy = AccessPolicy.from_args(args)
     except OSError as exc:
         parser.error(f"--auth-token-file: {exc}")
+    global cross_site_policy  # pylint: disable=global-statement
+    cross_site_policy = (
+        None
+        if args.allow_cross_origin
+        else AccessPolicy(enabled=True, allowed_hosts=allowed_hosts_from_args(args))
+    )
     request_rate_limit_per_s = args.request_rate_limit
     app.config["MAX_CONTENT_LENGTH"] = args.max_request_bytes or None
     startup_status = StartupStatusReporter(

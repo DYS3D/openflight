@@ -183,12 +183,7 @@ class AccessPolicy:
             return cls.disabled()
         token_path = Path(getattr(args, "auth_token_file", DEFAULT_TOKEN_PATH)).expanduser()
         token = load_or_create_token(token_path, environ)
-        hosts = set(local_addresses())
-        for origin in getattr(args, "allowed_origin", None) or []:
-            parts = urlsplit(origin if "://" in origin else f"http://{origin}")
-            if parts.hostname:
-                hosts.add(parts.hostname.lower())
-        return cls(enabled=True, token=token, allowed_hosts=frozenset(hosts))
+        return cls(enabled=True, token=token, allowed_hosts=allowed_hosts_from_args(args))
 
     def client_is_exempt(self, remote_addr: Optional[str]) -> bool:
         """The kiosk browser on the Pi itself never needs the token."""
@@ -222,6 +217,30 @@ class AccessPolicy:
         return hostname in interface_addresses()
 
 
+def allowed_hosts_from_args(args: argparse.Namespace) -> frozenset[str]:
+    """The Pi's own names and addresses plus every --allowed-origin host."""
+    hosts = set(local_addresses())
+    for origin in getattr(args, "allowed_origin", None) or []:
+        parts = urlsplit(origin if "://" in origin else f"http://{origin}")
+        if parts.hostname:
+            hosts.add(parts.hostname.lower())
+    return frozenset(hosts)
+
+
+def same_site_ok(policy: AccessPolicy, origin: Optional[str], request_host: Optional[str]) -> bool:
+    """Default cross-site guard: the page must come from the server it is talking to.
+
+    Looser than ``origin_ok``: any hostname matching the request's own Host
+    passes too, so the Pi stays usable under whatever local DNS name it has.
+    That does not stop DNS rebinding; --auth-required does.
+    """
+    if policy.origin_ok(origin, request_host):
+        return True
+    origin_host = urlsplit(origin or "").hostname
+    host = urlsplit(f"//{request_host}").hostname if request_host else None
+    return bool(origin_host and host and origin_host.lower() == host.lower())
+
+
 def add_access_args(parser: argparse.ArgumentParser) -> None:
     """Register the ``--auth-required`` group on the server's parser."""
     group = parser.add_argument_group("Access control (off by default)")
@@ -241,6 +260,16 @@ def add_access_args(parser: argparse.ArgumentParser) -> None:
         help=(
             f"Where the device token lives (default: {DEFAULT_TOKEN_PATH}; created on first "
             f"start with mode 0600; ${TOKEN_ENV} overrides it)"
+        ),
+    )
+    group.add_argument(
+        "--allow-cross-origin",
+        action="store_true",
+        default=False,
+        help=(
+            "Accept state-changing requests and socket connections from pages served "
+            "by other sites. Off by default: a web page on another site (e.g. opened on a "
+            "phone on the same Wi-Fi) cannot shut the Pi down or change radar settings"
         ),
     )
     group.add_argument(

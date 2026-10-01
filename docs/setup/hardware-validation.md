@@ -111,6 +111,13 @@ The clock-sync and re-arm timing used to be constants. They are now
 
 ## 4. Access control (`--auth-required`)
 
+- [ ] **Default cross-site guard** (no flags). The kiosk, a phone opening
+      `http://<pi>:8080`, and the TV display all work as before. From another
+      site's page (e.g. a test page served on a laptop),
+      `fetch('http://<pi>:8080/api/shutdown', {method: 'POST', mode: 'no-cors'})`
+      must not shut the Pi down (the journal shows a 403). `--allow-cross-origin`
+      restores the old behaviour.
+
 - [ ] **Baseline.** With the flag off, a phone on the LAN can open
       `http://<pi>:8080/` and GSPro can connect, exactly as before.
 - [ ] **Token.** The installer created `~/.config/openflight/token` (mode

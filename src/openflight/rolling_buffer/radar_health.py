@@ -45,17 +45,20 @@ logger = logging.getLogger("openflight.rolling_buffer.radar_health")
 def noise_floor_db(processor: RollingBufferProcessor, capture: IQCapture) -> Optional[float]:
     """Pre-club in-band FFT magnitude floor of a capture in dB.
 
-    None when the capture is clipped or has no window clear of the club.
+    None when the pre-club span is clipped or no window is clear of the club.
+    Clipping from the shot itself comes later and does not affect the floor.
     """
-    _, clipped_fraction = repair_clipped_iq(capture.i_samples, capture.q_samples)
-    if clipped_fraction > 0.0:
-        return None
     window = processor.WINDOW_SIZE
     pre_club_ms = capture.trigger_offset_ms - processor.CLUB_BRANCH_HISTORY_MS
     pre_club_samples = int(pre_club_ms * capture.sample_rate_hz / 1000.0)
     available = min(len(capture.i_samples), len(capture.q_samples), pre_club_samples)
     count = max(available, 0) // window
     if count == 0:
+        return None
+    _, clipped_fraction = repair_clipped_iq(
+        capture.i_samples[: count * window], capture.q_samples[: count * window]
+    )
+    if clipped_fraction > 0.0:
         return None
     i_blocks = np.asarray(capture.i_samples[: count * window], dtype=float).reshape(count, window)
     q_blocks = np.asarray(capture.q_samples[: count * window], dtype=float).reshape(count, window)

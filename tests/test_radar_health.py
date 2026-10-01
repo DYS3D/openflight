@@ -51,6 +51,13 @@ def _shot(amplitude: float, seed: int = 0) -> IQCapture:
     return capture
 
 
+def _clipped_before_club(seed: int = 0) -> IQCapture:
+    """Quiet capture whose pre-club span hits the ADC rail."""
+    capture = _quiet(seed)
+    capture.i_samples[100:200] = [4095] * 100
+    return capture
+
+
 def _quiet(seed: int = 0) -> IQCapture:
     return _capture(4.0, seed=seed)
 
@@ -80,9 +87,14 @@ class TestNoiseFloor:
         loud_shot = noise_floor_db(processor, _shot(900.0))
         assert abs(loud_shot - quiet) < 0.25
 
-    def test_a_clipped_capture_gives_no_sample(self, processor):
-        assert noise_floor_db(processor, _shot(900.0)) is not None
-        assert noise_floor_db(processor, _shot(4000.0)) is None
+    def test_clipping_before_the_club_gives_no_sample(self, processor):
+        assert noise_floor_db(processor, _clipped_before_club()) is None
+
+    def test_clipping_from_the_shot_itself_does_not_hide_the_floor(self, processor):
+        quiet = noise_floor_db(processor, _quiet())
+        clipped_shot = noise_floor_db(processor, _shot(4000.0))
+        assert clipped_shot is not None
+        assert abs(clipped_shot - quiet) < 0.25
 
     def test_trigger_at_the_buffer_start_gives_no_sample(self, processor):
         capture = _quiet()
@@ -90,7 +102,9 @@ class TestNoiseFloor:
         assert noise_floor_db(processor, capture) is None
 
     def test_short_capture_gives_no_sample(self, processor):
-        capture = IQCapture(sample_time=0.0, trigger_time=0.0, i_samples=[1] * 10, q_samples=[1] * 10)
+        capture = IQCapture(
+            sample_time=0.0, trigger_time=0.0, i_samples=[1] * 10, q_samples=[1] * 10
+        )
         assert noise_floor_db(processor, capture) is None
 
 
@@ -208,7 +222,7 @@ class TestMonitorWiring:
         health = RadarHealthMonitor(processor, min_interval_s=0.0)
         health.process(_quiet(0))
         floor = health.noise_floor_db
-        assert health.process(_shot(4000.0)) is None
+        assert health.process(_clipped_before_club()) is None
         assert health.noise_floor_db == floor
 
     @pytest.mark.parametrize("accepted", [True, False])
@@ -278,7 +292,9 @@ class TestServerWiring:
         monkeypatch.setattr(server_module, "level_monitor", None)
         monkeypatch.setattr(server_module, "update_service", None)
         monkeypatch.setattr(server_module, "_emit_sim_snapshot", lambda: None)
-        monkeypatch.setattr(server_module, "_reply", lambda event, payload=None: replies.append(event))
+        monkeypatch.setattr(
+            server_module, "_reply", lambda event, payload=None: replies.append(event)
+        )
         server_module.handle_connect()
         assert "radar_health" not in replies
 

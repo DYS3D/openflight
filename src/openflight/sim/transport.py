@@ -50,7 +50,7 @@ def find_json_end(buf: bytes) -> Optional[int]:
 
     Neither OpenConnectV1 nor OpenGolfSim length-prefixes or delimits frames,
     so we frame on balanced top-level braces (string-aware so quoted braces
-    don't count).
+    don't count). Bytes before the first '{' are stray and ignored.
     """
     depth = 0
     in_str = False
@@ -58,6 +58,8 @@ def find_json_end(buf: bytes) -> Optional[int]:
     started = False
     for i, b in enumerate(buf):
         ch = chr(b) if b < 128 else ""
+        if not started and ch != "{":
+            continue
         if in_str:
             if escape:
                 escape = False
@@ -333,6 +335,7 @@ class TcpSimClient:
                     break
                 chunk = bytes(buffer[:end])
                 del buffer[:end]
+                chunk = chunk[chunk.index(b"{"):]
                 if _LOG_RAW_FRAMES:
                     logger.info("[%s] raw ← %s", self._name, chunk.decode("utf-8", "replace"))
                 try:

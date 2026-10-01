@@ -59,6 +59,11 @@ def test_leading_whitespace_before_object():
     assert find_json_end(b'  \n{"a":1}') == len(b'  \n{"a":1}')
 
 
+def test_stray_bytes_before_first_object_are_skipped():
+    raw = b'}"{"Code":200}'
+    assert find_json_end(raw) == len(raw)
+
+
 def test_non_ascii_inside_string():
     raw = b'{"msg":"caf\xc3\xa9"}'
     assert find_json_end(raw) == len(raw)
@@ -162,6 +167,18 @@ def test_recv_handles_split_and_concatenated_frames(mock_sim):
         assert _wait_until(lambda: len(events) >= 2, 1.5)
         assert len(events) == 2
         assert all(isinstance(e, ShotAck) for e in events)
+    finally:
+        client.stop()
+
+
+def test_recv_recovers_frame_after_stray_close_brace(mock_sim):
+    events = []
+    client = _client(mock_sim.host, mock_sim.port, on_inbound=events.append)
+    mock_sim.queue_raw(b'}{"Code":200}')
+    client.start()
+    try:
+        assert _wait_until(lambda: events, 1.5)
+        assert isinstance(events[0], ShotAck)
     finally:
         client.stop()
 

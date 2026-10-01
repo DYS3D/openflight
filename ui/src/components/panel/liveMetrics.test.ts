@@ -259,6 +259,19 @@ describe('buildLiveMetrics', () => {
     expect(byId(estimated, 'spin').subtext).toBeUndefined();
   });
 
+  it('marks a D-plane spin axis as estimated', () => {
+    const legacy = buildLiveMetrics(makeShot({ spin_axis_source: 'measured' }), 'imperial', emptySwingStats);
+    expect(byId(legacy, 'spin_axis').estimated).toBeUndefined();
+    const dplane = buildLiveMetrics(makeShot({ spin_axis_source: 'estimated' }), 'imperial', emptySwingStats);
+    expect(byId(dplane, 'spin_axis').estimated).toBe(true);
+    const missing = buildLiveMetrics(
+      makeShot({ spin_axis_deg: null, spin_axis_source: 'estimated' }),
+      'imperial',
+      emptySwingStats
+    );
+    expect(byId(missing, 'spin_axis').estimated).toBeUndefined();
+  });
+
   it('returns the swing-speed set, with ids that never collide with ball-strike ids', () => {
     const stats: SwingSpeedStats = { count: 12, last_speed_mph: 101, best_speed_mph: 108, avg_speed_mph: 99 };
     const swing = buildLiveMetrics(

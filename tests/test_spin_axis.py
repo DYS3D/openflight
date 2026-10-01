@@ -133,6 +133,17 @@ class TestServerSpinAxisModel:
 
         assert shot.spin_axis_deg == pytest.approx(round(3.2 - (-1.5), 1))
 
+    def test_axis_source_says_whether_the_model_estimated_it(self, monkeypatch):
+        monkeypatch.setattr(server_module, "spin_axis_model", "legacy")
+        legacy = _spin_axis_shot()
+        server_module._derive_spin_axis(legacy)
+        assert legacy.spin_axis_source == "measured"
+        monkeypatch.setattr(server_module, "spin_axis_model", "dplane")
+        dplane = _spin_axis_shot()
+        server_module._derive_spin_axis(dplane)
+        assert dplane.spin_axis_source == "estimated"
+        assert dplane.to_dict()["spin_axis_source"] == "estimated"
+
     def test_dplane_uses_face_to_path_and_spin_loft(self, monkeypatch):
         monkeypatch.setattr(server_module, "spin_axis_model", "dplane")
         shot = _spin_axis_shot()
@@ -197,7 +208,7 @@ class TestServerSpinAxisModel:
         assert resolve_launch(shot).spin_axis_deg == shot.spin_axis_deg
         resolved = resolve_shot(shot, PlayerState(shot_counter=0))
         assert resolved.spin_axis_deg == shot.spin_axis_deg
-        assert resolved.provenance["spin_axis"] == "measured"
+        assert resolved.provenance["spin_axis"] == "estimated"
 
 
 class TestSpinAxisModelFlag:

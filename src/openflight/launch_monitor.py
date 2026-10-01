@@ -308,6 +308,8 @@ class Shot:
         compare=False,
     )
     spin_axis_deg: Optional[float] = None  # Spin axis tilt: 0=backspin, +right(fade), -left(draw)
+    # "measured" (HLA minus club path) or "estimated" (D-plane model).
+    spin_axis_source: Optional[str] = None
     inclinometer: Optional[dict] = None  # Stable enclosure orientation used for this shot
     # Experimental camera spin (--camera-strobe-spin); never replaces radar spin_rpm.
     camera_spin_rpm: Optional[float] = None
@@ -466,6 +468,7 @@ class Shot:
             "experimental_camera_iwr_delta_deg": self.experimental_camera_iwr_delta_deg,
             "camera_replay": dict(self.camera_replay) if self.camera_replay else None,
             "spin_axis_deg": self.spin_axis_deg,
+            "spin_axis_source": self.spin_axis_source,
             "inclinometer": self.inclinometer,
             "spin_rpm": self.spin_rpm,
             "spin_rpm_measured": self.spin_rpm_measured,

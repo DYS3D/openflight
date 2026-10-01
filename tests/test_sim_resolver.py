@@ -170,3 +170,11 @@ def test_fallback_spin_matches_the_ballistics_table():
 def test_mock_spin_is_tagged_estimated():
     shot = _shot(spin_rpm=2700.0, spin_confidence=0.9, spin_source="mock")
     assert resolve_shot(shot, PlayerState()).provenance["total_spin"] == "estimated"
+
+
+def test_dplane_spin_axis_is_reported_as_estimated():
+    shot = _shot(spin_rpm=2500.0, spin_confidence=0.9, spin_axis_deg=4.0)
+    shot.spin_axis_source = "estimated"
+    resolved = resolve_shot(shot, PlayerState())
+    assert resolved.provenance["spin_axis"] == "estimated"
+    assert resolved.provenance["side_spin"] == "estimated"

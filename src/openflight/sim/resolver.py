@@ -72,7 +72,7 @@ def resolve_shot(shot: Shot, player_state: PlayerState) -> ResolvedShot:
 
     if shot.spin_axis_deg is not None:
         spin_axis = float(shot.spin_axis_deg)
-        axis_prov = "measured"
+        axis_prov = "estimated" if shot.spin_axis_source == "estimated" else "measured"
     else:
         spin_axis = 0.0
         axis_prov = "estimated"

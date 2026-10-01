@@ -2911,6 +2911,7 @@ def _derive_spin_axis(shot: Shot) -> None:
             attack_angle_deg=shot.club_angle_deg,
         )
         shot.spin_axis_deg = round(estimate.spin_axis_deg, 1)
+        shot.spin_axis_source = "estimated"
         logger.info(
             "[SERVER] Spin axis (D-plane): %+.1f° (HLA=%+.1f°, path=%+.1f°, "
             "face-to-path=%+.1f°, VLA=%.1f°, dynamic loft=%.1f°, AoA=%+.1f° [%s], "
@@ -2928,6 +2929,7 @@ def _derive_spin_axis(shot: Shot) -> None:
         )
         return
     shot.spin_axis_deg = round(shot.launch_angle_horizontal - shot.club_path_deg, 1)
+    shot.spin_axis_source = "measured"
     logger.info(
         "[SERVER] Spin axis: %+.1f° (face=%+.1f° - path=%+.1f°)",
         shot.spin_axis_deg,

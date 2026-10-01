@@ -96,6 +96,8 @@ export interface Shot {
   experimental_camera_horizontal_status?: string | null;
   experimental_camera_iwr_delta_deg?: number | null;
   spin_axis_deg: number | null;
+  /** "estimated" when the D-plane model produced the axis. Absent from older servers. */
+  spin_axis_source?: 'measured' | 'estimated' | null;
   // Rolling buffer mode spin data
   spin_rpm: number | null;
   spin_confidence: number | null;

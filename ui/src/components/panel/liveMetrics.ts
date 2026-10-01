@@ -163,6 +163,7 @@ function buildBallStrikeMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[
       value: formatOptionalAngle(shot.spin_axis_deg, true),
       unit: angleUnit(shot.spin_axis_deg),
       subtext: shotShape(shot.spin_axis_deg),
+      estimated: markEstimated(shot.spin_axis_deg !== null && shot.spin_axis_source === 'estimated'),
     },
     {
       id: 'club_path',

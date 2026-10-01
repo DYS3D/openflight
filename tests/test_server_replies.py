@@ -48,6 +48,15 @@ class TestReplyTargeting:
         assert _events(first, "delete_shot_error")
         assert _events(second, "delete_shot_error") == []
 
+    def test_unknown_club_is_answered_with_an_error(self, access):
+        first = _socket_client()
+        second = _socket_client()
+        second.get_received()
+        first.emit("set_club", {"club": "9-wood-typo"})
+        assert _events(first, "club_error") == [{"error": "Unknown club", "club": "9-wood-typo"}]
+        assert _events(first, "club_changed") == []
+        assert _events(second, "club_error") == []
+
     def test_state_changes_are_still_broadcast(self, access):
         first = _socket_client()
         second = _socket_client()

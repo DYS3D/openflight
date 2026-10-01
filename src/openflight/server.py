@@ -2211,11 +2211,13 @@ def handle_set_club(data=None):
     club_name = _payload_dict(data).get("club", "driver")
     try:
         club = ClubType(club_name)
-        if monitor:
-            monitor.set_club(club)
-        socketio.emit("club_changed", {"club": club.value})
     except ValueError:
-        pass
+        logger.warning("[SERVER] Ignoring unknown club %r", club_name)
+        _reply("club_error", {"error": "Unknown club", "club": str(club_name)[:40]})
+        return
+    if monitor:
+        monitor.set_club(club)
+    socketio.emit("club_changed", {"club": club.value})
 
 
 def _payload_dict(data) -> dict:

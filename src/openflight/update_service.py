@@ -106,7 +106,11 @@ class UpdateService:
         data = self.updater.status.to_dict()
         data["can_apply"] = bool(can_apply)
         data["restart"] = self.restart_mode
-        data["last_result"] = self.last_result
+        last = dict(self.last_result) if self.last_result else None
+        if last and last.get("log_path"):
+            # Clients get the file name only; the full home-directory path stays on the Pi.
+            last["log_path"] = Path(last["log_path"]).name
+        data["last_result"] = last
         return data
 
     def payload_for(self, sid: Optional[str], is_kiosk: bool) -> dict:

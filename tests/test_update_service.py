@@ -139,6 +139,22 @@ class TestUpdateService:
         assert payload["last_result"]["ok"] is False
         assert h.exit_codes == [UPDATE_EXIT_CODE]
 
+    def test_clients_see_only_the_update_log_file_name(self, tmp_path):
+        failed = ApplyResult(
+            False,
+            "a" * 40,
+            None,
+            "npm run build failed",
+            "x",
+            rolled_back=True,
+            log_path=tmp_path / "home" / "pi" / "openflight_logs" / "update_1.log",
+        )
+        h = Harness(tmp_path, updater=FakeUpdater(result=failed))
+        h.service.client_connected("phone", False)
+        h.service.request_apply(True)
+        assert h.last("phone")["last_result"]["log_path"] == "update_1.log"
+        assert str(tmp_path) in h.service.last_result["log_path"]
+
     def test_shutdown_while_idle_is_not_intercepted(self, tmp_path):
         h = Harness(tmp_path)
         assert h.service.request_stop_apply() is False

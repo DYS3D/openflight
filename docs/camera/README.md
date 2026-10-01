@@ -391,6 +391,10 @@ For OpenFlight itself, first confirm `python3-picamera2` is installed through
 `apt`, then run `uv sync --extra camera`. The camera runtime exposes Raspberry
 Pi OS's package directory to the OpenFlight environment automatically.
 
+`ValueError: numpy.dtype size changed` means the venv holds NumPy 2 while
+Bookworm's Picamera2 stack is built against NumPy 1.x. The `camera` extra pins
+`numpy<2` on Bookworm; re-run `uv sync --extra camera` to apply it.
+
 ### Requested high-speed mode is missing
 
 The custom module was not built for the running kernel, or a kernel update

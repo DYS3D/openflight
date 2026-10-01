@@ -50,6 +50,18 @@ def test_camera_extra_installs_portable_image_processing_dependency():
     assert not any(_requirement_name(dep) == "picamera2" for dep in camera_dependencies)
 
 
+def test_camera_extra_keeps_numpy_1_on_pi_os_bookworm():
+    """Bookworm's apt Picamera2 (simplejpeg) is built against NumPy 1.x."""
+    camera_dependencies = _pyproject()["project"]["optional-dependencies"]["camera"]
+    pins = [dep for dep in camera_dependencies if _requirement_name(dep) == "numpy"]
+
+    assert len(pins) == 1
+    spec, marker = pins[0].split(";", 1)
+    assert "<2" in spec
+    assert "platform_machine == 'aarch64'" in marker
+    assert "python_version == '3.11'" in marker
+
+
 def test_eventlet_is_not_a_dependency():
     """The server runs Flask-SocketIO in threading mode; eventlet was never imported."""
     project = _pyproject()["project"]

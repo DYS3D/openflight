@@ -51,6 +51,10 @@ ui = [
 # through Raspberry Pi OS because it is coupled to the platform's libcamera.
 camera = [
     "opencv-python-headless>=4.8.0",
+    # Raspberry Pi OS Bookworm (aarch64, Python 3.11) builds the apt Picamera2
+    # stack (simplejpeg) against NumPy 1.x. A NumPy 2 wheel in the venv shadows
+    # the system copy and Picamera2 fails to import ("numpy.dtype size changed").
+    "numpy<2; sys_platform == 'linux' and platform_machine == 'aarch64' and python_version == '3.11'",
 ]
 # Analysis tools for I/Q capture data
 analysis = [

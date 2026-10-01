@@ -779,6 +779,7 @@ class SessionLogger:
         trigger_timestamp_source: Optional[str] = None,
         clock_sync_offset_s: Optional[float] = None,
         post_trigger_duration_ms: Optional[float] = None,
+        sample_rate_hz: Optional[int] = None,
     ):
         """
         Log raw rolling buffer capture data for offline analysis.
@@ -835,6 +836,8 @@ class SessionLogger:
             trigger_timestamp_source: Method used to infer trigger_timestamp
             clock_sync_offset_s: Host epoch minus OPS radar clock, when available
             post_trigger_duration_ms: Duration of the capture after trigger
+            sample_rate_hz: I/Q sample rate; readers treat a missing value
+                as 30000 (logs written before it was recorded)
         """
         if not self.enabled:
             return
@@ -852,6 +855,7 @@ class SessionLogger:
                 "trigger_time": trigger_time,
                 "trigger_offset_ms": trigger_offset_ms,
                 "sample_count": len(i_samples),
+                "sample_rate_hz": sample_rate_hz,
                 "i_samples": i_samples,
                 "q_samples": q_samples,
                 "ball_speed_mph": ball_speed_mph,

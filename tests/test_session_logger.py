@@ -318,6 +318,23 @@ class TestLogShot:
         assert entry["clock_sync_offset_s"] == 1234567790.114
         assert entry["post_trigger_duration_ms"] == 68.0
 
+    def test_rolling_buffer_capture_logs_sample_rate(self, tmp_path):
+        logger = SessionLogger(log_dir=tmp_path, enabled=True)
+        logger.start_session(mode="rolling-buffer", trigger_type="sound")
+
+        logger.log_rolling_buffer_capture(
+            shot_number=1,
+            sample_time=100.0,
+            trigger_time=100.068,
+            i_samples=[2048] * 4,
+            q_samples=[2048] * 4,
+            sample_rate_hz=20000,
+        )
+
+        logger.flush()
+        entry = json.loads(logger.session_path.read_text().strip().split("\n")[-1])
+        assert entry["sample_rate_hz"] == 20000
+
 
 class TestLogCameraCapture:
     """Tests for passive high-speed camera capture logging."""

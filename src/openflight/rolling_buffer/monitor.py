@@ -829,6 +829,7 @@ class RollingBufferMonitor:
                 trigger_timestamp_source=capture.trigger_timestamp_source,
                 clock_sync_offset_s=capture.clock_sync_offset_s,
                 post_trigger_duration_ms=capture.post_trigger_duration_ms,
+                sample_rate_hz=self.processor.SAMPLE_RATE,
                 smash_factor=processed.smash_factor,
                 spin_rpm=processed.spin.spin_rpm if processed.spin else None,
                 spin_confidence=processed.spin.confidence if processed.spin else None,

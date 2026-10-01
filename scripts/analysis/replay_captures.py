@@ -27,6 +27,17 @@ from openflight.rolling_buffer.processor import RollingBufferProcessor
 from openflight.rolling_buffer.types import IQCapture
 
 
+# Logs written before captures recorded sample_rate_hz were all 30 ksps.
+DEFAULT_SAMPLE_RATE_HZ = 30000
+
+
+def capture_sample_rate_hz(capture_data: dict, override_ksps: int | None = None) -> int:
+    """Sample rate to replay a capture at: override, else logged, else 30 ksps."""
+    if override_ksps is not None:
+        return override_ksps * 1000
+    return int(capture_data.get("sample_rate_hz") or DEFAULT_SAMPLE_RATE_HZ)
+
+
 def load_captures(filepath: str) -> list[dict]:
     """Load rolling_buffer_capture entries from a JSONL session file."""
     captures = []
@@ -268,8 +279,9 @@ def main():
                        help="Show per-block FFT peaks with bin numbers and magnitudes")
     parser.add_argument("--summary", action="store_true",
                        help="Show only one-line summary per capture")
-    parser.add_argument("--sample-rate", type=int, default=30,
-                       help="Sample rate in ksps (default: 30)")
+    parser.add_argument("--sample-rate", type=int, default=None,
+                       help="Override sample rate in ksps (default: the rate logged "
+                            "with each capture, else 30)")
     args = parser.parse_args()
 
     captures = load_captures(args.session_file)
@@ -285,13 +297,20 @@ def main():
           f"MAGNITUDE_THRESHOLD={RollingBufferProcessor.MAGNITUDE_THRESHOLD}, "
           f"FFT_SIZE={RollingBufferProcessor.FFT_SIZE}")
 
-    processor = RollingBufferProcessor(sample_rate=args.sample_rate * 1000)
+    processors: dict[int, RollingBufferProcessor] = {}
+
+    def processor_for(capture_data: dict) -> RollingBufferProcessor:
+        rate_hz = capture_sample_rate_hz(capture_data, args.sample_rate)
+        if rate_hz not in processors:
+            processors[rate_hz] = RollingBufferProcessor(sample_rate=rate_hz)
+        return processors[rate_hz]
 
     if args.capture is not None:
         if args.capture < 1 or args.capture > len(captures):
             print(f"Capture {args.capture} out of range (1-{len(captures)})")
             sys.exit(1)
-        analyze_capture(processor, captures[args.capture - 1], args.capture,
+        capture_data = captures[args.capture - 1]
+        analyze_capture(processor_for(capture_data), capture_data, args.capture,
                        fft_detail=args.fft_detail)
         return
 
@@ -300,6 +319,7 @@ def main():
               f"{'in':>3s} {'(peak)':>7s}  {'ball':>4s}      {'spin':>5s} {'snr':>5s} {'q':>3s}")
 
     for idx, capture_data in enumerate(captures, 1):
+        processor = processor_for(capture_data)
         if args.summary:
             # Quick one-line summary
             i_samples = capture_data["i_samples"]

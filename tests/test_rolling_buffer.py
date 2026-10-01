@@ -1224,6 +1224,20 @@ class TestRollingBufferShotIdentity:
             (2, 1001.0),
         ]
 
+    def test_logged_capture_records_sample_rate(self, monkeypatch):
+        from openflight.rolling_buffer import RollingBufferMonitor, monitor as monitor_module
+
+        session_log = MagicMock()
+        monkeypatch.setattr(monitor_module, "get_session_logger", lambda: session_log)
+        monitor = RollingBufferMonitor(port=None, trigger_type="sound", sample_rate_ksps=20)
+        processed = self._processed(1000.0)
+        shot = monitor._create_shot(processed)
+
+        monitor._log_accepted_capture(processed.capture, processed, shot, 0.0)
+
+        row = session_log.log_rolling_buffer_capture.call_args.kwargs
+        assert row["sample_rate_hz"] == 20000
+
 
 class TestRollingBufferShotDeliveryOrder:
     """The shot must reach the UI before the large session-log writes."""

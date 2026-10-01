@@ -196,3 +196,19 @@ def test_restore_rolling_buffer_uses_gc_and_no_flash_write(radar):
     for deprecated in DEPRECATED_MODE_COMMANDS:
         assert deprecated not in sent
     assert b"A!" not in sent, "mode switching must not write flash"
+
+
+# --- carriage return only on value-assigning commands (AN-010-AD p5) --------
+
+
+@pytest.mark.parametrize("size, command", [(128, b"S("), (256, b"S["), (512, b"S<"), (1024, b"S>")])
+def test_buffer_size_commands_send_no_carriage_return(radar, size, command):
+    radar.set_buffer_size(size)
+
+    assert radar.serial.writes == [command]
+
+
+def test_value_commands_still_send_carriage_return(radar):
+    radar.set_min_speed_filter(20)
+
+    assert _sent(radar) == b"R>20\r"

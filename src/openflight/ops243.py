@@ -540,9 +540,9 @@ class OPS243Radar:
         # Send command
         self.serial.write(cmd.encode("ascii"))
 
-        # For commands that require carriage return
-        # Note: S# commands (trigger split) also need \r
-        if "=" in cmd or ">" in cmd or "<" in cmd or "#" in cmd:
+        # Only commands that assign a value need \r (AN-010-AD); two-character
+        # commands such as S< / S> take effect on their second character.
+        if len(cmd) > 2 and ("=" in cmd or ">" in cmd or "<" in cmd or "#" in cmd):
             self.serial.write(b"\r")
 
         return self._read_reply().strip()

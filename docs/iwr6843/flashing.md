@@ -36,6 +36,11 @@ Set the IWR6843LEVM boot switches to:
 S1.1 ON, S1.2 OFF, S1.3 ON, S1.4 ON, S1.5 OFF
 ```
 
+S1.6 is unused (TI marks it "-" in both modes), so either position is fine.
+S1.4 ON and S1.5 OFF keep the CAN mux and route the user UART to the USB
+connector. RESET is push button **S2**; the green LED **D5** toggles when it is
+pressed (TI SWRU546E, xWR6843ISK Rev C, Tables 3-3 and section 3.5.1).
+
 Do not press RESET yet. The flashing script opens the UART first and tells you
 when to reset the board.
 

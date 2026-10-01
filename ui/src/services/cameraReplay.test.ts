@@ -31,6 +31,33 @@ describe('prepareCameraReplay', () => {
     expect(prepared.videoUrl).toBe('http://localhost:8080/api/camera/replays/replay%20123/video');
   });
 
+  it('carries the device token in the video URL because <video> cannot send headers', async () => {
+    vi.stubGlobal('window', {
+      location: new URL('http://pi.local:8080/'),
+      history: { state: null, replaceState: vi.fn() },
+      localStorage: { getItem: () => 'a b&c', setItem: vi.fn() },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'replay-1',
+          frame_count: 99,
+          trigger_frame: 73,
+          playback_fps: 60,
+          duration_seconds: 1.65,
+          display_mirror_horizontal: false,
+          video_url: '/api/camera/replays/replay-1/video',
+        }),
+      })
+    );
+
+    const prepared = await prepareCameraReplay('replay-1');
+
+    expect(prepared.videoUrl).toBe('http://pi.local:8080/api/camera/replays/replay-1/video?token=a%20b%26c');
+  });
+
   it('surfaces the server error without pretending a video exists', async () => {
     vi.stubGlobal(
       'fetch',

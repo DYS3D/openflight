@@ -1,5 +1,5 @@
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CameraCaptureSettings } from '../stores/useCameraStore';
 import type { Shot } from '../types/shot';
 import { DisplayMode } from './DisplayMode';
@@ -34,6 +34,10 @@ const shot: Shot = {
 };
 
 describe('DisplayMode', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('renders latest shot metrics and recent shot strip', () => {
     const html = renderToString(
       <DisplayMode connected captureSettings={captureSettings} latestShot={shot} shots={[shot]} />
@@ -63,6 +67,19 @@ describe('DisplayMode', () => {
       />
     );
     expect(measuredSpin.match(/Estimated/g)?.length).toBe(1);
+  });
+
+  it('carries the device token in the preview URL because <img> cannot send headers', () => {
+    vi.stubGlobal('window', {
+      location: new URL('http://pi.local:8080/display'),
+      history: { state: null, replaceState: vi.fn() },
+      localStorage: { getItem: () => 'secret', setItem: vi.fn() },
+    });
+    const html = renderToString(
+      <DisplayMode connected captureSettings={captureSettings} latestShot={shot} shots={[shot]} />
+    );
+
+    expect(html).toMatch(/\/api\/camera\/preview\.jpg\?refresh=0&amp;token=secret/);
   });
 
   it('does not request a preview when camera capture is unavailable', () => {

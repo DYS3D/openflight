@@ -4,6 +4,7 @@ import {
   accessHeaders,
   getAccessToken,
   removeTokenFromAddressBar,
+  withAccessToken,
   resolveAccessToken,
 } from './accessToken';
 
@@ -51,6 +52,16 @@ describe('access token', () => {
   it('builds the request header only when a token exists', () => {
     expect(accessHeaders('abc')).toEqual({ [ACCESS_TOKEN_HEADER]: 'abc' });
     expect(accessHeaders(null)).toEqual({});
+  });
+
+  it('appends the encoded token to media URLs only when a token exists', () => {
+    expect(withAccessToken('http://pi.local/api/camera/preview.jpg', null)).toBe(
+      'http://pi.local/api/camera/preview.jpg'
+    );
+    expect(withAccessToken('http://pi.local/video', 'a b&c')).toBe('http://pi.local/video?token=a%20b%26c');
+    expect(withAccessToken('http://pi.local/preview.jpg?refresh=2', 'abc')).toBe(
+      'http://pi.local/preview.jpg?refresh=2&token=abc'
+    );
   });
 
   describe('address bar', () => {

@@ -61,3 +61,10 @@ export function getAccessToken(): string | null {
 export function accessHeaders(token: string | null = getAccessToken()): Record<string, string> {
   return token ? { [ACCESS_TOKEN_HEADER]: token } : {};
 }
+
+// <img> and <video> cannot send the header, so media URLs carry ?token= instead.
+export function withAccessToken(url: string, token: string | null = getAccessToken()): string {
+  if (!token) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+}

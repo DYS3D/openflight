@@ -1,5 +1,5 @@
 import type { CameraReplay } from '../types/shot';
-import { accessHeaders } from '../utils/accessToken';
+import { accessHeaders, withAccessToken } from '../utils/accessToken';
 import { getServerOrigin } from '../utils/serverOrigin';
 
 export interface PreparedCameraReplay extends CameraReplay {
@@ -61,6 +61,6 @@ export async function prepareCameraReplay(replayId: string, signal?: AbortSignal
     playback_fps: payload.playback_fps,
     duration_seconds: payload.duration_seconds,
     display_mirror_horizontal: payload.display_mirror_horizontal,
-    videoUrl: new URL(payload.video_url, `${origin}/`).toString(),
+    videoUrl: withAccessToken(new URL(payload.video_url, `${origin}/`).toString()),
   };
 }

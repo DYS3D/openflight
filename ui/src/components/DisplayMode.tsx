@@ -5,6 +5,7 @@ import { computeSwingSpeedStats, getSwingSpeedMph, isSwingSpeedShot } from '../t
 import { useUnitPreference } from '../state/useUnitPreference';
 import { formatDistance, formatSpeed, getDistanceUnit, getSpeedUnit } from '../utils/units';
 import { getServerOrigin } from '../utils/serverOrigin';
+import { withAccessToken } from '../utils/accessToken';
 import { isSpinEstimated } from '../utils/provenance';
 import { MetricCard } from './ui/MetricCard';
 import { getHtmlLang, type MessageKey } from '../i18n';
@@ -230,7 +231,7 @@ export function DisplayMode({ connected, captureSettings, latestShot, shots }: D
             </div>
           ) : (
             <img
-              src={`${CAMERA_PREVIEW_URL}?refresh=${cameraRefresh}`}
+              src={withAccessToken(`${CAMERA_PREVIEW_URL}?refresh=${cameraRefresh}`)}
               alt={t('display.streamAlt')}
               className="display-mode__camera-image"
               onError={() => setFailedCameraKey(cameraKey)}

@@ -73,6 +73,10 @@ class RollingBufferProcessor:
     # Magnitude threshold for valid peaks. Low threshold lets weak signals
     # through; they get filtered later by the 15 mph speed check.
     MAGNITUDE_THRESHOLD = 3
+    # With ball_speed_magnitude_gate, a ball-speed bin's strongest reading
+    # must reach this fraction of the strongest outbound reading. Weak
+    # clipping aliases above the ball (e.g. 4.4 vs 112) otherwise win.
+    BALL_SPEED_MIN_RELATIVE_MAGNITUDE = 0.15
 
     # Multi-peak extraction
     MIN_PEAK_SEPARATION_BINS = 50  # ~5 mph; rejects sidelobe duplicates
@@ -190,6 +194,7 @@ class RollingBufferProcessor:
         fast_dsp: bool = False,
         spin_octave_prior: str = "optimal",
         cap_spin_prior: bool = False,
+        ball_speed_magnitude_gate: bool = False,
     ):
         """Initialize processor with pre-computed window function.
 
@@ -223,6 +228,9 @@ class RollingBufferProcessor:
                 club's plausible maximum and the detector ceiling
                 (SPIN_MAX_SEAM_HZ). Wedge priors otherwise exceed what the
                 detector can report. Off by default.
+            ball_speed_magnitude_gate: Ignore ball-speed bins whose strongest
+                reading is below BALL_SPEED_MIN_RELATIVE_MAGNITUDE of the
+                strongest outbound reading. Off by default.
         """
         if ball_marker not in BALL_MARKERS:
             raise ValueError(f"ball_marker must be one of {BALL_MARKERS}, got {ball_marker!r}")
@@ -236,6 +244,7 @@ class RollingBufferProcessor:
         self.spin_octave_check = spin_octave_check
         self.spin_octave_prior = spin_octave_prior
         self.cap_spin_prior = cap_spin_prior
+        self.ball_speed_magnitude_gate = ball_speed_magnitude_gate
         # Called with every successfully parsed capture (--interference-check).
         self.capture_observer: Optional[Callable[[IQCapture], None]] = None
         if scale_speed_band:
@@ -2237,7 +2246,9 @@ class RollingBufferProcessor:
         )
 
     @staticmethod
-    def _find_consistent_ball_speed(outbound_readings: list) -> float:
+    def _find_consistent_ball_speed(
+        outbound_readings: list, min_relative_magnitude: Optional[float] = None
+    ) -> float:
         """Find the ball speed that appears most consistently across FFT windows.
 
         Bins outbound readings to 1-mph buckets and returns the peak of the
@@ -2246,6 +2257,10 @@ class RollingBufferProcessor:
 
         The ball produces a consistent Doppler return across many windows,
         while noise spikes appear in only 1-2 windows.
+
+        With ``min_relative_magnitude``, repeated bins whose strongest reading
+        is below that fraction of the strongest outbound reading are skipped
+        unless no repeated bin qualifies.
         """
         if not outbound_readings:
             return 0.0
@@ -2264,6 +2279,16 @@ class RollingBufferProcessor:
         if not frequent:
             # No repeated speeds — fall back to max
             return max(speeds)
+
+        if min_relative_magnitude is not None:
+            bin_magnitude: dict = defaultdict(float)
+            for reading in outbound_readings:
+                spd = round(reading.speed_mph)
+                bin_magnitude[spd] = max(bin_magnitude[spd], reading.magnitude)
+            floor = min_relative_magnitude * max(bin_magnitude.values())
+            strong = [(spd, cnt) for spd, cnt in frequent if bin_magnitude[spd] >= floor]
+            if strong:
+                frequent = strong
 
         # Among bins with meaningful repetition, pick the fastest.
         # The ball is always the fastest real signal; club is slower.
@@ -2318,7 +2343,12 @@ class RollingBufferProcessor:
             logger.warning("[PROCESSOR] No outbound readings found")
             return None
 
-        ball_speed_mph = self._find_consistent_ball_speed(std_outbound)
+        ball_speed_mph = self._find_consistent_ball_speed(
+            std_outbound,
+            min_relative_magnitude=(
+                self.BALL_SPEED_MIN_RELATIVE_MAGNITUDE if self.ball_speed_magnitude_gate else None
+            ),
+        )
         logger.info(
             "[PROCESSOR] Ball speed: %.1f mph (mode-based, %d outbound readings)",
             ball_speed_mph,

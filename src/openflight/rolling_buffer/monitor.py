@@ -204,6 +204,7 @@ class RollingBufferMonitor:
         scale_speed_band: bool = False,
         fast_dsp: bool = False,
         cap_spin_prior: bool = False,
+        ball_speed_magnitude_gate: bool = False,
         **trigger_kwargs,
     ):
         """
@@ -243,6 +244,8 @@ class RollingBufferMonitor:
             fast_dsp: Pre-planned multi-threaded FFT path (--fast-dsp).
             cap_spin_prior: Clamp the spin prior to the club's plausible max
                 and the detector ceiling; see RollingBufferProcessor.
+            ball_speed_magnitude_gate: Skip weak ball-speed bins (e.g.
+                clipping aliases); see RollingBufferProcessor.
             **trigger_kwargs: Arguments for trigger strategy
         """
         self.timing = ActiveRadarTiming(radar_timing)
@@ -256,6 +259,7 @@ class RollingBufferMonitor:
             scale_speed_band=scale_speed_band,
             fast_dsp=fast_dsp,
             cap_spin_prior=cap_spin_prior,
+            ball_speed_magnitude_gate=ball_speed_magnitude_gate,
         )
         self.trigger_type = trigger_type
         self.sample_rate_ksps = sample_rate_ksps

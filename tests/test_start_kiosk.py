@@ -5,8 +5,10 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import stat
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -607,14 +609,25 @@ def test_stop_kiosk_browser_kills_the_launched_tree_and_spares_other_instances(t
                 ]
             ),
         )
-        result = subprocess.run(
-            ["bash", str(harness), str(project_dir), str(REPO_ROOT / "scripts")],
-            env={**os.environ, "OPENFLIGHT_TEST_PID_LOG": str(ours_log)},
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
+        x11_dir = tmp_path / "x11"
+        x11_dir.mkdir()
+        display_socket = _bind_unix_socket(x11_dir / "X0")
+        try:
+            result = subprocess.run(
+                ["bash", str(harness), str(project_dir), str(REPO_ROOT / "scripts")],
+                env={
+                    **os.environ,
+                    "OPENFLIGHT_TEST_PID_LOG": str(ours_log),
+                    "DISPLAY": ":0",
+                    "OPENFLIGHT_X11_SOCKET_DIR": str(x11_dir),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+        finally:
+            display_socket.close()
         combined = result.stdout + result.stderr
         assert result.returncode == 0, combined
         assert "STOPPED" in result.stdout, combined
@@ -786,3 +799,98 @@ def test_uv_sync_falls_back_to_frozen_when_the_cache_is_incomplete(tmp_path):
 def test_uv_sync_resolves_when_the_lock_is_missing_or_stale(tmp_path):
     """uv.lock is gitignored; a pull that changes pyproject.toml must re-resolve."""
     assert _run_sync_python_env(tmp_path, lock_newer=False, offline_exit=0) == ["sync --quiet"]
+
+
+def _run_kiosk_launch(tmp_path: Path, *, wait_s: int, electron_body: str, socket_after_s: float = -1.0):
+    """Source kiosk-browser.sh with a fake Electron and a temporary X socket directory."""
+    project_dir = tmp_path / "project"
+    electron = project_dir / "ui" / "node_modules" / ".bin" / "electron"
+    electron.parent.mkdir(parents=True)
+    _write_executable(electron, f"#!/usr/bin/env bash\n{electron_body}\n")
+    x11_dir = tmp_path / "x11"
+    x11_dir.mkdir()
+    harness = tmp_path / "run-launch.sh"
+    _write_executable(
+        harness,
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -eo pipefail",
+                'PROJECT_DIR="$1"',
+                "log() { printf 'LOG %s\\n' \"$1\"; }",
+                "warn() { printf 'WARN %s\\n' \"$1\"; }",
+                "# shellcheck source=/dev/null",
+                'source "$2"',
+                f'if launch_kiosk_browser "http://127.0.0.1:8080" {wait_s}; then',
+                "  printf 'LAUNCHED %s\\n' \"$BROWSER_LAUNCHED\"",
+                "  stop_kiosk_browser",
+                "else",
+                "  printf 'NOT_LAUNCHED %s\\n' \"$BROWSER_LAUNCHED\"",
+                "fi",
+                "",
+            ]
+        ),
+    )
+    env = {
+        **os.environ,
+        "DISPLAY": ":0",
+        "OPENFLIGHT_X11_SOCKET_DIR": str(x11_dir),
+        "XDG_RUNTIME_DIR": str(tmp_path / "runtime"),
+        "WAYLAND_DISPLAY": "wayland-test",
+    }
+    sockets = []
+    if socket_after_s == 0:
+        sockets.append(_bind_unix_socket(x11_dir / "X0"))
+    process = subprocess.Popen(
+        ["bash", str(harness), str(project_dir), str(REPO_ROOT / "scripts" / "kiosk-browser.sh")],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if socket_after_s > 0:
+        time.sleep(socket_after_s)
+        sockets.append(_bind_unix_socket(x11_dir / "X0"))
+    try:
+        output, _ = process.communicate(timeout=30)
+    finally:
+        for sock in sockets:
+            sock.close()
+    return output
+
+
+def _bind_unix_socket(path: Path) -> socket.socket:
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(str(path))
+    return sock
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs Unix sockets and bash")
+class TestKioskDisplayWait:
+    def test_launches_when_the_display_socket_exists(self, tmp_path):
+        output = _run_kiosk_launch(tmp_path, wait_s=5, electron_body="sleep 30", socket_after_s=0)
+        assert "LAUNCHED true" in output
+        assert "Waiting up to" not in output
+
+    def test_waits_for_a_display_that_appears_after_boot(self, tmp_path):
+        output = _run_kiosk_launch(tmp_path, wait_s=10, electron_body="sleep 30", socket_after_s=1.5)
+        assert "Waiting up to 10s" in output
+        assert "Desktop display ready after" in output
+        assert "LAUNCHED true" in output
+
+    def test_gives_up_loudly_without_a_display(self, tmp_path):
+        output = _run_kiosk_launch(tmp_path, wait_s=1, electron_body="sleep 30")
+        assert "KIOSK NOT STARTED: no desktop display after 1s" in output
+        assert "NOT_LAUNCHED" in output
+
+    def test_zero_wait_checks_once_without_the_loud_warning(self, tmp_path):
+        output = _run_kiosk_launch(tmp_path, wait_s=0, electron_body="sleep 30")
+        assert "skipping the early kiosk window" in output
+        assert "KIOSK NOT STARTED" not in output
+        assert "NOT_LAUNCHED" in output
+
+    def test_reports_a_browser_that_dies_during_start_up(self, tmp_path):
+        output = _run_kiosk_launch(tmp_path, wait_s=5, electron_body="exit 7", socket_after_s=0)
+        assert "KIOSK NOT STARTED: the kiosk shell exited during start-up (exit 7)" in output
+        assert "NOT_LAUNCHED" in output

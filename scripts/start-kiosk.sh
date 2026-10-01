@@ -282,7 +282,8 @@ start_startup_splash() {
 
     for _ in {1..20}; do
         if curl -fsS --max-time 1 "$splash_url" >/dev/null 2>&1; then
-            launch_kiosk_browser "$splash_url" || true
+            # Never hold up the server for the splash; the final launch waits for the desktop.
+            launch_kiosk_browser "$splash_url" 0 || true
             return 0
         fi
         kill -0 "$SPLASH_PID" 2>/dev/null || break
@@ -436,7 +437,8 @@ if [ -n "$STARTUP_STATUS_FILE" ]; then
 fi
 
 if [ "$BROWSER_LAUNCHED" != true ]; then
-    launch_kiosk_browser "http://$HOST:$WEB_PORT" || true
+    launch_kiosk_browser "http://$HOST:$WEB_PORT" || \
+        warn "OpenFlight is serving http://$HOST:$WEB_PORT without a kiosk window"
 else
     log "Startup splash will continue to OpenFlight"
 fi

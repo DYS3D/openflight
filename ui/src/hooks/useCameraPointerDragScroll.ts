@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
+import { DRAG_SCROLL_THRESHOLD_PX } from '../utils/dragScroll';
 
 export const CAMERA_DRAG_SCROLL_SELECTOR = '.camera-settings, .camera-feed__workspace';
 
-const DRAG_THRESHOLD_PX = 6;
 const INPUT_SELECTOR = "input, textarea, select, [contenteditable='true']";
 
 type PointerStart = Pick<PointerEvent, 'button' | 'isPrimary' | 'pointerType'>;
@@ -25,25 +25,27 @@ function findScrollableRegion(target: EventTarget | null): HTMLElement | null {
   return region;
 }
 
-/** Support Pi touchscreen drivers that expose finger drags as mouse pointers. */
-export function useCameraPointerDragScroll(): void {
-  useEffect(() => {
-    let pointerId: number | null = null;
-    let region: HTMLElement | null = null;
-    let startX = 0;
-    let startY = 0;
-    let startScrollTop = 0;
-    let dragging = false;
+type CameraDragEvent = Pick<
+  PointerEvent,
+  'button' | 'isPrimary' | 'pointerType' | 'pointerId' | 'clientX' | 'clientY' | 'target' | 'preventDefault'
+>;
+type ClickEvent = Pick<MouseEvent, 'preventDefault' | 'stopPropagation'>;
 
-    const reset = () => {
-      pointerId = null;
-      region = null;
-      dragging = false;
-    };
+export function createCameraPointerDragHandlers(
+  findRegion: (target: EventTarget | null) => HTMLElement | null = findScrollableRegion
+) {
+  let pointerId: number | null = null;
+  let region: HTMLElement | null = null;
+  let startX = 0;
+  let startY = 0;
+  let startScrollTop = 0;
+  let dragging = false;
+  let suppressClick = false;
 
-    const onPointerDown = (event: PointerEvent) => {
+  return {
+    onPointerDown(event: CameraDragEvent) {
       if (!shouldStartCameraPointerDrag(event)) return;
-      const scrollRegion = findScrollableRegion(event.target);
+      const scrollRegion = findRegion(event.target);
       if (!scrollRegion) return;
 
       pointerId = event.pointerId;
@@ -52,31 +54,52 @@ export function useCameraPointerDragScroll(): void {
       startY = event.clientY;
       startScrollTop = scrollRegion.scrollTop;
       dragging = false;
-    };
+      suppressClick = false;
+    },
 
-    const onPointerMove = (event: PointerEvent) => {
+    onPointerMove(event: CameraDragEvent) {
       if (event.pointerId !== pointerId || !region) return;
       if (!dragging) {
-        if (Math.hypot(event.clientX - startX, event.clientY - startY) < DRAG_THRESHOLD_PX) return;
+        if (Math.hypot(event.clientX - startX, event.clientY - startY) < DRAG_SCROLL_THRESHOLD_PX) return;
         dragging = true;
       }
       event.preventDefault();
       region.scrollTop = dragScrollTop(startScrollTop, startY, event.clientY);
-    };
+    },
 
-    const onPointerEnd = (event: PointerEvent) => {
-      if (event.pointerId === pointerId) reset();
-    };
+    onPointerEnd(event: Pick<PointerEvent, 'pointerId'>) {
+      if (event.pointerId !== pointerId) return;
+      suppressClick = dragging;
+      pointerId = null;
+      region = null;
+      dragging = false;
+    },
+
+    onClickCapture(event: ClickEvent) {
+      if (!suppressClick) return;
+      suppressClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+  };
+}
+
+/** Support Pi touchscreen drivers that expose finger drags as mouse pointers. */
+export function useCameraPointerDragScroll(): void {
+  useEffect(() => {
+    const { onPointerDown, onPointerMove, onPointerEnd, onClickCapture } = createCameraPointerDragHandlers();
 
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('pointermove', onPointerMove, { capture: true, passive: false });
     document.addEventListener('pointerup', onPointerEnd, true);
     document.addEventListener('pointercancel', onPointerEnd, true);
+    document.addEventListener('click', onClickCapture, true);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('pointermove', onPointerMove, true);
       document.removeEventListener('pointerup', onPointerEnd, true);
       document.removeEventListener('pointercancel', onPointerEnd, true);
+      document.removeEventListener('click', onClickCapture, true);
     };
   }, []);
 }

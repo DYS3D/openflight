@@ -296,6 +296,8 @@ class TestSigtermShutdown:
             "_cleanup_hardware_for_shutdown",
             lambda: calls.append("cleanup") or False,
         )
+        monkeypatch.setattr(server_module, "SHUTDOWN_CLEANUP_WAIT_S", 0.01)
+        monkeypatch.setattr(server_module, "_shutdown_cleanup_done", threading.Event())
 
         server_module._handle_termination_signal(signal.SIGTERM, None)
 

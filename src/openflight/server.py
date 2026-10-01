@@ -359,6 +359,9 @@ sim_player_state = SimPlayerState(shot_counter=initial_shot_counter())
 
 shutdown_lock = threading.Lock()
 shutdown_cleanup_started = False
+# Set once hardware cleanup has finished, whoever ran it (shutdown or update).
+_shutdown_cleanup_done = threading.Event()
+SHUTDOWN_CLEANUP_WAIT_S = 30.0
 # One active hardware job plus two waiting shots is enough for normal golf
 # cadence without allowing a stuck peripheral to consume memory indefinitely.
 _SHOT_ENRICHMENT_QUEUE_CAPACITY = 2
@@ -639,6 +642,7 @@ def _cleanup_hardware_for_shutdown() -> bool:
     for connector in sim_connectors:
         _run_shutdown_step(f"simulator connector stop ({connector.name})", connector.stop)
 
+    _shutdown_cleanup_done.set()
     return True
 
 
@@ -676,7 +680,11 @@ def _shutdown_process_after_delay(delay_s: float = 0.5) -> None:
     """Give the HTTP/WebSocket response time to flush, then clean up and exit."""
     time.sleep(delay_s)
     if not _cleanup_hardware_for_shutdown():
-        return
+        # Cleanup already ran (or is running) elsewhere, e.g. an update that
+        # stopped the hardware and then failed: still exit once it is done.
+        # The owner exits by itself; never exit in the middle of its cleanup.
+        if not _shutdown_cleanup_done.wait(SHUTDOWN_CLEANUP_WAIT_S):
+            return
     logger.info("[SERVER] Goodbye")
     os._exit(0)
 
@@ -2630,6 +2638,9 @@ def _apply_radar_config_update(update: dict) -> dict:
 def handle_shutdown(*_args):
     """Cleanly shut down the server and all hardware."""
     logger.info("[SERVER] Shutdown requested from UI (WebSocket)")
+    if _stop_update_in_progress():
+        socketio.emit("shutdown_ack", {"message": "Rolling back the update, then shutting down..."})
+        return
     socketio.emit("shutdown_ack", {"message": "Shutting down..."})
     threading.Thread(target=_shutdown_process_after_delay, daemon=True).start()
 

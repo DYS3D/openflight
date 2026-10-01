@@ -454,11 +454,39 @@ class TestShutdownCleanup:
         """Only the thread that owns hardware cleanup may terminate the process."""
         exit_codes = []
         monkeypatch.setattr(server_module, "_cleanup_hardware_for_shutdown", lambda: False)
+        monkeypatch.setattr(server_module, "_shutdown_cleanup_done", threading.Event())
+        monkeypatch.setattr(server_module, "SHUTDOWN_CLEANUP_WAIT_S", 0.01)
         monkeypatch.setattr(server_module.os, "_exit", exit_codes.append)
 
         server_module._shutdown_process_after_delay(delay_s=0)
 
         assert exit_codes == []
+
+    def test_shutdown_still_exits_after_an_update_already_stopped_the_hardware(self, monkeypatch):
+        """A failed update ran cleanup and stayed up; SIGTERM must still end the process."""
+        exit_codes = []
+        done = threading.Event()
+        done.set()
+        monkeypatch.setattr(server_module, "_cleanup_hardware_for_shutdown", lambda: False)
+        monkeypatch.setattr(server_module, "_shutdown_cleanup_done", done)
+        monkeypatch.setattr(server_module.os, "_exit", exit_codes.append)
+
+        server_module._shutdown_process_after_delay(delay_s=0)
+
+        assert exit_codes == [0]
+
+    def test_socket_shutdown_during_an_update_rolls_it_back_instead(self, monkeypatch):
+        started, emitted = [], []
+        monkeypatch.setattr(server_module, "_stop_update_in_progress", lambda: True)
+        monkeypatch.setattr(
+            server_module.threading, "Thread", lambda **kw: started.append(kw) or threading.Thread()
+        )
+        monkeypatch.setattr(
+            server_module.socketio, "emit", lambda event, payload=None, **_k: emitted.append(event)
+        )
+        server_module.handle_shutdown()
+        assert started == []
+        assert emitted == ["shutdown_ack"]
 
 
 def test_shot_processing_status_is_forwarded_to_ui(monkeypatch):

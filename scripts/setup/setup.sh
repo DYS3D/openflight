@@ -107,21 +107,21 @@ elif ! command -v ffmpeg &> /dev/null; then
     warn "FFmpeg not found. It is required only for on-demand camera shot replay."
 fi
 
-# Check for Python 3.9+
+# Check for Python 3.10+ (pyproject requires-python)
 log "Checking Python version..."
 if command -v python3 &> /dev/null; then
     PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
     PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
     PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
 
-    if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 9 ]; then
+    if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 10 ]; then
         log "Python $PYTHON_VERSION found ✓"
     else
-        error "Python 3.9+ required, found $PYTHON_VERSION"
+        error "Python 3.10+ required, found $PYTHON_VERSION"
         exit 1
     fi
 else
-    error "Python 3 not found. Please install Python 3.9+"
+    error "Python 3 not found. Please install Python 3.10+"
     exit 1
 fi
 

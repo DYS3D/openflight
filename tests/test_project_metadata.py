@@ -1,6 +1,7 @@
 """Tests for packaging metadata that affects setup/install behavior."""
 
 import re
+import subprocess
 from pathlib import Path
 
 try:
@@ -56,3 +57,26 @@ def test_eventlet_is_not_a_dependency():
     for extra in project.get("optional-dependencies", {}).values():
         everything.extend(extra)
     assert not any(_requirement_name(dep) == "eventlet" for dep in everything)
+
+
+def _run_setup_python_check(tmp_path: Path, version: str) -> subprocess.CompletedProcess[str]:
+    setup = Path("scripts/setup/setup.sh").read_text(encoding="utf-8")
+    start = setup.index("# Check for Python")
+    end = setup.index("# Check for Node.js")
+    fake_python = tmp_path / "python3"
+    fake_python.write_text(f"#!/bin/bash\necho {version}\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+    script = f'log() {{ echo "$*"; }}\nerror() {{ echo "$*"; }}\nPATH={tmp_path}:$PATH\n{setup[start:end]}'
+    return subprocess.run(["bash", "-c", script], check=False, capture_output=True, text=True)
+
+
+def test_setup_python_check_matches_requires_python(tmp_path):
+    minimum = _pyproject()["project"]["requires-python"].removeprefix(">=")
+    major, minor = (int(part) for part in minimum.split("."))
+
+    too_old = _run_setup_python_check(tmp_path, f"{major}.{minor - 1}")
+    supported = _run_setup_python_check(tmp_path, minimum)
+
+    assert too_old.returncode == 1
+    assert f"Python {minimum}+ required" in too_old.stdout
+    assert supported.returncode == 0

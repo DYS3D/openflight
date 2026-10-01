@@ -129,6 +129,36 @@ CLUB_SIMULATION_PROFILES: Mapping[ClubType, ClubSimulationProfile] = MappingProx
 )
 
 
+# Inclusive (min, max) spin in RPM a real shot with each club can plausibly
+# carry, from low-spin tour strikes to high-spin amateur mishits. Deliberately
+# wide: the rolling-buffer octave check only moves a pick that falls outside.
+CLUB_PLAUSIBLE_SPIN_RPM: Mapping[ClubType, tuple[float, float]] = MappingProxyType(
+    {
+        ClubType.DRIVER: (1500, 5500),
+        ClubType.WOOD_3: (2000, 6000),
+        ClubType.WOOD_5: (2500, 6500),
+        ClubType.WOOD_7: (3000, 7000),
+        ClubType.HYBRID_3: (2500, 6500),
+        ClubType.HYBRID_5: (3000, 7000),
+        ClubType.HYBRID_7: (3500, 7500),
+        ClubType.HYBRID_9: (3500, 8000),
+        ClubType.IRON_2: (2500, 6500),
+        ClubType.IRON_3: (2500, 7000),
+        ClubType.IRON_4: (3000, 7500),
+        ClubType.IRON_5: (3000, 8000),
+        ClubType.IRON_6: (3500, 8500),
+        ClubType.IRON_7: (3500, 9000),
+        ClubType.IRON_8: (4000, 10000),
+        ClubType.IRON_9: (4500, 10500),
+        ClubType.PW: (5000, 11000),
+        ClubType.GW: (5000, 11500),
+        ClubType.SW: (5000, 12000),
+        ClubType.LW: (5000, 12000),
+        ClubType.UNKNOWN: (1500, 12000),
+    }
+)
+
+
 SHOT_SIMULATION_DEFAULTS = ShotSimulationDefaults()
 
 
@@ -140,3 +170,8 @@ def get_club_physics(club_type: ClubType) -> ClubPhysics:
 def get_club_simulation_profile(club_type: ClubType) -> ClubSimulationProfile:
     """Return mock generation inputs, falling back to the unknown category."""
     return CLUB_SIMULATION_PROFILES.get(club_type, CLUB_SIMULATION_PROFILES[ClubType.UNKNOWN])
+
+
+def get_plausible_spin_rpm(club_type: ClubType) -> tuple[float, float]:
+    """Return the club's plausible (min, max) spin, falling back to the unknown category."""
+    return CLUB_PLAUSIBLE_SPIN_RPM.get(club_type, CLUB_PLAUSIBLE_SPIN_RPM[ClubType.UNKNOWN])

@@ -6,10 +6,12 @@ import pytest
 from openflight.clubs import ClubType
 from openflight.clubs.physics import (
     CLUB_PHYSICS,
+    CLUB_PLAUSIBLE_SPIN_RPM,
     CLUB_SIMULATION_PROFILES,
     SHOT_SIMULATION_DEFAULTS,
     get_club_physics,
     get_club_simulation_profile,
+    get_plausible_spin_rpm,
 )
 
 
@@ -64,7 +66,19 @@ def test_shot_simulation_defaults_are_immutable():
         SHOT_SIMULATION_DEFAULTS.min_ball_speed_mph = 40
 
 
-@pytest.mark.parametrize("registry", [CLUB_PHYSICS, CLUB_SIMULATION_PROFILES])
+@pytest.mark.parametrize(
+    "registry", [CLUB_PHYSICS, CLUB_SIMULATION_PROFILES, CLUB_PLAUSIBLE_SPIN_RPM]
+)
 def test_registries_are_immutable(registry):
     with pytest.raises(TypeError):
         registry[ClubType.DRIVER] = registry[ClubType.UNKNOWN]
+
+
+def test_plausible_spin_range_covers_every_club_and_the_typical_spin():
+    assert set(CLUB_PLAUSIBLE_SPIN_RPM) == set(ClubType)
+    for club, (low, high) in CLUB_PLAUSIBLE_SPIN_RPM.items():
+        assert 0 < low < CLUB_PHYSICS[club].typical_spin_rpm < high
+
+
+def test_unknown_plausible_spin_input_uses_unknown_range():
+    assert get_plausible_spin_rpm(object()) == CLUB_PLAUSIBLE_SPIN_RPM[ClubType.UNKNOWN]

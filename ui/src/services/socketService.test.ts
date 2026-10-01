@@ -193,4 +193,22 @@ describe('socketService', () => {
 
     expect(useBannerStore.getState().radarHealth).toEqual(health);
   });
+
+  describe('session cleared', () => {
+    it('notifies only the client that requested the clear', () => {
+      const listener = vi.fn();
+      const unsubscribe = socketService.onSessionCleared(listener);
+
+      fire(fake.handlers, 'session_cleared', { profile_id: 'p1', shots: [] });
+      expect(listener).not.toHaveBeenCalled();
+
+      socketService.clearSession('p1');
+      fire(fake.handlers, 'session_cleared', { profile_id: 'p1', shots: [] });
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      fire(fake.handlers, 'session_cleared', { profile_id: 'p1', shots: [] });
+      expect(listener).toHaveBeenCalledTimes(1);
+      unsubscribe();
+    });
+  });
 });

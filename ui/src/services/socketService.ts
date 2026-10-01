@@ -28,6 +28,8 @@ const SOCKET_URL = getServerOrigin();
 class SocketService {
   private socket: Socket | null = null;
   private sessionClearedListeners = new Set<() => void>();
+  /** session_cleared is broadcast; only the client that asked should react to it. */
+  private sessionClearPending = false;
   /** Set when the socket drops while an update restart is under way. */
   private reloadOnNextMessage = false;
 
@@ -212,6 +214,8 @@ class SocketService {
       } else {
         useShotStore.getState().setShots(remaining);
       }
+      if (!this.sessionClearPending) return;
+      this.sessionClearPending = false;
       this.sessionClearedListeners.forEach((listener) => listener());
     });
 
@@ -246,7 +250,9 @@ class SocketService {
   }
 
   clearSession(profileId: string) {
-    this.socket?.emit('clear_session', { profile_id: profileId });
+    if (!this.socket) return;
+    this.sessionClearPending = true;
+    this.socket.emit('clear_session', { profile_id: profileId });
   }
 
   setActiveProfile(profileId: string) {

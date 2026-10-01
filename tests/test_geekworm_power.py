@@ -189,6 +189,27 @@ def test_reader_factory_falls_back_when_native_power_supply_is_missing(tmp_path)
     assert selected is direct_reader
 
 
+def test_reader_factory_falls_back_when_native_values_are_implausible(tmp_path):
+    battery = tmp_path / "battery"
+    battery.mkdir()
+    (battery / "type").write_text("Battery\n", encoding="ascii")
+    (battery / "capacity").write_text("80\n", encoding="ascii")
+    (battery / "voltage_now").write_text("7400000\n", encoding="ascii")  # 2-cell pack
+    mains = tmp_path / "charger@0"
+    mains.mkdir()
+    (mains / "type").write_text("Mains\n", encoding="ascii")
+    (mains / "online").write_text("1\n", encoding="ascii")
+    direct_reader = SequenceReader([PowerSample(80.0, 3.9, True)])
+
+    selected = create_power_reader(
+        BatteryProvider.GEEKWORM,
+        power_supply_path=tmp_path,
+        provider_factory=lambda: direct_reader,
+    )
+
+    assert selected is direct_reader
+
+
 def test_reader_factory_rejects_unknown_provider():
     try:
         create_power_reader("unknown")

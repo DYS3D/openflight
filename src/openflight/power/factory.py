@@ -40,7 +40,12 @@ def create_power_reader(
     """Prefer standard Linux telemetry and fall back to the selected provider."""
     normalized = normalize_battery_provider(provider)
     try:
-        return LinuxPowerReader(power_supply_path=power_supply_path)
+        linux_reader = LinuxPowerReader(power_supply_path=power_supply_path)
+        # A supply that exists but reports implausible values (e.g. a
+        # multi-cell pack above the voltage sanity limit) would fail on every
+        # poll and never reach the selected provider.
+        linux_reader.read()
+        return linux_reader
     except OSError:
         pass
 

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_DISPLAY_PREFERENCES } from '../../stores/useDisplayPreferencesStore';
 import { DisplayPreferencesSection } from './DisplayPreferencesSection';
 import { MenuSheet } from './MenuSheet';
@@ -37,6 +37,44 @@ describe('DisplayPreferencesSection', () => {
     );
 
     expect(switches(html).map((item) => item.checked)).toEqual(['false', 'false', 'true', 'true', 'false']);
+  });
+
+  describe('no-voices note', () => {
+    const NOTE = 'No voices installed on this device';
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function stubVoices(count: number) {
+      vi.stubGlobal('window', {
+        speechSynthesis: { getVoices: () => Array.from({ length: count }, () => ({})) },
+      });
+    }
+
+    function render(voiceCallout: boolean) {
+      return renderToString(
+        <DisplayPreferencesSection preferences={{ ...DEFAULT_DISPLAY_PREFERENCES, voiceCallout }} onChange={() => {}} />
+      );
+    }
+
+    it('shows when voice callout is on and the device has no voices', () => {
+      stubVoices(0);
+
+      expect(render(true)).toContain(NOTE);
+    });
+
+    it('stays hidden when voice callout is off', () => {
+      stubVoices(0);
+
+      expect(render(false)).not.toContain(NOTE);
+    });
+
+    it('stays hidden when a voice is installed', () => {
+      stubVoices(1);
+
+      expect(render(true)).not.toContain(NOTE);
+    });
   });
 
   it('appears in the menu sheet with everything off', () => {

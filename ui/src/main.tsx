@@ -5,9 +5,11 @@ import App from './App.tsx';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { applyTheme, readStoredTheme } from './theme/theme';
 import { useLocaleStore } from './stores/useLocaleStore';
+import { primeSpeechOnFirstGesture } from './utils/voiceCallout';
 
 applyTheme(readStoredTheme());
 useLocaleStore.getState();
+primeSpeechOnFirstGesture();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

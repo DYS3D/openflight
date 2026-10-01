@@ -1567,6 +1567,11 @@
   transform: translateX(18px);
 }
 
+.menu-sheet__note {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
 .panel-footer__menu {
   position: relative;
 }
@@ -2064,7 +2069,8 @@
     gap: 8px 14px;
   }
 
-  .menu-sheet__section--display > .menu-sheet__section-title {
+  .menu-sheet__section--display > .menu-sheet__section-title,
+  .menu-sheet__section--display > .menu-sheet__note {
     grid-column: 1 / -1;
   }
 }

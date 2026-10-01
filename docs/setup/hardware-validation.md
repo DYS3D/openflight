@@ -227,7 +227,10 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
       state.
 - [ ] **UI extras (menu → Display).** Big number after shot, consistency
       colours (need ≥5 shots per club), voice callout (needs a voice on the
-      Pi's Chromium; silent otherwise), normalized carry line. Stats →
+      Pi's Chromium: `sudo apt install speech-dispatcher espeak-ng`, then
+      restart Chromium; the menu shows "No voices installed on this device"
+      otherwise; Chromium stays silent until the screen is first tapped),
+      normalized carry line. Stats →
       Flight / Dispersion / Gapping use the new `flight` payload; Practice
       is under menu → System; TV layout at `/display?layout=tv`.
 

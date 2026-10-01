@@ -296,6 +296,7 @@ export const en = {
   'menu.bigNumberAfterShot': 'Big number after shot',
   'menu.consistencyColors': 'Consistency colours',
   'menu.voiceCallout': 'Voice callout',
+  'menu.voiceCalloutNoVoices': 'No voices installed on this device',
   'menu.showNormalizedCarry': 'Show normalized carry',
   'metric.consistencyGood': 'Within your usual range',
   'metric.consistencyFair': 'A little off your usual range',

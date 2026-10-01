@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react';
 import { useI18n, type MessageKey } from '../../i18n/useI18n';
 import {
   DISPLAY_PREFERENCE_KEYS,
   type DisplayPreferenceKey,
   type DisplayPreferences,
 } from '../../stores/useDisplayPreferencesStore';
+import { installedVoiceCount } from '../../utils/voiceCallout';
 
 const LABELS: Record<DisplayPreferenceKey, MessageKey> = {
   bigNumberAfterShot: 'menu.bigNumberAfterShot',
@@ -18,8 +20,26 @@ interface DisplayPreferencesSectionProps {
   onChange: (key: DisplayPreferenceKey, value: boolean) => void;
 }
 
+function useInstalledVoiceCount(): number {
+  const [count, setCount] = useState(installedVoiceCount);
+
+  useEffect(() => {
+    const synth = typeof window === 'undefined' ? undefined : window.speechSynthesis;
+    if (!synth) {
+      return;
+    }
+    const update = () => setCount(installedVoiceCount());
+    update();
+    synth.addEventListener('voiceschanged', update);
+    return () => synth.removeEventListener('voiceschanged', update);
+  }, []);
+
+  return count;
+}
+
 export function DisplayPreferencesSection({ preferences, onChange }: DisplayPreferencesSectionProps) {
   const { t } = useI18n();
+  const voiceCount = useInstalledVoiceCount();
 
   return (
     <section className="menu-sheet__section menu-sheet__section--display">
@@ -39,6 +59,11 @@ export function DisplayPreferencesSection({ preferences, onChange }: DisplayPref
           </span>
         </button>
       ))}
+      {preferences.voiceCallout && voiceCount === 0 && (
+        <span className="menu-sheet__note" role="status">
+          {t('menu.voiceCalloutNoVoices')}
+        </span>
+      )}
     </section>
   );
 }

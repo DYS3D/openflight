@@ -35,6 +35,22 @@ def _capture(noise_std: float, seed: int = 0, tone_mph: float | None = None) -> 
     )
 
 
+def _shot(amplitude: float, seed: int = 0) -> IQCapture:
+    """Quiet capture with club and ball tones starting 10 ms before the 100 ms trigger."""
+    capture = _quiet(seed)
+    time_s = np.arange(NUM_SAMPLES) / SAMPLE_RATE
+    envelope = np.where(time_s >= 0.09, amplitude * np.exp(-(time_s - 0.09) / 0.05), 0.0)
+    i_signal = np.asarray(capture.i_samples, dtype=float)
+    q_signal = np.asarray(capture.q_samples, dtype=float)
+    for mph in (95.0, 140.0):
+        phase = 2 * np.pi * (2 * (mph / 2.23694) / 0.01243) * time_s
+        i_signal += envelope * np.cos(phase)
+        q_signal += envelope * np.sin(phase)
+    capture.i_samples = np.clip(i_signal, 0, 4095).astype(int).tolist()
+    capture.q_samples = np.clip(q_signal, 0, 4095).astype(int).tolist()
+    return capture
+
+
 def _quiet(seed: int = 0) -> IQCapture:
     return _capture(4.0, seed=seed)
 
@@ -58,6 +74,20 @@ class TestNoiseFloor:
         quiet = noise_floor_db(processor, _quiet())
         with_tone = noise_floor_db(processor, _capture(4.0, tone_mph=120.0))
         assert abs(with_tone - quiet) < 1.0
+
+    def test_a_strong_ball_return_after_impact_does_not_raise_the_floor(self, processor):
+        quiet = noise_floor_db(processor, _quiet())
+        loud_shot = noise_floor_db(processor, _shot(900.0))
+        assert abs(loud_shot - quiet) < 0.25
+
+    def test_a_clipped_capture_gives_no_sample(self, processor):
+        assert noise_floor_db(processor, _shot(900.0)) is not None
+        assert noise_floor_db(processor, _shot(4000.0)) is None
+
+    def test_trigger_at_the_buffer_start_gives_no_sample(self, processor):
+        capture = _quiet()
+        capture.trigger_time = capture.sample_time
+        assert noise_floor_db(processor, capture) is None
 
     def test_short_capture_gives_no_sample(self, processor):
         capture = IQCapture(sample_time=0.0, trigger_time=0.0, i_samples=[1] * 10, q_samples=[1] * 10)
@@ -165,7 +195,7 @@ class TestMonitorWiring:
 
     def test_on_routes_captures_and_transitions(self, radar):
         monitor = RollingBufferMonitor(port="/dev/fake", interference_check=True)
-        assert monitor.processor.capture_observer == monitor.radar_health.observe
+        assert monitor.processor.capture_observer is not None
         events = []
         monitor._radar_health_callback = events.append
         monitor.radar_health.min_interval_s = 0.0
@@ -173,6 +203,61 @@ class TestMonitorWiring:
         for seed in range(1, 4):
             monitor.radar_health.process(_noisy(seed))
         assert [event["interference"] for event in events] == [True]
+
+    def test_a_clipped_capture_leaves_the_state_untouched(self, processor):
+        health = RadarHealthMonitor(processor, min_interval_s=0.0)
+        health.process(_quiet(0))
+        floor = health.noise_floor_db
+        assert health.process(_shot(4000.0)) is None
+        assert health.noise_floor_db == floor
+
+    @pytest.mark.parametrize("accepted", [True, False])
+    def test_capture_reaches_radar_health_after_the_shot_callback(
+        self, radar, monkeypatch, accepted
+    ):
+        from unittest.mock import MagicMock
+
+        from openflight.rolling_buffer import monitor as monitor_module
+
+        monkeypatch.setattr(monitor_module, "get_session_logger", MagicMock)
+        monitor = RollingBufferMonitor(port="/dev/fake", interference_check=True)
+        capture = _quiet()
+        events = []
+        monitor.radar_health.observe = lambda observed: events.append(("observe", observed))
+        monitor._shot_callback = lambda _shot: events.append("shot_callback")
+        monitor._create_shot = MagicMock(return_value=MagicMock() if accepted else None)
+        monitor._record_accepted_trigger = MagicMock()
+        monitor._log_accepted_capture = MagicMock()
+        monitor._record_trigger_event = MagicMock()
+        monitor.processor.process_capture = MagicMock(return_value=MagicMock())
+        observer = monitor.processor.capture_observer
+
+        class OneCaptureTrigger:
+            calls = 0
+
+            def wait_for_trigger(self, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    observer(capture)
+                    return capture
+                monitor._running = False
+                return None
+
+            @staticmethod
+            def drain_diagnostics():
+                return []
+
+            @staticmethod
+            def reset():
+                return None
+
+        monitor.trigger = OneCaptureTrigger()
+        monitor._diagnostic_callback = None
+        monitor._running = True
+        monitor._capture_loop()
+
+        expected = ["shot_callback"] if accepted else []
+        assert events == [*expected, ("observe", capture)]
 
     def test_parse_capture_notifies_the_observer(self, processor):
         seen = []

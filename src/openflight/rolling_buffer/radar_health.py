@@ -8,10 +8,12 @@ the trigger's blocking read (see the serial-deadlock note in
 buffer dump the radar already sends: accepted shots and rejected false
 triggers alike, rate-limited to one sample per ``min_interval_s``.
 
-Each sample is the median FFT magnitude, in dB, over the speed band above the
-DC mask (``RollingBufferProcessor.DC_MASK_BINS``, ~15 mph) in both Doppler
-directions across the capture's 128-sample windows. A ball or club occupies a
-handful of bins per window, so the median is dominated by the noise floor.
+Each sample is the 10th-percentile FFT magnitude, in dB, over the speed band
+above the DC mask (``RollingBufferProcessor.DC_MASK_BINS``, ~15 mph) in both
+Doppler directions across the capture's 128-sample windows that end at least
+``CLUB_BRANCH_HISTORY_MS`` before the trigger, so club and ball returns stay
+out of the estimate. Captures with samples near the ADC rails are skipped:
+clipping spreads energy across every bin of the window it lands in.
 
 An exponential baseline follows the floor. ``interference`` is set once the
 floor sits more than ``rise_db`` above the baseline for ``consecutive``
@@ -19,7 +21,8 @@ samples and cleared when it is back within ``clear_db``. The baseline only
 learns from samples that are not elevated, so it does not chase interference.
 
 The capture thread only hands over a reference to the sample arrays; the FFT
-runs on a separate daemon thread.
+runs on a separate daemon thread. The rolling-buffer monitor hands a capture
+over only after the shot callback, so the FFT never competes with the shot.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from .multitaper import repair_clipped_iq
 from .processor import RollingBufferProcessor
 from .types import IQCapture
 
@@ -39,9 +43,18 @@ logger = logging.getLogger("openflight.rolling_buffer.radar_health")
 
 
 def noise_floor_db(processor: RollingBufferProcessor, capture: IQCapture) -> Optional[float]:
-    """Median in-band FFT magnitude of a capture in dB, or None when too short."""
+    """Pre-club in-band FFT magnitude floor of a capture in dB.
+
+    None when the capture is clipped or has no window clear of the club.
+    """
+    _, clipped_fraction = repair_clipped_iq(capture.i_samples, capture.q_samples)
+    if clipped_fraction > 0.0:
+        return None
     window = processor.WINDOW_SIZE
-    count = min(len(capture.i_samples), len(capture.q_samples)) // window
+    pre_club_ms = capture.trigger_offset_ms - processor.CLUB_BRANCH_HISTORY_MS
+    pre_club_samples = int(pre_club_ms * capture.sample_rate_hz / 1000.0)
+    available = min(len(capture.i_samples), len(capture.q_samples), pre_club_samples)
+    count = max(available, 0) // window
     if count == 0:
         return None
     i_blocks = np.asarray(capture.i_samples[: count * window], dtype=float).reshape(count, window)
@@ -53,10 +66,10 @@ def noise_floor_db(processor: RollingBufferProcessor, capture: IQCapture) -> Opt
         (magnitude[:, dc_mask:half], magnitude[:, half + 1 : processor.FFT_SIZE - dc_mask]),
         axis=1,
     )
-    median = float(np.median(in_band))
-    if median <= 0.0:
+    floor = float(np.percentile(in_band, 10))
+    if floor <= 0.0:
         return None
-    return float(20.0 * np.log10(median))
+    return float(20.0 * np.log10(floor))
 
 
 class RadarHealthMonitor:

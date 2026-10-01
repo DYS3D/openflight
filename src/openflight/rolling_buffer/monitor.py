@@ -275,9 +275,18 @@ class RollingBufferMonitor:
         self._current_club: ClubType = ClubType.DRIVER
         self._radar_health_callback: Optional[Callable[[dict], None]] = None
         self.radar_health: Optional[RadarHealthMonitor] = None
+        self._health_capture: Optional[IQCapture] = None
         if interference_check:
             self.radar_health = RadarHealthMonitor(self.processor, on_change=self._on_radar_health)
-            self.processor.capture_observer = self.radar_health.observe
+            self.processor.capture_observer = self._hold_capture_for_health
+
+    def _hold_capture_for_health(self, capture: IQCapture) -> None:
+        self._health_capture = capture
+
+    def _release_capture_for_health(self) -> None:
+        capture, self._health_capture = self._health_capture, None
+        if capture is not None and self.radar_health is not None:
+            self.radar_health.observe(capture)
 
     def _on_radar_health(self, payload: dict) -> None:
         if self._radar_health_callback is not None:
@@ -698,6 +707,7 @@ class RollingBufferMonitor:
                 # (failed FFT, rejected shot, exception, shutdown) must still
                 # send the deferred re-arm, or the radar stays idle.
                 self._finish_deferred_rearm()
+                self._release_capture_for_health()
 
     def _set_radar_state(self, state: str) -> None:
         """Record the serial link state and report it without breaking capture."""

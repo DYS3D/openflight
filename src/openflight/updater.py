@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -100,26 +101,37 @@ Runner = Callable[[Sequence[str], Path, float, Optional[dict]], CommandResult]
 def run_command(
     args: Sequence[str], cwd: Path, timeout_s: float, env: Optional[dict] = None
 ) -> CommandResult:
-    """Run a command, merging stderr into stdout. Never raises on a non-zero exit."""
+    """Run a command, merging stderr into stdout. Never raises on a non-zero exit.
+
+    Git must never wait for a password or host-key prompt nobody can answer,
+    and a timeout kills the whole process group (git's ssh, npm's workers).
+    """
+    full_env = dict(os.environ if env is None else env)
+    full_env.setdefault("GIT_TERMINAL_PROMPT", "0")
+    full_env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(  # pylint: disable=consider-using-with
             list(args),
             cwd=str(cwd),
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            timeout=timeout_s,
-            env=env,
-            check=False,
+            env=full_env,
+            start_new_session=True,
         )
     except FileNotFoundError:
         return CommandResult(127, f"{args[0]}: command not found")
-    except subprocess.TimeoutExpired as expired:
-        output = expired.output or ""
-        if isinstance(output, bytes):
-            output = output.decode("utf-8", "replace")
-        return CommandResult(124, f"{output}\n{args[0]} timed out after {timeout_s:.0f} s")
-    return CommandResult(completed.returncode, completed.stdout or "")
+    try:
+        output, _ = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        output, _ = process.communicate()
+        return CommandResult(124, f"{output or ''}\n{args[0]} timed out after {timeout_s:.0f} s")
+    return CommandResult(process.returncode, output or "")
 
 
 def _tail(text: str, lines: int = 12) -> str:
@@ -223,6 +235,8 @@ class Updater:
         self._clock = clock
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
+        # Full sha the last check offered; apply installs exactly that commit.
+        self._approved_upstream: Optional[str] = None
         self._log_lines: list[str] = []
         self.status = UpdateStatus(remote=config.remote, branch=config.branch)
 
@@ -322,6 +336,7 @@ class Updater:
                 self.status.latest = short_sha(upstream)
                 self.status.behind = behind
                 self.status.commits = commits
+                self._approved_upstream = upstream if behind and not ahead else None
                 if ahead:
                     self.status.state = STATE_ERROR
                     self.status.error = (
@@ -406,6 +421,10 @@ class Updater:
             head, upstream, behind, ahead = self._preflight()
             if ahead:
                 raise UpdateError("The Pi has local commits; update it over SSH instead")
+            if self._approved_upstream and upstream != self._approved_upstream:
+                raise UpdateError(
+                    "A newer version was published after the check; check for updates again"
+                )
             if not behind:
                 return ApplyResult(True, head, head)
             dirty = self._dirty_files()

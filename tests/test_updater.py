@@ -1,7 +1,9 @@
 """openflight.updater against real git repositories, with uv and npm stubbed."""
 
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -286,6 +288,24 @@ class TestApply:
         assert repos.pi_head() == old
         assert (repos.pi / "uv.lock").read_text() == "lock v1"
 
+    def test_apply_refuses_a_commit_pushed_after_the_check(self, repos, tools):
+        old = repos.pi_head()
+        repos.commit("reviewed fix", {"src/app.py": "VERSION = 2\n"})
+        updater = _updater(repos, tools)
+        assert updater.check().state == upd.STATE_AVAILABLE
+        repos.commit("pushed later", {"src/app.py": "VERSION = 3\n"})
+        result = updater.apply()
+        assert not result.ok
+        assert "after the check" in result.error
+        assert repos.pi_head() == old
+        assert tools.keys() == []
+
+    def test_apply_installs_the_checked_commit(self, repos, tools):
+        new = repos.commit("reviewed fix", {"src/app.py": "VERSION = 2\n"})
+        updater = _updater(repos, tools)
+        updater.check()
+        assert updater.apply().installed == new
+
     def test_incomplete_rollback_is_reported(self, repos, tools):
         repos.commit("new dependency", {"pyproject.toml": "[project]\nname='z'\n"})
         tools.fail_always.add("uv sync")
@@ -328,6 +348,30 @@ class TestPreflightError:
 
 
 class TestRunCommand:
+    def test_git_never_prompts(self, tmp_path):
+        printer = [
+            sys.executable,
+            "-c",
+            "import os; print(os.environ['GIT_TERMINAL_PROMPT'], os.environ['GIT_SSH_COMMAND'])",
+        ]
+        result = upd.run_command(printer, tmp_path, 10)
+        assert result.output.split() == ["0", "ssh", "-o", "BatchMode=yes"]
+
+    def test_timeout_kills_the_whole_process_group(self, tmp_path):
+        marker = tmp_path / "grandchild.pid"
+        script = (
+            "import subprocess, sys, time; "
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+            f"open({str(marker)!r}, 'w').write(str(child.pid)); time.sleep(60)"
+        )
+        result = upd.run_command([sys.executable, "-c", script], tmp_path, 1.0)
+        assert result.returncode == 124
+        grandchild = int(marker.read_text())
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and _alive(grandchild):
+            time.sleep(0.05)
+        assert not _alive(grandchild)
+
     def test_missing_binary(self, tmp_path):
         assert upd.run_command(["definitely-not-a-command-xyz"], tmp_path, 5).returncode == 127
 
@@ -395,3 +439,16 @@ def test_rollback_without_a_previous_lockfile_resolves_again(repos, tools):
     result = _updater(repos, tools).apply()
     assert not result.ok and result.rolled_back
     assert tools.calls[-1] == ("uv sync", ("sync",))
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    # A reaped-later zombie still answers kill(0); treat it as dead.
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as stat_file:
+            return stat_file.read().split()[2] != "Z"
+    except OSError:
+        return False

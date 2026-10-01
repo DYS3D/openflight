@@ -374,10 +374,13 @@ class TestCameraReplayAPI:
             camera_replay={"id": "replay-123"},
         )
         monkeypatch.setattr(server_module, "camera_replay_manager", manager)
-        monkeypatch.setattr(server_module, "monitor", SimpleNamespace(_shots=[shot]))
+        mock_monitor = server_module.MockLaunchMonitor()
+        mock_monitor._shots.append(shot)
+        monkeypatch.setattr(server_module, "monitor", mock_monitor)
 
         assert server_module._delete_session_row(shot.timestamp.isoformat()) is True
         assert replay_ids == ["replay-123"]
+        assert mock_monitor.get_shots() == []
 
 
 class TestShutdownCleanup:

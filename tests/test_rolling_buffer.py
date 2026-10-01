@@ -3295,3 +3295,35 @@ class TestSpinDriverDeadZone:
         assert result.spin_rpm == 0 or result.quality == "low", (
             f"Decay ramp faked spin: {result.spin_rpm} RPM quality={result.quality}"
         )
+
+
+def test_removing_shots_never_drops_one_appended_concurrently():
+    """A delete/clear from a socket thread must not overwrite a shot the capture thread adds."""
+    import threading
+
+    from openflight.rolling_buffer.monitor import RollingBufferMonitor
+
+    monitor = RollingBufferMonitor.__new__(RollingBufferMonitor)
+    monitor._shots = ["old", "keep"]
+    monitor._shots_lock = threading.Lock()
+    filtering, release = threading.Event(), threading.Event()
+
+    def slow_predicate(shot):
+        filtering.set()
+        release.wait(2)
+        return shot == "old"
+
+    def capture_thread_append():
+        with monitor._shots_lock:
+            monitor._shots.append("new")
+
+    remover = threading.Thread(target=monitor.remove_shots, args=(slow_predicate,))
+    remover.start()
+    assert filtering.wait(2)
+    appender = threading.Thread(target=capture_thread_append)
+    appender.start()
+    release.set()
+    remover.join(2)
+    appender.join(2)
+
+    assert monitor.get_shots() == ["keep", "new"]

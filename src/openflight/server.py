@@ -2183,15 +2183,12 @@ def _delete_session_row(timestamp: str) -> bool:
                 return True
         return False
 
-    shots = getattr(monitor, "_shots", None)
-    if shots is None:
+    if not hasattr(monitor, "remove_shots"):
         return False
-    for index, shot in enumerate(shots):
-        if shot.timestamp.isoformat() == timestamp:
-            _unregister_camera_replay(shot)
-            del shots[index]
-            return True
-    return False
+    removed = monitor.remove_shots(lambda shot: shot.timestamp.isoformat() == timestamp)
+    for shot in removed:
+        _unregister_camera_replay(shot)
+    return bool(removed)
 
 
 def _emit_sim_snapshot() -> None:
@@ -2399,10 +2396,8 @@ def _clear_profile_rows(profile_id: str) -> None:
             ]
         return
 
-    shots = getattr(monitor, "_shots", None)
-    if shots is not None:
-        removed = [shot for shot in shots if getattr(shot, "profile_id", "") == profile_id]
-        shots[:] = [shot for shot in shots if getattr(shot, "profile_id", "") != profile_id]
+    if hasattr(monitor, "remove_shots"):
+        removed = monitor.remove_shots(lambda shot: getattr(shot, "profile_id", "") == profile_id)
         for shot in removed:
             _unregister_camera_replay(shot)
         return
@@ -5085,6 +5080,7 @@ class MockLaunchMonitor:
     def __init__(self):
         """Initialize mock monitor."""
         self._shots: List[Shot] = []
+        self._shots_lock = threading.Lock()
         self._running = False
         self._shot_callback = None
         self._current_club = ClubType.DRIVER
@@ -5187,7 +5183,8 @@ class MockLaunchMonitor:
             mode="mock",
         )
 
-        self._shots.append(shot)
+        with self._shots_lock:
+            self._shots.append(shot)
 
         if self._shot_callback:
             self._shot_callback(shot)
@@ -5196,15 +5193,24 @@ class MockLaunchMonitor:
 
     def get_shots(self) -> List[Shot]:
         """Get all recorded shots."""
-        return self._shots.copy()
+        with self._shots_lock:
+            return self._shots.copy()
+
+    def remove_shots(self, predicate) -> List[Shot]:
+        """Remove and return the shots matching ``predicate``, atomically."""
+        with self._shots_lock:
+            removed = [shot for shot in self._shots if predicate(shot)]
+            self._shots = [shot for shot in self._shots if not predicate(shot)]
+        return removed
 
     def get_session_stats(self) -> dict:
         """Get session statistics."""
-        return summarize_shots(self._shots, mode="mock")
+        return summarize_shots(self.get_shots(), mode="mock")
 
     def clear_session(self):
         """Clear all recorded shots."""
-        self._shots = []
+        with self._shots_lock:
+            self._shots = []
 
     def set_club(self, club: ClubType):
         """Set the current club for future shots."""

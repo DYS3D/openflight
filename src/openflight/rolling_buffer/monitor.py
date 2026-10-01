@@ -279,6 +279,8 @@ class RollingBufferMonitor:
         self._processing_callback: Optional[Callable[[str], None]] = None
         self._radar_status_callback: Optional[Callable[[str], None]] = None
         self._shots: List[Shot] = []
+        # The capture thread appends while socket handlers delete or clear.
+        self._shots_lock = threading.Lock()
         self._shot_sequence_number = 0
         self._current_club: ClubType = ClubType.DRIVER
         self._radar_health_callback: Optional[Callable[[dict], None]] = None
@@ -617,7 +619,8 @@ class RollingBufferMonitor:
                 if shot:
                     self._shot_sequence_number += 1
                     shot.shot_number = self._shot_sequence_number
-                    self._shots.append(shot)
+                    with self._shots_lock:
+                        self._shots.append(shot)
                     logger.info(
                         "[MONITOR] Shot detected: ball=%.1f mph, club=%s, spin=%s",
                         shot.ball_speed_mph,
@@ -1102,15 +1105,24 @@ class RollingBufferMonitor:
 
     def get_session_stats(self) -> dict:
         """Get statistics for the current session."""
-        return summarize_shots(self._shots, mode="rolling-buffer")
+        return summarize_shots(self.get_shots(), mode="rolling-buffer")
 
     def get_shots(self) -> List[Shot]:
         """Get all detected shots."""
-        return self._shots.copy()
+        with self._shots_lock:
+            return self._shots.copy()
+
+    def remove_shots(self, predicate: Callable[[Shot], bool]) -> List[Shot]:
+        """Remove and return the shots matching ``predicate``, atomically."""
+        with self._shots_lock:
+            removed = [shot for shot in self._shots if predicate(shot)]
+            self._shots = [shot for shot in self._shots if not predicate(shot)]
+        return removed
 
     def clear_session(self):
         """Clear all recorded shots."""
-        self._shots = []
+        with self._shots_lock:
+            self._shots = []
 
     def set_club(self, club: ClubType):
         """Set the current club for future shots."""

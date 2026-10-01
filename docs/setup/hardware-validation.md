@@ -249,6 +249,18 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
 - [ ] **`--derived-metrics`** + menu → Display → More metrics: Total, Roll,
       Apex, Hang time, Land angle, Curve, Side, Face-to-path, Spin loft, Shot
       shape appear; sanity-check smash and face-to-path against a reference.
+- [ ] **`--derived-metrics-strict`** on an OPS-only rig (no IWR6843 or
+      camera): Face angle, Face-to-path, Curve, Side and Shot shape must not
+      appear, instead of a 0° face and "straight" on every shot.
+- [ ] **`--spin-axis-model dplane`**: the Live spin-axis tile shows the
+      estimated mark, and GSPro / simulator provenance reports the axis as
+      estimated.
+- [ ] **`--spin-octave-check --spin-octave-prior range`** in a paired session:
+      compare spin against the reference with `optimal` and `range`. With
+      `range`, driver picks near 5,000 rpm and wedge picks near 1,500 rpm must
+      no longer be halved/doubled, and every corrected shot shows low
+      quality. The per-club ranges in `clubs/physics.py` are first guesses;
+      adjust them from this session.
 - [ ] **`--interference-check`.** Run a range session with a Wi-Fi router or
       second radar nearby; watch `[RADAR-HEALTH]` lines and confirm the
       banner does not chatter. Needs three dumps to assert.

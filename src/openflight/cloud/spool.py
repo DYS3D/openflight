@@ -45,6 +45,12 @@ MAX_ATTEMPTS = 20
 # rather than every timer tick.
 QUOTA_COOLDOWN_S = 24 * 60 * 60
 
+# A session file without a final ``session_end`` entry that changed this
+# recently is taken to be still open in the server, which only writes
+# ``session_end`` when the monitor stops. Older ones are from a crash and push.
+IN_PROGRESS_GRACE_S = 30 * 60
+_TAIL_BYTES = 4096
+
 
 def _sidecar(path: Path, suffix: str) -> Path:
     # Append (not replace) so "session_x.jsonl" -> "session_x.jsonl.pushed".
@@ -76,6 +82,26 @@ def is_parked(path: Path) -> bool:
 def pending_sessions(log_dir: Path) -> List[Path]:
     """Session files that are neither pushed nor parked."""
     return [p for p in session_files(log_dir) if not is_pushed(p) and not is_parked(p)]
+
+
+def is_in_progress(path: Path, now: Optional[float] = None) -> bool:
+    """True if the session is probably still being written by the server."""
+    now = time.time() if now is None else now
+    try:
+        if now - path.stat().st_mtime >= IN_PROGRESS_GRACE_S:
+            return False
+        with open(path, "rb") as handle:
+            size = handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, size - _TAIL_BYTES))
+            lines = handle.read().splitlines()
+    except OSError:
+        return False
+    if not lines:
+        return True
+    try:
+        return json.loads(lines[-1]).get("type") != "session_end"
+    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+        return True
 
 
 def read_attempts(path: Path) -> int:

@@ -263,6 +263,10 @@ def _push(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         return summary
 
     for path in pending:
+        if spool.is_in_progress(path):
+            summary["deferred"] += 1
+            out(f"{path.name}: session still in progress; will upload once it ends.")
+            continue
         if not dry_run and spool.in_cooldown(path):
             summary["deferred"] += 1
             continue

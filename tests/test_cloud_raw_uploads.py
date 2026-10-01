@@ -2,6 +2,8 @@
 
 import gzip
 import json
+import os
+import time
 
 from openflight.cloud import cli, client as cl, commands, filtering, spool
 from openflight.cloud.client import UploadResult
@@ -34,6 +36,8 @@ def _raw_session(tmp_path, *captures, name="session_20260929_100000_range.jsonl"
         )
     path = tmp_path / name
     path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+    finished_at = time.time() - spool.IN_PROGRESS_GRACE_S - 60
+    os.utime(path, (finished_at, finished_at))
     return path
 
 

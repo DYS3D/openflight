@@ -1,6 +1,8 @@
 """Tests for openflight-cloud command orchestration (link/push/status)."""
 
 import json
+import os
+import time
 
 import pytest
 
@@ -33,6 +35,7 @@ class FakeClient:
 
 def _write_session(tmp_path, name, *entries):
     path = tmp_path / name
+    entries = (*entries, {"type": "session_end"})
     path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
     return path
 
@@ -134,6 +137,30 @@ class TestPush:
         assert spool.read_attempts(path) == 1
         assert not spool.is_pushed(path)
         assert not spool.is_parked(path)
+
+    def test_session_still_being_written_is_not_pushed(self, tmp_path):
+        path = tmp_path / "session_a.jsonl"
+        path.write_text(
+            json.dumps({"type": "session_start", "session_uuid": "a"})
+            + "\n"
+            + json.dumps({"type": "shot_detected", "ball_speed_mph": 90})
+            + "\n"
+        )
+        client = FakeClient(uploads=[UploadResult(201, action="success", shot_count=1)])
+        result = commands.cmd_push(_linked_config(), tmp_path, client, out=lambda _m: None)
+        assert client.uploaded == []
+        assert not spool.is_pushed(path)
+        assert result["deferred"] == 1
+
+    def test_crashed_session_without_session_end_is_pushed_once_stale(self, tmp_path):
+        path = tmp_path / "session_a.jsonl"
+        path.write_text(json.dumps({"type": "session_start", "session_uuid": "a"}) + "\n")
+        stale = time.time() - spool.IN_PROGRESS_GRACE_S - 60
+        os.utime(path, (stale, stale))
+        client = FakeClient(uploads=[UploadResult(201, action="success", shot_count=0)])
+        commands.cmd_push(_linked_config(), tmp_path, client, out=lambda _m: None)
+        assert client.uploaded == ["a"]
+        assert spool.is_pushed(path)
 
     def test_oversize_body_parks(self, tmp_path, monkeypatch):
         path = _write_session(

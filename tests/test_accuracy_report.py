@@ -122,6 +122,18 @@ class TestGenericCsv:
             ("spin", 2500.0, 2600.0, ""),
         ]
 
+    def test_club_name_spellings_share_one_row(self, tmp_path):
+        path = tmp_path / "pairs.csv"
+        path.write_text(
+            "metric,ours,reference,club\n"
+            "carry,120,121,Pitching Wedge\n"
+            "carry,118,119,PW\n"
+            "carry,119,121,pitching-wedge\n",
+            encoding="utf-8",
+        )
+        stats = harness.compute_stats(harness.load_generic_csv(path))
+        assert [(s.club, s.n) for s in stats] == [("all", 3), ("pw", 3)]
+
     def test_missing_column_is_an_error(self, tmp_path):
         path = tmp_path / "bad.csv"
         path.write_text("metric,ours\nball_speed,1\n", encoding="utf-8")
@@ -145,7 +157,7 @@ class TestCommittedCapture:
         by_club = {s.club: s for s in committed_report.stats if s.metric == "carry_model"}
         assert by_club["all"].n == len(rows) == 24
         assert by_club["all"].rmse == pytest.approx(expected_overall, abs=1e-9)
-        for club in ("driver", "7-iron", "pitching wedge"):
+        for club in ("driver", "7-iron", "pw"):
             expected = _stats([r.delta_yards for r in rows if r.club == club])["rmse"]
             assert by_club[club].rmse == pytest.approx(expected, abs=1e-9), club
         apex = {s.club: s for s in committed_report.stats if s.metric == "apex_model"}

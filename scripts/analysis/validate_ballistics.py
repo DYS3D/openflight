@@ -125,7 +125,7 @@ def _normalize_club(raw: Optional[str]) -> str:
             return f"{b}-{a}"
     aliases = {"drv": "driver", "1-wood": "driver", "pitching-wedge": "pw",
                "sand-wedge": "sw", "gap-wedge": "gw", "lob-wedge": "lw"}
-    return aliases.get(s, s)
+    return aliases.get("-".join(parts), s)
 
 
 def _club_type(name: str) -> ClubType:

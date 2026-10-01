@@ -56,7 +56,7 @@ TRACKMAN_CSV = _REPO_ROOT / "session_logs" / "OpenFlight-Test.Normalized.csv"
 RMSE_BUDGET_YARDS = {
     "driver": 3.0,
     "7-iron": 2.0,
-    "pitching wedge": 5.5,
+    "pw": 5.5,
 }
 OVERALL_RMSE_BUDGET_YARDS = 3.5
 
@@ -75,7 +75,7 @@ OVERALL_RMSE_BUDGET_YARDS = 3.5
 APEX_RMSE_BUDGET_FEET = {
     "driver": 4.0,
     "7-iron": 2.0,
-    "pitching wedge": 3.5,
+    "pw": 3.5,
 }
 OVERALL_APEX_RMSE_BUDGET_FEET = 3.0
 

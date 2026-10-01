@@ -84,8 +84,28 @@ def pending_sessions(log_dir: Path) -> List[Path]:
     return [p for p in session_files(log_dir) if not is_pushed(p) and not is_parked(p)]
 
 
+def _held_by_writer(path: Path) -> bool:
+    """True while the server holds the session file's lock (see session_logger)."""
+    try:
+        import fcntl  # pylint: disable=import-outside-toplevel
+    except ImportError:  # pragma: no cover - not a Pi
+        return False
+    try:
+        with open(path, "rb") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        return False
+    return False
+
+
 def is_in_progress(path: Path, now: Optional[float] = None) -> bool:
-    """True if the session is probably still being written by the server."""
+    """True if the session is still (or probably still) being written by the server."""
+    if _held_by_writer(path):
+        return True
     now = time.time() if now is None else now
     try:
         if now - path.stat().st_mtime >= IN_PROGRESS_GRACE_S:

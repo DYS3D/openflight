@@ -230,3 +230,21 @@ class TestRetentionGuard:
         dump = tmp_path / "new.l3dump"
         dump.write_bytes(b"x")
         assert not spool.retention_guard(tmp_path, raw_uploads=False)(dump)
+
+
+def test_a_live_session_stays_in_progress_through_a_long_idle_gap(tmp_path):
+    import os
+    import time
+
+    from openflight.session_logger import SessionLogger
+
+    logger = SessionLogger(log_dir=tmp_path, enabled=True)
+    logger.start_session(mode="rolling-buffer", trigger_type="sound")
+    path = logger._session_path
+    an_hour_ago = time.time() - 3600
+    os.utime(path, (an_hour_ago, an_hour_ago))
+
+    assert spool.is_in_progress(path)
+
+    logger.end_session()
+    assert not spool.is_in_progress(path)

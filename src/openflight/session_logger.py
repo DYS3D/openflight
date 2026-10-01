@@ -69,6 +69,22 @@ class SessionMetadata:
     app_version: str = ""
 
 
+def _hold_session_lock(handle) -> None:
+    """Lock the open session file so the cloud uploader can tell it is live.
+
+    The lock lasts until the file is closed or the process dies, so a crashed
+    session is uploadable at once while a long idle one never is.
+    """
+    try:
+        import fcntl  # pylint: disable=import-outside-toplevel
+    except ImportError:  # pragma: no cover - not a Pi
+        return
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        pass
+
+
 class SessionLogger:
     """
     Comprehensive session logger for field testing.
@@ -231,9 +247,11 @@ class SessionLogger:
             path = self.log_dir / f"session_{session_id}_{self.location}.jsonl"
             try:
                 # pylint: disable-next=consider-using-with
-                return session_id, open(path, "x", encoding="utf-8")
+                handle = open(path, "x", encoding="utf-8")
             except FileExistsError:
                 continue
+            _hold_session_lock(handle)
+            return session_id, handle
         raise RuntimeError(f"No free session file name for {base_id}")
 
     def log_connection(

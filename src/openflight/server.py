@@ -619,7 +619,17 @@ def _handle_termination_signal(signum, _frame) -> None:
     still queued on the writer thread.
     """
     logger.info("[SERVER] Received signal %s; shutting down", signum)
+    if _stop_update_in_progress():
+        return
     threading.Thread(target=_shutdown_process_after_delay, args=(0.0,), daemon=True).start()
+
+
+def _stop_update_in_progress() -> bool:
+    """Let a running install roll back; its own flow exits the process afterwards."""
+    if update_service is None or not update_service.request_stop_apply():
+        return False
+    logger.warning("[SERVER] An update is installing; rolling it back before exiting")
+    return True
 
 
 def install_signal_handlers() -> None:
@@ -1234,6 +1244,8 @@ def static_files(path):
 def api_shutdown():
     """Cleanly shut down the server via REST API."""
     logger.info("[SERVER] Shutdown requested via REST API")
+    if _stop_update_in_progress():
+        return {"status": "updating"}, 202
     threading.Thread(target=_shutdown_process_after_delay, daemon=True).start()
     return {"status": "shutting_down"}, 200
 

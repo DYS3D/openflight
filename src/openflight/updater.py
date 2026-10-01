@@ -221,6 +221,7 @@ class Updater:
         self._run_command = runner
         self._clock = clock
         self._lock = threading.Lock()
+        self._stop_requested = threading.Event()
         self._log_lines: list[str] = []
         self.status = UpdateStatus(remote=config.remote, branch=config.branch)
 
@@ -248,6 +249,18 @@ class Updater:
 
     def _git(self, *args: str) -> str:
         return self._run(["git", *args], GIT_TIMEOUT_S)
+
+    def request_stop(self) -> None:
+        """Ask a running apply to stop at its next step and roll back."""
+        self._stop_requested.set()
+
+    @property
+    def stop_requested(self) -> bool:
+        return self._stop_requested.is_set()
+
+    def _check_stop(self) -> None:
+        if self._stop_requested.is_set():
+            raise UpdateError("The update was interrupted by a shutdown")
 
     def _rev(self, ref: str) -> str:
         return self._git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
@@ -369,6 +382,7 @@ class Updater:
     def apply(self, progress: Callable[[str], None] = lambda _step: None) -> ApplyResult:
         """Install the fetched update. Always leaves a runnable checkout behind."""
         with self._lock, _repo_lock(self._root):
+            self._stop_requested.clear()
             self._log_lines = []
             self.status.rolled_back = False
             self.status.error = None
@@ -415,15 +429,19 @@ class Updater:
         try:
             if lock_file.exists():
                 shutil.copy2(lock_file, lock_backup)
+            self._check_stop()
             progress("Downloading the update")
             self._git("merge", "--ff-only", "--quiet", upstream)
+            self._check_stop()
             progress("Installing Python packages")
             self._uv_sync()
+            self._check_stop()
             ui_changed = self._changed(head, upstream, "ui")
             if self._changed(head, upstream, "ui/package.json", "ui/package-lock.json"):
                 progress("Installing interface packages")
                 npm_ran = True
                 self._npm("ci", timeout_s=NPM_CI_TIMEOUT_S)
+            self._check_stop()
             if ui_changed or not (dist / "index.html").is_file():
                 progress("Building the interface")
                 shutil.rmtree(staging, ignore_errors=True)
@@ -443,6 +461,7 @@ class Updater:
                     dist.rename(previous)
                 staging.rename(dist)
                 ui_swapped = True
+            self._check_stop()
             progress("Checking the new version")
             self._run(
                 [_find_uv(), "run", "--no-sync", "python", "-c", "import openflight.server"],

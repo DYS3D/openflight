@@ -29,6 +29,11 @@ class FakeUpdater:
         self.raises = raises
         self.checks = 0
         self.steps_seen = []
+        self.stop_requests = 0
+        self.during_apply = None
+
+    def request_stop(self):
+        self.stop_requests += 1
 
     def check(self):
         self.checks += 1
@@ -43,6 +48,8 @@ class FakeUpdater:
     def apply(self, progress):
         progress("Downloading the update")
         self.steps_seen.append(self.status.step)
+        if self.during_apply:
+            self.during_apply()
         if self.raises:
             raise self.raises
         return self.result
@@ -130,6 +137,20 @@ class TestUpdateService:
         assert payload["state"] == STATE_FAILED and payload["rolled_back"] is True
         assert payload["error"] == "npm run build failed"
         assert payload["last_result"]["ok"] is False
+        assert h.exit_codes == [UPDATE_EXIT_CODE]
+
+    def test_shutdown_while_idle_is_not_intercepted(self, tmp_path):
+        h = Harness(tmp_path)
+        assert h.service.request_stop_apply() is False
+        assert h.updater.stop_requests == 0
+
+    def test_shutdown_during_an_install_asks_it_to_roll_back(self, tmp_path):
+        h = Harness(tmp_path)
+        answers = []
+        h.updater.during_apply = lambda: answers.append(h.service.request_stop_apply())
+        h.service.request_apply(True)
+        assert answers == [True]
+        assert h.updater.stop_requests == 1
         assert h.exit_codes == [UPDATE_EXIT_CODE]
 
     def test_updater_exception_is_contained(self, tmp_path):

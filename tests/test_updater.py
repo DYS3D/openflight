@@ -3,6 +3,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
@@ -61,6 +62,7 @@ class FakeTools:
         self.calls: list[tuple[str, tuple[str, ...]]] = []
         self.fail_once: set[str] = set()
         self.fail_always: set[str] = set()
+        self.on_call: dict[str, Callable[[], None]] = {}
 
     def __call__(self, args, cwd, timeout_s, env):
         tool = Path(args[0]).name
@@ -74,6 +76,8 @@ class FakeTools:
             ("npm", "run"): "build",
         }[(tool, rest[0])]
         self.calls.append((key, rest))
+        if key in self.on_call:
+            self.on_call[key]()
         if key in self.fail_always or key in self.fail_once:
             self.fail_once.discard(key)
             return upd.CommandResult(1, f"{key} broke\nlast line")
@@ -248,6 +252,24 @@ class TestApply:
         assert not result.ok and result.rolled_back
         assert repos.pi_head() == old
         assert (repos.pi / "uv.lock").read_text() == "lock v1"
+
+    def test_shutdown_during_install_rolls_back_at_the_next_step(self, repos, tools):
+        old = repos.pi_head()
+        repos.commit("ui change", {"ui/src/main.ts": "export const v = 2;\n"})
+        updater = _updater(repos, tools)
+        tools.on_call["uv sync"] = updater.request_stop
+        result = updater.apply()
+        assert not result.ok and result.rolled_back
+        assert "interrupted by a shutdown" in result.error
+        assert repos.pi_head() == old
+        assert "build" not in tools.keys()
+        assert (repos.pi / "uv.lock").read_text() == "lock v1"
+
+    def test_a_stop_from_an_earlier_install_does_not_cancel_the_next(self, repos, tools):
+        repos.commit("server fix", {"src/app.py": "VERSION = 2\n"})
+        updater = _updater(repos, tools)
+        updater.request_stop()
+        assert updater.apply().ok
 
     def test_incomplete_rollback_is_reported(self, repos, tools):
         repos.commit("new dependency", {"pyproject.toml": "[project]\nname='z'\n"})

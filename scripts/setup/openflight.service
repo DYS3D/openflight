@@ -19,6 +19,9 @@ EnvironmentFile=-/etc/default/openflight
 ExecStart=/home/coleman/openflight/scripts/start-kiosk.sh $OPENFLIGHT_ARGS
 Restart=on-failure
 RestartSec=5
+# A stop during an in-app update waits for its rollback (uv sync, npm ci)
+# instead of SIGKILLing a half-installed checkout after the default 90 s.
+TimeoutStopSec=1800
 # Exit 3 means another OpenFlight instance already owns the kiosk (see
 # acquire_instance_lock in scripts/start-kiosk.sh); retrying cannot help.
 RestartPreventExitStatus=3

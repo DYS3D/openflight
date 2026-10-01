@@ -140,8 +140,14 @@ shutdown_server() {
     [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null || return 0
 
     log "Requesting graceful hardware shutdown..."
-    if curl -fsS --max-time 2 -X POST "http://$HOST:$WEB_PORT/api/shutdown" >/dev/null 2>&1; then
-        for _ in {1..80}; do
+    local response polls=80
+    if response="$(curl -fsS --max-time 2 -X POST "http://$HOST:$WEB_PORT/api/shutdown" 2>/dev/null)"; then
+        if [[ "$response" == *'"updating"'* ]]; then
+            # An in-app update is rolling back; killing it now would leave a broken checkout.
+            log "An update is installing; waiting for it to roll back..."
+            polls=$((${OPENFLIGHT_UPDATE_STOP_WAIT_S:-1700} * 4))
+        fi
+        for _ in $(seq "$polls"); do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
                 wait "$SERVER_PID" 2>/dev/null || true
                 SERVER_PID=""
@@ -149,7 +155,7 @@ shutdown_server() {
             fi
             sleep 0.25
         done
-        warn "Server did not complete graceful shutdown within 20 seconds"
+        warn "Server did not complete graceful shutdown in time"
     fi
 
     kill -TERM "$SERVER_PID" 2>/dev/null || true

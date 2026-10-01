@@ -170,6 +170,17 @@ def test_hardware_shutdown_precedes_force_kill():
     assert shutdown.index("kill -TERM") < shutdown.index("kill -KILL")
 
 
+def test_shutdown_waits_for_an_update_rollback_before_force_kill():
+    """SIGKILL two seconds into an in-app update would leave a half-installed checkout."""
+    script = _script()
+    shutdown = script[
+        script.index("shutdown_server() {") : script.index("stop_startup_splash_server() {")
+    ]
+    assert """*'"updating"'*""" in shutdown
+    assert "OPENFLIGHT_UPDATE_STOP_WAIT_S:-1700" in shutdown
+    assert shutdown.index('"updating"') < shutdown.index("kill -TERM")
+
+
 def test_camera_capture_uses_system_python_for_sync_and_server_start():
     script = _script()
     camera_branch = script[

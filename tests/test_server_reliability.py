@@ -303,6 +303,29 @@ class TestSigtermShutdown:
         started[0][0](*started[0][1])
         assert calls == ["cleanup"]
 
+    def test_sigterm_during_an_update_lets_it_roll_back_instead_of_exiting(self, monkeypatch):
+        import signal
+        from types import SimpleNamespace
+
+        started = []
+        monkeypatch.setattr(
+            server_module.threading,
+            "Thread",
+            lambda **kwargs: SimpleNamespace(start=lambda: started.append(kwargs)),
+        )
+        monkeypatch.setattr(
+            server_module, "update_service", SimpleNamespace(request_stop_apply=lambda: True)
+        )
+        server_module._handle_termination_signal(signal.SIGTERM, None)
+        assert started == []
+
+        response = server_module.app.test_client().post(
+            "/api/shutdown", environ_base={"REMOTE_ADDR": "127.0.0.1"}
+        )
+        assert response.status_code == 202
+        assert response.get_json() == {"status": "updating"}
+        assert started == []
+
     def test_install_signal_handlers_registers_sigterm(self, monkeypatch):
         import signal
 

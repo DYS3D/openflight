@@ -154,6 +154,9 @@ class TestDryRun:
         assert re.search(r"apt-get install -y .*\bchromium", result.stdout)
         assert "No desktop found" not in result.stderr
 
+    def test_service_waits_for_an_update_rollback_on_stop(self):
+        assert "TimeoutStopSec=1800" in SERVICE.read_text()
+
     def test_service_starts_on_a_headless_boot(self):
         text = SERVICE.read_text()
         assert "WantedBy=multi-user.target" in text

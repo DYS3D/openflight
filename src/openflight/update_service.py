@@ -140,6 +140,18 @@ class UpdateService:
         """Stop the check loop after its current wait."""
         self._stop.set()
 
+    @property
+    def applying(self) -> bool:
+        with self._lock:
+            return self._applying
+
+    def request_stop_apply(self) -> bool:
+        """On SIGTERM: make a running install roll back and exit. False when idle."""
+        if not self.applying:
+            return False
+        self.updater.request_stop()
+        return True
+
     def _check_loop(self) -> None:
         if self._stop.wait(self._first_check_delay_s):
             return

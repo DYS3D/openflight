@@ -1876,7 +1876,7 @@ class OPS243Radar:
         time.sleep(0.1)
         logger.info("[OPS] Swing speed training mode ready (PA)")
 
-    def configure_for_speed_trigger(self):
+    def configure_for_speed_trigger(self, sample_rate_ksps: int = 30):
         """
         Configure radar for fast speed detection to trigger rolling buffer capture.
 
@@ -1912,10 +1912,9 @@ class OPS243Radar:
         self.set_transmit_power(0)
         logger.info("[OPS] Transmit power: max (P0)")
 
-        # 30ksps sample rate
-        self.set_sample_rate(30000)
+        self.set_sample_rate(sample_rate_ksps * 1000)
         time.sleep(0.1)
-        logger.info("[OPS] Sample rate: 30ksps")
+        logger.info("[OPS] Sample rate: %dksps", sample_rate_ksps)
 
         # 128 buffer size for fast report rate
         self.set_buffer_size(128)
@@ -1957,7 +1956,7 @@ class OPS243Radar:
         response = self._send_command("S?")
         logger.info("[OPS] Settings: %s", response)
 
-    def switch_to_rolling_buffer(self):
+    def switch_to_rolling_buffer(self, sample_rate_ksps: int = 30):
         """
         Quickly switch from speed detection mode to rolling buffer capture.
 
@@ -1965,19 +1964,24 @@ class OPS243Radar:
         capture only new data (no pre-trigger history) since we want the
         ball impact which happens AFTER the club detection.
 
+        Commands are written raw, like enter_rolling_buffer_mode(): waiting
+        for each reply through _send_command() costs ~0.2s apiece, by which
+        time the ball has left.
+
         Per manufacturer: "have it report all the immediate data captured
         with no history (S#0 API command)"
         """
         # Switch to rolling buffer mode - radar goes active immediately
-        self._send_command("GC")
+        self.serial.write(b"GC")
         time.sleep(0.02)  # Brief delay for mode switch
 
         # S#0 = no pre-trigger history, only capture new samples
-        self._send_command("S#0")
+        self.serial.write(b"S#0\r")
         time.sleep(0.02)
 
-        # 30ksps sample rate (GC may reset to default)
-        self.set_sample_rate(30000)
+        # GC may reset the sample rate to default
+        self.serial.write(f"S={sample_rate_ksps}\r".encode())
+        self.serial.flush()
         time.sleep(0.02)
 
     def read_speed_nonblocking(self) -> Optional[SpeedReading]:

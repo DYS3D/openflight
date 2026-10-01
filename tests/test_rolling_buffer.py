@@ -518,6 +518,20 @@ class TestRollingBufferProcessor:
 # =============================================================================
 
 
+def test_speed_trigger_uses_processor_sample_rate(monkeypatch):
+    monkeypatch.setattr("openflight.rolling_buffer.trigger.time.sleep", lambda _s: None)
+    radar = MagicMock()
+    radar.serial = None
+    radar.read_speed_nonblocking.return_value = MagicMock(speed=60.0)
+    radar.trigger_capture.return_value = ""
+    processor = RollingBufferProcessor(sample_rate=20000)
+
+    SpeedTriggeredCapture().wait_for_trigger(radar, processor, timeout=0.01)
+
+    radar.configure_for_speed_trigger.assert_called_with(sample_rate_ksps=20)
+    radar.switch_to_rolling_buffer.assert_called_with(sample_rate_ksps=20)
+
+
 class TestTriggerFactory:
     """Tests for the trigger factory function."""
 

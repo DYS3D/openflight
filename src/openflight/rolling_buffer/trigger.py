@@ -235,9 +235,10 @@ class SpeedTriggeredCapture(TriggerStrategy):
            d. Trigger capture (S!)
         4. Return to speed detection mode for next shot
         """
+        sample_rate_ksps = processor.SAMPLE_RATE // 1000
         # Configure for speed trigger mode if needed
         if self._needs_reconfigure:
-            radar.configure_for_speed_trigger()
+            radar.configure_for_speed_trigger(sample_rate_ksps=sample_rate_ksps)
             self._needs_reconfigure = False
             # Clear any buffered data from mode switch
             if radar.serial:
@@ -265,7 +266,7 @@ class SpeedTriggeredCapture(TriggerStrategy):
                 )
 
                 # Immediately switch to rolling buffer mode
-                radar.switch_to_rolling_buffer()
+                radar.switch_to_rolling_buffer(sample_rate_ksps=sample_rate_ksps)
 
                 # Wait for ball impact
                 # Club to ball is typically 20-40ms, we wait a portion of that
@@ -305,7 +306,7 @@ class SpeedTriggeredCapture(TriggerStrategy):
 
                 # Reconfigure for speed mode and continue
                 self._needs_reconfigure = True
-                radar.configure_for_speed_trigger()
+                radar.configure_for_speed_trigger(sample_rate_ksps=sample_rate_ksps)
                 if radar.serial:
                     radar.serial.reset_input_buffer()
 

@@ -212,3 +212,26 @@ def test_value_commands_still_send_carriage_return(radar):
     radar.set_min_speed_filter(20)
 
     assert _sent(radar) == b"R>20\r"
+
+
+# --- speed-trigger handoff must not wait on command replies -----------------
+
+
+def test_switch_to_rolling_buffer_writes_raw_without_reply_waits(radar, monkeypatch):
+    """Each reply wait costs ~0.2s; the ball is gone long before three of them finish."""
+
+    def _no_reply_waits(*_a, **_kw):
+        raise AssertionError("switch_to_rolling_buffer must not wait for replies")
+
+    monkeypatch.setattr(OPS243Radar, "_read_reply", _no_reply_waits)
+
+    radar.switch_to_rolling_buffer(sample_rate_ksps=20)
+
+    assert radar.serial.writes == [b"GC", b"S#0\r", b"S=20\r"]
+
+
+def test_configure_for_speed_trigger_uses_configured_sample_rate(radar):
+    radar.configure_for_speed_trigger(sample_rate_ksps=20)
+
+    assert b"S2" in _sent(radar)
+    assert b"S=30" not in _sent(radar)

@@ -671,3 +671,68 @@ class TestWaitForHardwareTrigger:
 
         assert response == b"".join(self._DUMP).decode("ascii")
         assert events == ["first-byte"]
+
+
+class _MidDumpSerial(_ScheduledSerial):
+    """A HOST_INT dump already streaming when the wait starts.
+
+    ``pending`` is buffered before the wait flushes its input (the header);
+    ``schedule`` is the headerless remainder still arriving afterwards.
+    """
+
+    def __init__(self, pending, schedule):
+        super().__init__(schedule)
+        self._pending = pending
+
+    def reset_input_buffer(self):
+        self._pending = b""
+        super().reset_input_buffer()
+
+    @property
+    def in_waiting(self):
+        return len(self._pending) + super().in_waiting
+
+
+class TestSwallowedHardwareDump:
+    """A dump whose header was flushed leaves the radar idle; report it."""
+
+    _IQ_TAIL = b'{"I":[' + b"2048," * 400 + b'2048]}\r\n{"Q":[' + b"2048," * 400 + b"2048]}"
+
+    def _radar(self, serial_obj):
+        radar = OPS243Radar.__new__(OPS243Radar)
+        radar.serial = serial_obj
+        radar.last_hardware_trigger_first_byte_timestamp = None
+        return radar
+
+    def test_headerless_dump_is_reported_promptly(self):
+        header = b'{"sample_time":946.077}\r\n{"trigger_time":946.145}\r\n'
+        radar = self._radar(_MidDumpSerial(header, [(0.02, self._IQ_TAIL)]))
+        start = time.time()
+
+        response = radar.wait_for_hardware_trigger(timeout=5.0)
+
+        assert response == ""
+        assert radar.last_hardware_trigger_swallowed_dump is True
+        assert time.time() - start < 2.0
+
+    def test_dump_flushed_entirely_on_entry_is_reported(self):
+        radar = self._radar(_MidDumpSerial(self._IQ_TAIL, []))
+
+        response = radar.wait_for_hardware_trigger(timeout=5.0)
+
+        assert response == ""
+        assert radar.last_hardware_trigger_swallowed_dump is True
+
+    def test_quiet_timeout_is_not_a_swallowed_dump(self):
+        noise = b'\n\n{"Clock":1786805707}\r\n\n'
+        radar = self._radar(_ScheduledSerial([(0.02, noise)]))
+
+        assert radar.wait_for_hardware_trigger(timeout=0.2) == ""
+        assert radar.last_hardware_trigger_swallowed_dump is False
+
+    def test_real_dump_is_not_a_swallowed_dump(self):
+        dump = b'{"sample_time":946.077}\r\n' + self._IQ_TAIL
+        radar = self._radar(_ScheduledSerial([(0.02, dump)]))
+
+        assert radar.wait_for_hardware_trigger(timeout=1.0) == dump.decode("ascii")
+        assert radar.last_hardware_trigger_swallowed_dump is False

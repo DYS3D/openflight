@@ -190,6 +190,12 @@ class OPS243Radar:
     # drain must bail out loudly instead of hanging the monitor thread.
     REARM_DRAIN_TIMEOUT_S = 5.0
 
+    # Idle bytes with no capture marker beyond this are the I/Q body of a
+    # HOST_INT dump whose header was flushed (a full dump is ~40KB). The
+    # radar sits idle after any dump, so the caller must re-arm it.
+    SWALLOWED_DUMP_MIN_BYTES = 1024
+    SWALLOWED_DUMP_QUIET_S = 0.5
+
     # Common USB identifiers for OPS243
     VENDOR_IDS = [0x0483]  # STMicroelectronics
 
@@ -240,6 +246,7 @@ class OPS243Radar:
         self._magnitude_enabled = False
         self._speed_read_buffer = ""
         self.last_hardware_trigger_first_byte_timestamp: Optional[float] = None
+        self.last_hardware_trigger_swallowed_dump = False
         # Most recent OPS-clock -> host-epoch sync (see read_clock_sync).
         self.last_clock_sync: Optional[dict] = None
 
@@ -1560,7 +1567,9 @@ class OPS243Radar:
             on_first_byte: Called once when a hardware-triggered dump begins.
 
         Returns:
-            Raw response string containing JSON lines, or empty string on timeout
+            Raw response string containing JSON lines, or empty string on
+            timeout or when a headerless dump was discarded (then
+            ``last_hardware_trigger_swallowed_dump`` is True).
         """
         if not self.serial or not self.serial.is_open:
             raise ConnectionError("Not connected to radar")
@@ -1569,6 +1578,7 @@ class OPS243Radar:
             dump_grace = self.transfer_budget_s(floor=8.0)
 
         # Clear any stale data
+        discarded_idle_bytes = self.serial.in_waiting
         self.serial.reset_input_buffer()
 
         response_lines = []
@@ -1578,7 +1588,9 @@ class OPS243Radar:
         deadline = start_time + timeout
         last_data_time = None
         bytes_received = 0
+        last_idle_time = start_time
         self.last_hardware_trigger_first_byte_timestamp = None
+        self.last_hardware_trigger_swallowed_dump = False
 
         while time.time() < deadline:
             waiting = self.serial.in_waiting
@@ -1586,6 +1598,8 @@ class OPS243Radar:
                 chunk = self.serial.read(waiting)
                 first_byte_timestamp = None
                 if last_data_time is None:
+                    discarded_idle_bytes += len(chunk)
+                    last_idle_time = time.time()
                     idle_bytes.extend(chunk)
                     marker_offsets = [idle_bytes.find(marker) for marker in capture_markers]
                     marker_offsets = [offset for offset in marker_offsets if offset >= 0]
@@ -1637,6 +1651,18 @@ class OPS243Radar:
             else:
                 if cancel_event is not None and cancel_event.is_set() and last_data_time is None:
                     logger.info("[OPS] Hardware trigger wait cancelled before capture")
+                    break
+                if (
+                    last_data_time is None
+                    and discarded_idle_bytes >= self.SWALLOWED_DUMP_MIN_BYTES
+                    and time.time() - last_idle_time > self.SWALLOWED_DUMP_QUIET_S
+                ):
+                    logger.warning(
+                        "[OPS] Discarded %d idle bytes with no capture header — "
+                        "a dump lost its header; radar needs re-arming",
+                        discarded_idle_bytes,
+                    )
+                    self.last_hardware_trigger_swallowed_dump = True
                     break
                 # If we've started receiving data, use shorter timeout
                 if last_data_time and (time.time() - last_data_time) > 0.5:

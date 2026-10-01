@@ -460,6 +460,20 @@ class TestSoundTriggerTiming:
         assert radar.calls == ["wait", "clock_sync", "rearm"]
         assert radar.clock_sync_samples == [36]
 
+    def test_swallowed_dump_rearms_the_idle_radar(self):
+        radar = _ScriptedRadar("")
+        radar.last_hardware_trigger_swallowed_dump = True
+        trigger = SoundTrigger()
+        assert trigger.wait_for_trigger(radar, RollingBufferProcessor(), timeout=1.0) is None
+        assert radar.calls == ["wait", "rearm"]
+
+    def test_plain_timeout_does_not_rearm(self):
+        radar = _ScriptedRadar("")
+        radar.last_hardware_trigger_swallowed_dump = False
+        trigger = SoundTrigger()
+        assert trigger.wait_for_trigger(radar, RollingBufferProcessor(), timeout=1.0) is None
+        assert radar.calls == ["wait"]
+
 
 class TestMonitorTimingPlumbing:
     def test_monitor_shares_one_holder_with_radar_and_trigger(self):

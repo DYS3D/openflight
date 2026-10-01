@@ -596,6 +596,9 @@ class SoundTrigger(TriggerStrategy):
         )
 
         if not response:
+            if getattr(radar, "last_hardware_trigger_swallowed_dump", False) is True:
+                radar.rearm_rolling_buffer(self.pre_trigger_segments)
+                return None
             logger.info("[TRIGGER] Sound trigger timeout — no hardware trigger received")
             return None
 

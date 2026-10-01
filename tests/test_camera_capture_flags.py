@@ -201,6 +201,56 @@ class TestInitCameraCapture:
         assert server_module.camera_capture_config["frames_in_memory"] is frames_in_memory
 
 
+    def test_failure_after_start_releases_the_camera(self, monkeypatch, tmp_path):
+        from openflight.camera import capture_runtime, replay
+
+        for name in CAMERA_GLOBALS:
+            monkeypatch.setattr(server_module, name, getattr(server_module, name))
+        events = []
+
+        class FakeRuntime:
+            def __init__(self, *, output_dir, settings, use_gpio_trigger):
+                del output_dir, use_gpio_trigger
+                self.settings = settings
+
+            def start(self):
+                events.append("start")
+
+            def stop(self):
+                events.append("stop")
+
+        def broken_replay(*_args, **_kwargs):
+            raise RuntimeError("replay setup failed")
+
+        monkeypatch.setattr(capture_runtime, "CameraCaptureRuntime", FakeRuntime)
+        monkeypatch.setattr(replay, "CameraReplayManager", broken_replay)
+
+        assert not server_module.init_camera_capture(
+            output_dir=tmp_path,
+            gpio_pin=17,
+            width=640,
+            height=400,
+            fps=300.0,
+            pre_ms=150.0,
+            post_ms=50.0,
+            exposure_us=1000,
+            gain=4.0,
+            stream="raw",
+            rotate_180=False,
+            mirror_horizontal=False,
+            roll_correction_deg=0.0,
+            scaler_crop=None,
+            mount_height_m=0.2,
+            lateral_offset_m=0.0,
+            horizontal_offset_deg=0.0,
+            use_gpio_trigger=True,
+            archive_frames=False,
+            frames_in_memory=False,
+        )
+        assert events == ["start", "stop"]
+        assert server_module.camera_capture_runtime is None
+
+
 class TestEnrichment:
     def test_in_memory_archive_equals_disk_readback(self, tmp_path):
         """The estimators see the same arrays whichever path the flag selects."""

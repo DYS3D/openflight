@@ -1403,6 +1403,9 @@ def init_camera_capture(
             context={"output_dir": str(output_dir)},
             exc=error,
         )
+        if camera_capture_runtime is not None:
+            # Setup failed after start(): release the camera, its thread and the GPIO pin.
+            _run_shutdown_step("camera capture stop", camera_capture_runtime.stop)
         camera_capture_runtime = None
         camera_replay_manager = None
         camera_reference_ball_tracker = None

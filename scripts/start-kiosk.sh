@@ -66,10 +66,18 @@ while [ "$#" -gt 0 ]; do
             WEB_PORT="$2"
             shift 2
             ;;
+        --port=*|-p=*|--web-port=*)
+            WEB_PORT="${1#*=}"
+            shift
+            ;;
         --radar-port|--ops-port)
             require_value "$@"
             SERVER_ARGS+=(--port "$2")
             shift 2
+            ;;
+        --radar-port=*|--ops-port=*)
+            SERVER_ARGS+=(--port "${1#*=}")
+            shift
             ;;
         --buffer-split)
             require_value "$@"

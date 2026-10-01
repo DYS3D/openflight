@@ -67,6 +67,22 @@ def test_radar_alias_is_distinct_from_web_port(alias):
     ]
 
 
+@pytest.mark.parametrize("alias", ["--port", "-p", "--web-port"])
+def test_web_port_alias_accepts_equals_form(alias):
+    assert _dry_run(f"{alias}=9000") == ["openflight-server", "--web-port", "9000"]
+
+
+@pytest.mark.parametrize("alias", ["--radar-port", "--ops-port"])
+def test_radar_alias_accepts_equals_form(alias):
+    assert _dry_run(f"{alias}=/dev/serial0") == [
+        "openflight-server",
+        "--web-port",
+        "8080",
+        "--port",
+        "/dev/serial0",
+    ]
+
+
 @pytest.mark.parametrize(
     ("preset", "segments"),
     [("balanced", "16"), ("post-heavy", "12"), ("pre-heavy", "24"), ("20", "20")],

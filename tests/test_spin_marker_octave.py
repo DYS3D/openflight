@@ -622,32 +622,43 @@ class TestServerSpinOptions:
         return received
 
     @pytest.mark.parametrize(
-        ("extra_argv", "marker", "octave"),
+        ("extra_argv", "marker", "octave", "prior"),
         [
-            ([], "none", False),
-            (["--ball-marker", "dot"], "dot", False),
-            (["--ball-marker", "rct", "--spin-octave-check"], "rct", True),
-            (["--spin-octave-check"], "none", True),
+            ([], "none", False, "optimal"),
+            (["--ball-marker", "dot"], "dot", False, "optimal"),
+            (["--ball-marker", "rct", "--spin-octave-check"], "rct", True, "optimal"),
+            (["--spin-octave-check"], "none", True, "optimal"),
+            (["--spin-octave-check", "--spin-octave-prior", "range"], "none", True, "range"),
         ],
     )
     def test_flags_reach_the_monitor_and_session_metadata(
-        self, monkeypatch, extra_argv, marker, octave
+        self, monkeypatch, extra_argv, marker, octave, prior
     ):
         received = self._run_main(monkeypatch, extra_argv)
 
         assert received["ball_marker"] == marker
         assert received["spin_octave_check"] is octave
+        assert received["spin_octave_prior"] == prior
         assert server_module._session_start_config()["spin"] == {
             "ball_marker": marker,
             "octave_check": octave,
+            "octave_prior": prior,
         }
+
+    def test_unknown_spin_octave_prior_is_a_usage_error(self, monkeypatch):
+        with pytest.raises(SystemExit):
+            self._run_main(monkeypatch, ["--spin-octave-prior", "tour"])
 
     def test_unknown_ball_marker_is_a_usage_error(self, monkeypatch):
         with pytest.raises(SystemExit):
             self._run_main(monkeypatch, ["--ball-marker", "foil"])
 
-    @pytest.mark.parametrize(("marker", "octave"), [("none", False), ("dot", True)])
-    def test_start_monitor_builds_the_monitor_with_the_options(self, monkeypatch, marker, octave):
+    @pytest.mark.parametrize(
+        ("marker", "octave", "prior"), [("none", False, "optimal"), ("dot", True, "range")]
+    )
+    def test_start_monitor_builds_the_monitor_with_the_options(
+        self, monkeypatch, marker, octave, prior
+    ):
         built = {}
 
         class FakeMonitor:
@@ -666,15 +677,23 @@ class TestServerSpinOptions:
         monkeypatch.setattr(server_module, "get_session_logger", lambda: None)
         monkeypatch.setattr(rolling_buffer_package, "RollingBufferMonitor", FakeMonitor)
 
-        server_module.start_monitor(port=None, ball_marker=marker, spin_octave_check=octave)
+        server_module.start_monitor(
+            port=None, ball_marker=marker, spin_octave_check=octave, spin_octave_prior=prior
+        )
 
         assert built["ball_marker"] == marker
         assert built["spin_octave_check"] is octave
+        assert built["spin_octave_prior"] == prior
 
     def test_monitor_passes_the_options_to_its_processor(self):
         monitor = RollingBufferMonitor(
-            port=None, trigger_type="sound", ball_marker="rct", spin_octave_check=True
+            port=None,
+            trigger_type="sound",
+            ball_marker="rct",
+            spin_octave_check=True,
+            spin_octave_prior="range",
         )
 
         assert monitor.processor.ball_marker == "rct"
         assert monitor.processor.spin_octave_check is True
+        assert monitor.processor.spin_octave_prior == "range"

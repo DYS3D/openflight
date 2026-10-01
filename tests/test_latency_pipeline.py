@@ -377,6 +377,7 @@ class TestRadarProfileWiring:
             "radar_auto_reconnect": False,
             "ball_marker": "none",
             "spin_octave_check": False,
+            "spin_octave_prior": "optimal",
             "interference_check": False,
             "scale_speed_band": False,
             "fast_dsp": False,

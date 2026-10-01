@@ -2440,8 +2440,13 @@ radar_config = {
 }
 # --radar-auto-reconnect: off keeps the capture loops retrying a dead port.
 radar_auto_reconnect_enabled = False
-# --ball-marker / --spin-octave-check, recorded with the session metadata.
-spin_runtime_config: dict = {"ball_marker": "none", "octave_check": False}
+# --ball-marker / --spin-octave-check / --spin-octave-prior, recorded with the
+# session metadata.
+spin_runtime_config: dict = {
+    "ball_marker": "none",
+    "octave_check": False,
+    "octave_prior": "optimal",
+}
 
 # Inclusive bounds for UI-tunable radar settings. The OPS243-A only needs
 # golf-plausible speeds; anything outside these is a client bug or abuse and
@@ -4629,6 +4634,7 @@ def start_monitor(
     radar_auto_reconnect: bool = False,
     ball_marker: str = "none",
     spin_octave_check: bool = False,
+    spin_octave_prior: str = "optimal",
     interference_check: bool = False,
     radar_profile: str = DEFAULT_RADAR_PROFILE,
     fast_dsp: bool = False,
@@ -4645,6 +4651,7 @@ def start_monitor(
         radar_auto_reconnect: Re-detect the OPS243 after a serial error
         ball_marker: Rolling-buffer spin ball marker mode (none, dot, rct)
         spin_octave_check: Correct rolling-buffer ~2x/~0.5x spin picks
+        spin_octave_prior: Octave check prior ("optimal" or "range")
         interference_check: Track the OPS243 noise floor and emit radar_health
         radar_profile: OPS243 rolling-buffer profile (standard or low-latency);
             low-latency overrides sample_rate_ksps and the pre-trigger split
@@ -4691,6 +4698,7 @@ def start_monitor(
             radar_auto_reconnect=radar_auto_reconnect,
             ball_marker=ball_marker,
             spin_octave_check=spin_octave_check,
+            spin_octave_prior=spin_octave_prior,
             interference_check=interference_check,
             scale_speed_band=profile.scale_speed_band,
             fast_dsp=fast_dsp,
@@ -5824,7 +5832,7 @@ def main():
             "spin_rpm_measured for offline scoring"
         ),
     )
-    from .rolling_buffer.types import BALL_MARKERS
+    from .rolling_buffer.types import BALL_MARKERS, SPIN_OCTAVE_PRIORS
 
     parser.add_argument(
         "--ball-marker",
@@ -5847,6 +5855,18 @@ def main():
             "~2x (or, without --ball-marker, ~0.5x) the prior moves to a "
             "supporting half (double) candidate and is tagged octave_halved "
             "(octave_doubled) in spin_method. Off by default"
+        ),
+    )
+    parser.add_argument(
+        "--spin-octave-prior",
+        choices=SPIN_OCTAVE_PRIORS,
+        default="optimal",
+        help=(
+            "Prior for --spin-octave-check. 'optimal' (default) compares the "
+            "pick with the club/ball-speed optimal spin. 'range' moves only a "
+            "pick outside the club's plausible spin range, to a half/double "
+            "peak inside it at least 0.8x as strong, and caps that result to "
+            "low quality"
         ),
     )
     parser.add_argument(
@@ -6052,6 +6072,7 @@ def main():
     spin_runtime_config = {
         "ball_marker": args.ball_marker,
         "octave_check": args.spin_octave_check,
+        "octave_prior": args.spin_octave_prior,
     }
     ballistics_enabled = args.ballistics
     battery_provider = args.battery
@@ -6338,6 +6359,7 @@ def main():
             radar_auto_reconnect=args.radar_auto_reconnect,
             ball_marker=args.ball_marker,
             spin_octave_check=args.spin_octave_check,
+            spin_octave_prior=args.spin_octave_prior,
             interference_check=args.interference_check,
             radar_profile=args.radar_profile,
             fast_dsp=args.fast_dsp,

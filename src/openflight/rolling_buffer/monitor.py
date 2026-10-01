@@ -199,6 +199,7 @@ class RollingBufferMonitor:
         radar_auto_reconnect: bool = False,
         ball_marker: str = "none",
         spin_octave_check: bool = False,
+        spin_octave_prior: str = "optimal",
         interference_check: bool = False,
         scale_speed_band: bool = False,
         fast_dsp: bool = False,
@@ -229,6 +230,8 @@ class RollingBufferMonitor:
                 see RollingBufferProcessor.
             spin_octave_check: Correct ~2x / ~0.5x spin picks against the
                 club/ball-speed prior; see RollingBufferProcessor.
+            spin_octave_prior: Octave check prior, "optimal" (default) or
+                "range" (per-club plausible spin); see RollingBufferProcessor.
             interference_check: Track the OPS243 noise floor from every
                 buffer dump and report ``radar_health`` transitions; see
                 radar_health.py. Off by default.
@@ -245,6 +248,7 @@ class RollingBufferMonitor:
             sample_rate=sample_rate_ksps * 1000,
             ball_marker=ball_marker,
             spin_octave_check=spin_octave_check,
+            spin_octave_prior=spin_octave_prior,
             scale_speed_band=scale_speed_band,
             fast_dsp=fast_dsp,
         )

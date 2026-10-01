@@ -4,6 +4,7 @@ import { useShotStore } from '../stores/useShotStore';
 import { useCameraStore, type CameraCaptureSettings } from '../stores/useCameraStore';
 import { useDebugStore } from '../stores/useDebugStore';
 import { useBannerStore } from '../stores/useBannerStore';
+import { useValidationStore } from '../stores/useValidationStore';
 import {
   type Shot,
   type SessionState,
@@ -30,6 +31,8 @@ class SocketService {
   private sessionClearedListeners = new Set<() => void>();
   /** session_cleared is broadcast; only the client that asked should react to it. */
   private sessionClearPending = false;
+  /** Shots this client asked to delete; their validation entries go once the server drops them. */
+  private pendingDeletes = new Set<string>();
   /** Set when the socket drops while an update restart is under way. */
   private reloadOnNextMessage = false;
 
@@ -157,6 +160,10 @@ class SocketService {
       useBannerStore.getState().showNotice({ kind: 'simShotDropped', reason: data.reason });
     });
 
+    this.socket.on('delete_shot_error', (data: { error: string }) => {
+      useBannerStore.getState().showNotice({ kind: 'deleteShotFailed', reason: data.error });
+    });
+
     this.socket.on('club_changed', (data: { club: string }) => {
       ingestSessionClub(data.club);
     });
@@ -169,6 +176,7 @@ class SocketService {
       console.log('Session state received:', data);
       // Need to get latest state of setShots
       useShotStore.getState().setShots(data.shots);
+      this.forgetDeletedValidationEntries(data.shots);
 
       const systemStore = useSystemStore.getState();
       if (data.mock_mode !== undefined) {
@@ -241,6 +249,15 @@ class SocketService {
     );
   }
 
+  private forgetDeletedValidationEntries(shots: Shot[]) {
+    const remaining = new Set(shots.map((shot) => shot.timestamp));
+    for (const timestamp of this.pendingDeletes) {
+      if (remaining.has(timestamp)) continue;
+      this.pendingDeletes.delete(timestamp);
+      useValidationStore.getState().removeEntry(timestamp);
+    }
+  }
+
   // Emitters
   onSessionCleared(listener: () => void) {
     this.sessionClearedListeners.add(listener);
@@ -289,7 +306,9 @@ class SocketService {
   }
 
   deleteShot(timestamp: string) {
-    this.socket?.emit('delete_shot', { timestamp });
+    if (!this.socket) return;
+    this.pendingDeletes.add(timestamp);
+    this.socket.emit('delete_shot', { timestamp });
   }
 
   setDebugEnabled(enabled: boolean) {

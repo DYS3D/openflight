@@ -52,6 +52,12 @@ describe('StatusBanner', () => {
     expect(renderToString(<StatusBanner />)).toContain('Shot not sent to simulator: simulator busy');
   });
 
+  it('shows a refused shot delete', () => {
+    bannerState.notice = { id: 4, kind: 'deleteShotFailed', reason: 'Shot not found' };
+
+    expect(renderToString(<StatusBanner />)).toContain('Could not delete shot: Shot not found');
+  });
+
   it('shows both banners together while reconnecting', () => {
     bannerState.reconnectAttempt = 1;
     bannerState.notice = { id: 3, kind: 'simShotDropped', reason: 'offline' };

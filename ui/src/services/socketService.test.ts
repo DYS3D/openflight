@@ -25,6 +25,7 @@ const { socketService } = await import('./socketService');
 const { useBannerStore } = await import('../stores/useBannerStore');
 const { useDebugStore } = await import('../stores/useDebugStore');
 const { useSystemStore } = await import('../stores/useSystemStore');
+const { useValidationStore } = await import('../stores/useValidationStore');
 
 function fire(handlers: Map<string, (...args: unknown[]) => void>, event: string, ...args: unknown[]) {
   const handler = handlers.get(event);
@@ -209,6 +210,39 @@ describe('socketService', () => {
       fire(fake.handlers, 'session_cleared', { profile_id: 'p1', shots: [] });
       expect(listener).toHaveBeenCalledTimes(1);
       unsubscribe();
+    });
+  });
+
+  describe('shot delete', () => {
+    const shot = (timestamp: string) => ({ timestamp, ball_speed_mph: 150 });
+    const entry = { comparatorDevice: 'PRGR', comparatorSpeed: '150', notes: '' };
+
+    beforeEach(() => {
+      useValidationStore.getState().clearEntries();
+      useValidationStore.getState().updateEntry('a', entry);
+    });
+
+    it('keeps the validation entry until the server session no longer has the shot', () => {
+      socketService.deleteShot('a');
+      expect(useValidationStore.getState().entries.a).toEqual(entry);
+
+      fire(fake.handlers, 'session_state', { shots: [shot('a'), shot('b')] });
+      expect(useValidationStore.getState().entries.a).toEqual(entry);
+
+      fire(fake.handlers, 'session_state', { shots: [shot('b')] });
+      expect(useValidationStore.getState().entries.a).toBeUndefined();
+    });
+
+    it('does not drop validation entries for shots this client never deleted', () => {
+      fire(fake.handlers, 'session_state', { shots: [] });
+
+      expect(useValidationStore.getState().entries.a).toEqual(entry);
+    });
+
+    it('surfaces delete_shot_error as an on-screen notice', () => {
+      fire(fake.handlers, 'delete_shot_error', { error: 'Shot not found' });
+
+      expect(useBannerStore.getState().notice).toMatchObject({ kind: 'deleteShotFailed', reason: 'Shot not found' });
     });
   });
 });

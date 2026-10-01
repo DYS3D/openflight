@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import type { LevelStatus, RadarHealth } from '../types/socket';
 
 export type SimNoticeInput =
-  { kind: 'simSendFailed'; target: string; reason: string } | { kind: 'simShotDropped'; reason: string };
+  | { kind: 'simSendFailed'; target: string; reason: string }
+  | { kind: 'simShotDropped'; reason: string }
+  | { kind: 'deleteShotFailed'; reason: string };
 
 export type SimNotice = SimNoticeInput & { id: number };
 

@@ -123,7 +123,7 @@ function ValidationEditor({
 export function ShotsPanel({ shots, profileId, profileName, clubLabel, onDeleteShot, onReplayShot }: ShotsPanelProps) {
   const { t } = useI18n();
   const { unitSystem } = useUnitPreference();
-  const { entries, updateEntry, removeEntry } = useValidationStore();
+  const { entries, updateEntry } = useValidationStore();
   const [expanded, setExpanded] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const dragScroll = useDragScroll(listRef);
@@ -144,11 +144,6 @@ export function ShotsPanel({ shots, profileId, profileName, clubLabel, onDeleteS
   const handleExport = () => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     downloadCsv(`openflight-validation-${stamp}.csv`, buildValidationCsv(profileShots, entries));
-  };
-
-  const handleDelete = (timestamp: string) => {
-    removeEntry(timestamp);
-    onDeleteShot(timestamp);
   };
 
   const header = (
@@ -259,7 +254,7 @@ export function ShotsPanel({ shots, profileId, profileName, clubLabel, onDeleteS
                     type="button"
                     className="shots-panel__delete"
                     aria-label={t('shots.delete', { n: shotNumber })}
-                    onClick={() => handleDelete(shot.timestamp)}
+                    onClick={() => onDeleteShot(shot.timestamp)}
                   >
                     {t('shots.deleteShort')}
                   </button>

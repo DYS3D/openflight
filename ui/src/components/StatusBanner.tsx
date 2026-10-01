@@ -8,6 +8,9 @@ function noticeText(notice: SimNotice, t: (key: MessageKey, vars?: Record<string
   if (notice.kind === 'simSendFailed') {
     return t('banner.simSendFailed', { target: notice.target, reason: notice.reason });
   }
+  if (notice.kind === 'deleteShotFailed') {
+    return t('banner.deleteShotFailed', { reason: notice.reason });
+  }
   return t('banner.simShotDropped', { reason: notice.reason });
 }
 

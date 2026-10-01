@@ -220,6 +220,7 @@ export const en = {
   'app.simulateShot': 'Simulate shot',
   'banner.simSendFailed': 'Could not send shot to {target}: {reason}',
   'banner.simShotDropped': 'Shot not sent to simulator: {reason}',
+  'banner.deleteShotFailed': 'Could not delete shot: {reason}',
   'banner.reconnecting': 'Reconnecting ({n})…',
   'banner.dismissNotice': 'Dismiss notice',
   'app.errorTitle': 'Something went wrong',

@@ -128,7 +128,10 @@ The clock-sync and re-arm timing used to be constants. They are now
 - [ ] **GSPro / OpenGolfSim.** Simulator connections are outbound from the Pi
       and are not affected. Confirm shots still arrive.
 - [ ] **Origins.** Opening the UI by the Pi's hostname, `<hostname>.local`
-      and its IP all work. Any other name needs `--allowed-origin`; a browser
+      and its IP all work. Check the IP from a phone in particular
+      (`http://192.168.x.y:8080`): Pi OS maps the hostname to 127.0.1.1, so
+      the LAN address is matched against the request's own Host and the
+      Pi's current routable address rather than DNS. Any other name needs `--allowed-origin`; a browser
       tab on another site cannot call the API (403). If you put a reverse
       proxy on the Pi, every client arrives from loopback and is exempt —
       don't combine the two.
@@ -289,7 +292,15 @@ See [Software updates](updates.md). Validate on the Pi before relying on it.
 ## 11. Installer and stable device names
 
 - [ ] `scripts/install.sh --dry-run` lists every step; the real run completes
-      and `scripts/openflight-doctor.sh` passes after a reboot.
+      and `scripts/openflight-doctor.sh` passes after a reboot. On the first
+      run the self-check reports new groups as "takes effect after you log
+      out and back in" rather than FAIL.
+- [ ] Re-run with only `--with-updates` after an install that used
+      `--server-args "--radar-port /dev/ttyAMA0"`: `/etc/default/openflight`
+      must still contain `--radar-port /dev/ttyAMA0`.
+- [ ] Cold boot to the desktop: the kiosk opens without a manual restart.
+      `journalctl -u openflight -b` shows `Desktop display ready after Ns` or
+      nothing about the display, and never `KIOSK NOT STARTED`.
 - [ ] `ls -l /dev/openflight-ops243 /dev/openflight-iwr-cli
       /dev/openflight-iwr-data` resolve to the right ttys (CP2105 interface
       00 is the CLI, 01 the data port).

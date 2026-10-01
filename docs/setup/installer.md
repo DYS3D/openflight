@@ -30,7 +30,7 @@ Reboot when it finishes, then run the [doctor](#check-the-install).
 | Step | Change |
 | --- | --- |
 | Platform check | Refuses anything but a Pi 5 on Bookworm unless `--force` is given; refuses to run as root (it uses `sudo` itself) |
-| System packages | `apt-get install` of git, curl, python3-dev, python3-venv, build-essential, swig, liblgpio-dev, ffmpeg, i2c-tools, avahi-daemon and Chromium (plus `python3-picamera2 rpicam-apps` with `--with-camera`) |
+| System packages | `apt-get install` of git, curl, python3-dev, python3-venv, build-essential, swig, liblgpio-dev, ffmpeg, i2c-tools, avahi-daemon and Chromium (Chromium only when a desktop is installed; plus `python3-picamera2 rpicam-apps` with `--with-camera`) |
 | uv | Installs [uv](https://docs.astral.sh/uv/) if it is not already on the path |
 | Python environment | `uv sync` (`--extra camera` with a system-site-packages venv under `--with-camera`) |
 | Node.js and UI | Installs Node.js 22 from NodeSource if the installed one is older than 22.12, then `npm ci` and `npm run build` in `ui/` |
@@ -38,8 +38,8 @@ Reboot when it finishes, then run the [doctor](#check-the-install).
 | Groups | Adds you to `dialout`, `gpio`, `i2c` and `video` |
 | udev rules | Installs `scripts/setup/99-openflight.rules` as `/etc/udev/rules.d/99-openflight.rules` |
 | Service | Installs `openflight.service` for your user and checkout, writes `/etc/default/openflight`, enables the service |
-| Kiosk | Desktop autologin and no screen blanking (skip with `--no-kiosk`) |
-| Self-check | `self_test.py --software-only` (a failure here only warns; hardware waits for the reboot) |
+| Kiosk | Desktop autologin and no screen blanking (skip with `--no-kiosk`). On an image without a desktop (Pi OS Lite: no lightdm, labwc or wayfire) the kiosk and Chromium are skipped with a warning and OpenFlight runs headless |
+| Self-check | `self_test.py --software-only` (a failure here only warns; hardware waits for the reboot). Groups added a moment ago show as "takes effect after you log out and back in", not as a failure |
 
 Before changing `config.txt` the installer saves a timestamped copy next to it,
 for example `/boot/firmware/config.txt.openflight-20260930-141502.bak`. A
@@ -70,9 +70,17 @@ In that case pass its port too:
 
 The service reads its arguments from `/etc/default/openflight`
 (`OPENFLIGHT_ARGS="..."`). A re-run without `--server-args`, `--with-iwr6843` or
-`--with-camera` keeps your hand edits to that file; a re-run with them
-replaces it and keeps a timestamped backup. After editing it, apply the change
-with `sudo systemctl restart openflight`.
+`--with-camera` keeps your hand edits to that file. A re-run with them merges
+the new arguments into the existing ones: an option given again replaces its
+old value, every other earlier option (such as `--radar-port /dev/ttyAMA0`) is
+kept, the result is printed, and a timestamped backup is kept. To drop an
+argument, edit the file. After editing it, apply the change with
+`sudo systemctl restart openflight`.
+
+At boot the kiosk waits up to 60 s for the desktop's display to appear before
+opening the browser (set `OPENFLIGHT_DISPLAY_WAIT_S` in the env file to change
+it). If the display never appears, or the browser exits during start-up, the
+journal shows `KIOSK NOT STARTED` and the server keeps running.
 
 ## Stable device names
 

@@ -6,6 +6,7 @@ import { ballZoneRect } from '../utils/ballZone';
 import { getServerOrigin } from '../utils/serverOrigin';
 import './CameraFeed.css';
 import { accessHeaders } from '../utils/accessToken';
+import { startPreviewPolling } from '../utils/previewPolling';
 
 interface CameraFeedProps {
   captureSettings: CameraCaptureSettings;
@@ -40,7 +41,6 @@ interface CaptureSettingsPanelProps {
 
 const PREVIEW_URL = `${getServerOrigin()}/api/camera/preview.jpg`;
 const EXPOSURE_QUALITY_URL = `${getServerOrigin()}/api/camera/exposure-quality`;
-const PREVIEW_REFRESH_MS = 5000;
 const BALL_GUIDE_X_PCT = 50;
 const BALL_GUIDE_Y_PCT = 78;
 
@@ -242,20 +242,18 @@ export function CameraFeed({
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
-    let timer: ReturnType<typeof setInterval> | null = null;
 
-    const refresh = async () => {
+    const refresh = async (): Promise<boolean> => {
       try {
         const response = await fetch(`${PREVIEW_URL}?t=${Date.now()}`, { cache: 'no-store', headers: accessHeaders() });
-        if (cancelled) return;
+        if (cancelled) return true;
         if (response.status === 404) {
           setPreviewState('unavailable');
-          if (timer) clearInterval(timer);
-          return;
+          return false;
         }
-        if (!response.ok) return;
+        if (!response.ok) return true;
         const blob = await response.blob();
-        if (cancelled) return;
+        if (cancelled) return true;
         const nextUrl = URL.createObjectURL(blob);
         if (objectUrl) URL.revokeObjectURL(objectUrl);
         objectUrl = nextUrl;
@@ -272,13 +270,13 @@ export function CameraFeed({
       } catch {
         // Keep the last frame and retry after a transient network failure.
       }
+      return true;
     };
 
-    refresh();
-    timer = setInterval(refresh, PREVIEW_REFRESH_MS);
+    const stopPolling = startPreviewPolling(refresh);
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      stopPolling();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, []);

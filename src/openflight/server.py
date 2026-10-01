@@ -850,13 +850,14 @@ def _select_vertical_radar_launch(kld7_angle, shot: Shot) -> tuple[bool, dict]:
     """Decide whether a vertical K-LD7 candidate should set the shot launch angle.
 
     High-confidence candidates keep the existing production behavior. Marginal
-    candidates get a stricter second pass: they must agree with the launch
-    estimator, sit inside a club-family lane, and avoid very long frame spans
-    that often indicate clutter rather than the ball transit. Very low
-    confidence candidates are still rejected, but near-threshold candidates
-    that pass every other guard are allowed through so the UI can show them as
-    low-confidence radar measurements instead of silently replacing them with
-    the launch estimator.
+    candidates are checked against the launch estimator, a club-family lane and
+    a frame-span limit (long spans often mean clutter), but failing those checks
+    no longer rejects them: they are accepted as ``marginal_accept:*`` with
+    their display confidence capped, so the UI shows a low-confidence radar
+    reading instead of silently swapping in the estimator. Candidates are
+    rejected only when they fail the physics guard, fall below the
+    low-confidence floor, have no estimator to compare against, or have no
+    frames.
     """
     details = {
         "accepted": False,

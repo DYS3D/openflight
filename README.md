@@ -92,29 +92,29 @@ instead; see the operator guide's Option B.
 
 ### 3. Set up the Pi
 
-Flash Raspberry Pi OS (64-bit), plug in the radars, then run the interactive setup:
+Flash Raspberry Pi OS (64-bit, Bookworm) on a Pi 5, plug in the radars, then
+run the idempotent installer. It sets up packages, uv, Node.js and the UI
+build, the GPIO UART, serial permissions, udev names for the radars, and the
+boot-time kiosk; the doctor then gives a PASS/FAIL checklist. See the
+**[One-Command Installer](docs/setup/installer.md)**.
 
 ```bash
-git clone https://github.com/jewbetcha/openflight.git
+git clone https://github.com/DYS3D/openflight.git
 cd openflight
-./scripts/setup/setup.sh
-```
-
-The script installs everything and walks you through the one-time hardware
-configuration (radar flash setup, legacy K-LD7 device naming, auto-start, and
-optional cloud sync) with prompts. It's safe to re-run any time.
-
-Prefer no prompts? On a Pi 5 with Bookworm the idempotent installer sets up
-packages, uv, Node.js and the UI build, the GPIO UART, serial permissions, udev
-names for the radars, and the boot-time kiosk; the doctor then gives a
-PASS/FAIL checklist. See the **[One-Command Installer](docs/setup/installer.md)**.
-
-```bash
-./scripts/install.sh --dry-run          # see every change first; flags: --with-iwr6843 --with-camera --no-kiosk
+./scripts/install.sh --dry-run          # see every change first; flags: --with-iwr6843 --with-camera --with-updates --no-kiosk
 ./scripts/install.sh
 ./scripts/openflight-doctor.sh          # after rebooting
 ./scripts/setup/flash-iwr6843.sh        # optional: TI radar firmware
 ```
+
+The in-app updater (`--with-updates`, i.e. `--update-check`) pulls from the
+checkout's `origin` remote, so `origin` must point at `DYS3D/openflight`.
+Check with `git remote -v`; fix an older clone with
+`git remote set-url origin https://github.com/DYS3D/openflight.git`.
+
+The older interactive `./scripts/setup/setup.sh` still works and walks through
+the one-time hardware configuration (radar flash setup, legacy K-LD7 device
+naming, auto-start, and optional cloud sync) with prompts.
 
 Several new behaviours (radar timing, auto-reconnect, GSPro field trimming,
 access control, request limits, cosine correction on OPS-only builds) ship

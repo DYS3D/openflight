@@ -5,6 +5,7 @@ Provides real-time shot data to the web frontend via Flask-SocketIO.
 """
 
 import copy
+import functools
 import json
 import logging
 import math
@@ -163,12 +164,14 @@ def _access_refusal(auth=None, *, allow_ui_shell: bool = False) -> Optional[tupl
     return "Device token required", 401
 
 
-def _rate_limited(remote_addr: Optional[str], now: Optional[float] = None) -> bool:
-    """Per-IP sliding window: more than limit*burst requests in the window is refused."""
+def _rate_limited(
+    remote_addr: Optional[str], now: Optional[float] = None, key: Optional[str] = None
+) -> bool:
+    """Per-IP (or per-``key``) sliding window: more than limit*burst in the window is refused."""
     if request_rate_limit_per_s <= 0 or access_policy.client_is_exempt(remote_addr):
         return False
     now = time.monotonic() if now is None else now
-    key = remote_addr or "?"
+    key = key or remote_addr or "?"
     cap = max(1, int(request_rate_limit_per_s * RATE_LIMIT_BURST_S))
     with _rate_lock:
         if len(_rate_buckets) > RATE_LIMIT_MAX_TRACKED_IPS:
@@ -181,6 +184,28 @@ def _rate_limited(remote_addr: Optional[str], now: Optional[float] = None) -> bo
         window.append(now)
         _rate_buckets[key] = window
         return False
+
+
+def _socket_rate_limit(event: str):
+    """Apply --request-rate-limit to a socket event, per socket session.
+
+    HTTP requests are limited in before_request; socket events never pass
+    through it, so the expensive or hardware-touching ones opt in here.
+    """
+
+    def decorate(handler):
+        @functools.wraps(handler)
+        def limited(*args, **kwargs):
+            sid = _current_sid()
+            if sid and _rate_limited(request.remote_addr, key=f"sid:{sid}"):
+                logger.warning("[SERVER] Rate limited %s from %s", event, request.remote_addr)
+                _reply("rate_limited", {"event": event, "error": "Too many requests"})
+                return None
+            return handler(*args, **kwargs)
+
+        return limited
+
+    return decorate
 
 
 @app.before_request
@@ -2375,6 +2400,7 @@ def handle_delete_shot(data=None):
 
 
 @socketio.on("simulate_shot")
+@_socket_rate_limit("simulate_shot")
 def handle_simulate_shot(*_args):
     """Simulate a shot (only works in mock mode)."""
     if monitor and isinstance(monitor, (MockLaunchMonitor, MockSwingSpeedMonitor)):
@@ -2504,6 +2530,7 @@ def handle_get_radar_config(*_args):
 
 
 @socketio.on("set_radar_config")
+@_socket_rate_limit("set_radar_config")
 def handle_set_radar_config(data=None):
     """Update radar configuration."""
     if not monitor or (mock_mode and not mock_swing_speed_mode):
@@ -2654,6 +2681,7 @@ def handle_get_update_status(*_args):
 
 
 @socketio.on("check_for_updates")
+@_socket_rate_limit("check_for_updates")
 def handle_check_for_updates(*_args):
     """Kiosk-only: check GitHub now instead of waiting for the next scheduled check."""
     if update_service is None:
@@ -2665,6 +2693,7 @@ def handle_check_for_updates(*_args):
 
 
 @socketio.on("apply_update")
+@_socket_rate_limit("apply_update")
 def handle_apply_update(*_args):
     """Kiosk-only: install the available update, then restart the service."""
     if update_service is None:

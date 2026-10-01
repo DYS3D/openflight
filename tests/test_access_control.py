@@ -272,6 +272,37 @@ class TestRateLimit:
         assert not open_server._rate_limited(LAN, now=102.5)
 
 
+class TestSocketRateLimit:
+    @staticmethod
+    def _limited(client) -> list:
+        return [msg["args"][0] for msg in client.get_received() if msg["name"] == "rate_limited"]
+
+    def test_off_by_default(self, open_server):
+        client = _socket(open_server, LAN)
+        client.get_received()
+        for _ in range(20):
+            client.emit("check_for_updates")
+        assert self._limited(client) == []
+
+    def test_lan_socket_is_capped_per_session_but_loopback_is_not(self, open_server, monkeypatch):
+        monkeypatch.setattr(open_server, "request_rate_limit_per_s", 2.0)  # 4 per 2 s window
+        monkeypatch.setattr(open_server, "_rate_buckets", {})
+        phone = _socket(open_server, LAN)
+        phone.get_received()
+        for _ in range(6):
+            phone.emit("check_for_updates")
+        assert (
+            self._limited(phone)
+            == [{"event": "check_for_updates", "error": "Too many requests"}] * 2
+        )
+
+        kiosk = _socket(open_server, "127.0.0.1")
+        kiosk.get_received()
+        for _ in range(10):
+            kiosk.emit("simulate_shot")
+        assert self._limited(kiosk) == []
+
+
 class TestMaxRequestBytes:
     def _run_main(self, monkeypatch, *extra):
         runs = []

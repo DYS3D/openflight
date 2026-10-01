@@ -32,7 +32,7 @@ Binding, ports, and debug output.
 | `--auth-required` | flag; default off | Require the device token from clients that are not on the Pi itself and only accept browsers from the Pi's own hostname/IP, `localhost`, or `--allowed-origin`. The kiosk (loopback) is always exempt. Off = today's open server |
 | `--auth-token-file` | path; default `~/.config/openflight/token` | Device token file (created with mode 0600 on first `--auth-required` start or by the installer; `$OPENFLIGHT_AUTH_TOKEN` overrides it). Send it as `X-OpenFlight-Token`, `Authorization: Bearer`, `?token=`, or Socket.IO `auth: {token}` |
 | `--allowed-origin` | repeatable | Extra browser origin/hostname accepted with `--auth-required` |
-| `--request-rate-limit` | float/s; default `0` | Refuse HTTP requests from one non-loopback IP above this sustained rate (2 s burst window) with 429. 0 = no limit |
+| `--request-rate-limit` | float/s; default `0` | Refuse HTTP requests from one non-loopback IP above this sustained rate (2 s burst window) with 429. The same cap applies per socket session to `simulate_shot`, `set_radar_config`, `check_for_updates` and `apply_update`, answered with a `rate_limited` event. 0 = no limit |
 | `--max-request-bytes` | int; default `0` | Reject HTTP bodies larger than this with 413. 0 = unlimited |
 | `--update-check` | flag; default off | Check GitHub for a newer OpenFlight and show an Update button on the touchscreen (kiosk only). See [Software updates](../setup/updates.md) |
 | `--update-remote` | default `origin` | Git remote the update check fetches |

@@ -165,6 +165,12 @@ class TestDryRun:
     def test_repo_prefers_the_system_python(self):
         assert 'python-preference = "system"' in (PROJECT_ROOT / "pyproject.toml").read_text()
 
+    def test_a_normal_stop_is_not_recorded_as_a_failure(self):
+        text = SERVICE.read_text()
+        assert "SuccessExitStatus=130 143" in text
+        # The updater's restart code must still count as a failure so systemd restarts.
+        assert "75" not in text.split("SuccessExitStatus=")[1].splitlines()[0]
+
     def test_service_waits_for_an_update_rollback_on_stop(self):
         assert "TimeoutStopSec=1800" in SERVICE.read_text()
 

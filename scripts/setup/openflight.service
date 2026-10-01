@@ -25,6 +25,9 @@ TimeoutStopSec=1800
 # Exit 3 means another OpenFlight instance already owns the kiosk (see
 # acquire_instance_lock in scripts/start-kiosk.sh); retrying cannot help.
 RestartPreventExitStatus=3
+# The launcher exits 130 when stopped by SIGTERM/SIGINT (143 if killed by
+# SIGTERM directly). A normal stop or restart must not leave the unit "failed".
+SuccessExitStatus=130 143
 
 [Install]
 # multi-user.target so a headless (Pi OS Lite) install starts too; on a

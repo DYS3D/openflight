@@ -358,9 +358,9 @@ configure_kld7_latency() {
 start_alloy() {
     command -v systemctl >/dev/null 2>&1 || return 0
     systemctl is-enabled alloy >/dev/null 2>&1 || return 0
-    sudo test -f /etc/alloy/credentials.env 2>/dev/null || return 0
-    sudo grep -q 'LOKI_URL=https\?://' /etc/alloy/credentials.env 2>/dev/null || return 0
-    systemctl is-active alloy >/dev/null 2>&1 || sudo systemctl start alloy 2>/dev/null || true
+    sudo -n test -f /etc/alloy/credentials.env 2>/dev/null || return 0
+    sudo -n grep -q 'LOKI_URL=https\?://' /etc/alloy/credentials.env 2>/dev/null || return 0
+    systemctl is-active alloy >/dev/null 2>&1 || sudo -n systemctl start alloy 2>/dev/null || true
 }
 
 cd "$PROJECT_DIR"

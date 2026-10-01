@@ -239,6 +239,33 @@ def test_missing_optional_alloy_service_does_not_abort_startup():
     assert result.stdout == "continued"
 
 
+def test_alloy_start_never_waits_for_a_sudo_password(tmp_path):
+    script = _script()
+    start = script.index("start_alloy() {")
+    end = script.index("\n}\n\ncd ", start) + 2
+    function = script[start:end]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    sudo_log = tmp_path / "sudo.log"
+    (bin_dir / "systemctl").write_text(
+        '#!/bin/bash\n[ "$1" = is-enabled ] && exit 0\n[ "$1" = is-active ] && exit 3\nexit 0\n'
+    )
+    (bin_dir / "sudo").write_text(f'#!/bin/bash\necho "$*" >> "{sudo_log}"\nexit 0\n')
+    for tool in bin_dir.iterdir():
+        tool.chmod(0o755)
+
+    subprocess.run(
+        ["bash", "-c", f"{function}\nPATH={bin_dir}:$PATH\nstart_alloy"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    calls = sudo_log.read_text().splitlines()
+    assert any("systemctl start alloy" in call for call in calls)
+    assert all(call.startswith("-n ") for call in calls), calls
+
+
 def test_start_kiosk_script_has_valid_shell_syntax():
     for relative in (
         "scripts/start-kiosk.sh",

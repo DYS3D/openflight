@@ -101,6 +101,18 @@ test('hands off to OpenFlight as soon as its target responds', async ({ page }) 
   expect(targetRequests).toBeGreaterThanOrEqual(2);
 });
 
+test('ignores a non-http target and hands off to the default server', async ({ page }) => {
+  await page.route('**/status.json', (route) => fulfillJson(route, startingStatus));
+  await page.route('http://localhost:8080/', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<h1>Default target</h1>' })
+  );
+
+  await gotoApp(page, `/startup-splash.html?target=${encodeURIComponent('data:text/html,<h1>Injected</h1>')}`);
+
+  await expect(page.getByRole('heading', { name: 'Default target' })).toBeVisible();
+  await expect(page).toHaveURL('http://localhost:8080/');
+});
+
 test('keeps a startup failure visible and stops polling or handoff retries', async ({ page }) => {
   let statusRequests = 0;
   let targetRequests = 0;

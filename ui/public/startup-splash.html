@@ -318,8 +318,18 @@
     </main>
 
     <script>
-      const targetUrl =
-        new URL(window.location.href).searchParams.get('target') || 'http://localhost:8080';
+      function resolveTargetUrl(requested) {
+        const fallback = 'http://localhost:8080';
+        if (!requested) return fallback;
+        try {
+          const url = new URL(requested, window.location.href);
+          return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : fallback;
+        } catch {
+          return fallback;
+        }
+      }
+
+      const targetUrl = resolveTargetUrl(new URL(window.location.href).searchParams.get('target'));
       const startedAt = Date.now();
       const heading = document.getElementById('heading');
       const elapsed = document.getElementById('elapsed');

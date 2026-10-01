@@ -205,8 +205,10 @@ class RollingBufferProcessor:
                 half/double candidate.
             scale_speed_band: Rescale DC_MASK_BINS and MIN_PEAK_SEPARATION_BINS
                 from their 30 ksps tuning so they keep the same mph meaning at
-                ``sample_rate``. Off by default so existing rates keep their
-                bin counts.
+                ``sample_rate``, and the spin sample counts (SPIN_MIN_SAMPLES,
+                SPIN_SIGNAL_LOSS_*_SAMPLES, MULTITAPER_MIN_SAMPLES) so they
+                keep the same duration. Off by default so existing rates keep
+                their bin and sample counts.
             fast_dsp: Use the pre-planned, multi-threaded FFT path and the
                 vectorised peak picker. Numerically equivalent to the default
                 path; off by default.
@@ -234,6 +236,18 @@ class RollingBufferProcessor:
             bin_scale = self.REFERENCE_SAMPLE_RATE / sample_rate
             self.DC_MASK_BINS = max(1, round(self.DC_MASK_BINS * bin_scale))
             self.MIN_PEAK_SEPARATION_BINS = max(1, round(self.MIN_PEAK_SEPARATION_BINS * bin_scale))
+            span_scale = sample_rate / self.REFERENCE_SAMPLE_RATE
+            self.SPIN_MIN_SAMPLES = round(self.SPIN_MIN_SAMPLES * span_scale)
+            self.SPIN_SIGNAL_LOSS_SMOOTH_SAMPLES = round(
+                self.SPIN_SIGNAL_LOSS_SMOOTH_SAMPLES * span_scale
+            )
+            self.SPIN_SIGNAL_LOSS_REF_SAMPLES = round(
+                self.SPIN_SIGNAL_LOSS_REF_SAMPLES * span_scale
+            )
+            self.SPIN_SIGNAL_LOSS_HOLD_SAMPLES = round(
+                self.SPIN_SIGNAL_LOSS_HOLD_SAMPLES * span_scale
+            )
+            self.MULTITAPER_MIN_SAMPLES = round(self.MULTITAPER_MIN_SAMPLES * span_scale)
         self.fast_dsp = fast_dsp
         # Voltage scaling folded into the window: one multiply per sample.
         self._scaled_window = self.hanning_window * (self.VOLTAGE_REF / self.ADC_RANGE)

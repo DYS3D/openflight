@@ -242,9 +242,10 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
 - [ ] **`--fast-dsp`.** Same shots; ball/club speed and spin must be
       identical to the baseline; `[LATENCY] →processed` a few ms lower.
 - [ ] **`--radar-profile low-latency`.** Confirm the log shows the 50 ksps
-      preset and that captures still arrive with ~69 ms trigger offset and
-      4096 samples. Compare ball speed against the standard profile on 10
-      shots (short post-impact window). Do not expect measured spin.
+      preset with S#20 and that captures arrive with ~51 ms trigger offset
+      (~31 ms post-trigger) and 4096 samples. Compare ball speed and spin
+      against the standard profile on 10 shots; spin may still be missing
+      when the ball signal after impact is shorter than 20 ms.
 - [ ] **`--gated-postprocessing`.** With the IWR6843, hit shots; the angle
       must still arrive within 400 ms or be marked `skipped_budget` with the
       next shot unaffected. Raise the budget (`--gated-iwr6843-budget-ms`,

@@ -17,6 +17,9 @@ BUFFER_SAMPLES = 4096
 SEGMENT_SAMPLES = 128
 BUFFER_SEGMENTS = BUFFER_SAMPLES // SEGMENT_SAMPLES
 LOW_LATENCY_SAMPLE_RATE_KSPS = 50
+# S#20 at 50 ksps = 51.2 ms pre / 30.7 ms post: enough post-impact ball
+# signal for the 20 ms spin minimum. A 68 ms pre-trigger would leave 12.8 ms.
+LOW_LATENCY_MAX_PRE_TRIGGER_SEGMENTS = 20
 # 30 ksps is the rate every bin-count constant in the processor was tuned at.
 REFERENCE_SAMPLE_RATE_KSPS = 30
 
@@ -59,9 +62,9 @@ def resolve_radar_profile(
 
     ``standard`` passes the flags through untouched. ``low-latency`` samples
     at 50 ksps and re-splits the buffer so the pre-trigger span keeps the
-    same physical duration the standard profile would have had; every
-    segment is shorter, so the post-trigger wait before the dump shrinks by
-    the same ratio.
+    physical duration the standard profile would have had, capped at
+    ``LOW_LATENCY_MAX_PRE_TRIGGER_SEGMENTS`` so the shorter buffer still
+    keeps ~31 ms after the trigger.
     """
     if profile not in RADAR_PROFILES:
         raise ValueError(f"radar profile must be one of {RADAR_PROFILES}, got {profile!r}")
@@ -76,7 +79,7 @@ def resolve_radar_profile(
     standard_pre_trigger_ms = pre_trigger_segments * SEGMENT_SAMPLES / sample_rate_ksps
     fast_segment_ms = SEGMENT_SAMPLES / LOW_LATENCY_SAMPLE_RATE_KSPS
     fast_pre_trigger = round(standard_pre_trigger_ms / fast_segment_ms)
-    fast_pre_trigger = max(0, min(BUFFER_SEGMENTS, fast_pre_trigger))
+    fast_pre_trigger = max(0, min(LOW_LATENCY_MAX_PRE_TRIGGER_SEGMENTS, fast_pre_trigger))
     return RadarProfileSettings(
         profile=profile,
         sample_rate_ksps=LOW_LATENCY_SAMPLE_RATE_KSPS,

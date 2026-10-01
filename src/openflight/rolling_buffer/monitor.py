@@ -235,9 +235,10 @@ class RollingBufferMonitor:
             interference_check: Track the OPS243 noise floor from every
                 buffer dump and report ``radar_health`` transitions; see
                 radar_health.py. Off by default.
-            scale_speed_band: Keep the processor's DC mask and peak
-                separation at their 30 ksps mph meaning at other rates
-                (--radar-profile low-latency); see RollingBufferProcessor.
+            scale_speed_band: Keep the processor's DC mask, peak
+                separation and spin sample counts at their 30 ksps meaning
+                at other rates (--radar-profile low-latency); see
+                RollingBufferProcessor.
             fast_dsp: Pre-planned multi-threaded FFT path (--fast-dsp).
             **trigger_kwargs: Arguments for trigger strategy
         """

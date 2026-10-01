@@ -50,7 +50,7 @@ Latency options (off by default; `docs/setup/hardware-validation.md` §9):
 
 | Flag | Type / default | Description |
 | --- | --- | --- |
-| `--radar-profile` | `standard` \| `low-latency`; default `standard` | `low-latency` runs the OPS243 at 50 ksps with the pre-trigger span kept at the same duration (S#27), cutting ~55 ms before the dump starts. Costs post-impact window (spin will rarely report) and halves per-window frequency resolution |
+| `--radar-profile` | `standard` \| `low-latency`; default `standard` | `low-latency` runs the OPS243 at 50 ksps with the pre-trigger span kept at the same duration but capped at S#20 (51.2 ms pre / 30.7 ms post of an 81.9 ms buffer; previously S#27, 69.1 / 12.8 ms, which left too little ball signal for spin), cutting ~38 ms before the dump starts. Spin sample minimums are rescaled to keep their 30 ksps durations. Costs post-impact window (spin needs >= 20 ms of ball signal) and halves per-window frequency resolution |
 | `--fast-dsp` | flag; default off | Pre-planned, multi-threaded FFT path in the rolling-buffer processor; numerically identical results, ~35% faster STFT stage |
 | `--gated-postprocessing` | flag; default off | Run IWR6843 and camera enrichment inside a 400 ms budget each; a stage that overruns is skipped (`*_status="skipped_budget"`) so ball speed and carry are never delayed |
 | `--gated-iwr6843-budget-ms` | float; default 400 | With `--gated-postprocessing`: the IWR6843 stage budget |

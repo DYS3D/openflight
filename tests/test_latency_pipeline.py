@@ -20,6 +20,7 @@ from openflight.clubs import ClubType
 from openflight.launch_monitor import Shot
 from openflight.radar_profile import (
     BUFFER_SEGMENTS,
+    LOW_LATENCY_MAX_PRE_TRIGGER_SEGMENTS,
     LOW_LATENCY_SAMPLE_RATE_KSPS,
     RadarProfileSettings,
     resolve_radar_profile,
@@ -301,18 +302,32 @@ class TestRadarProfile:
         assert settings.post_trigger_ms == pytest.approx(68.27, abs=0.01)
         assert settings.buffer_ms == pytest.approx(136.53, abs=0.01)
 
-    def test_low_latency_keeps_pre_trigger_duration_at_50_ksps(self):
+    def test_low_latency_caps_pre_trigger_to_leave_post_impact_signal(self):
         settings = resolve_radar_profile(
             "low-latency", sample_rate_ksps=30, pre_trigger_segments=16
         )
 
         assert settings.sample_rate_ksps == LOW_LATENCY_SAMPLE_RATE_KSPS == 50
         assert settings.scale_speed_band is True
-        # 16 x 4.27 ms = 68.3 ms of pre-trigger needs 26.7 -> 27 segments of 2.56 ms.
-        assert settings.pre_trigger_segments == 27
-        assert settings.pre_trigger_ms == pytest.approx(69.12)
-        assert settings.post_trigger_ms == pytest.approx(12.8)
+        # 16 x 4.27 ms = 68.3 ms would need 27 segments of 2.56 ms (12.8 ms post).
+        assert settings.pre_trigger_segments == LOW_LATENCY_MAX_PRE_TRIGGER_SEGMENTS == 20
+        assert settings.pre_trigger_ms == pytest.approx(51.2)
+        assert settings.post_trigger_ms == pytest.approx(30.72)
         assert settings.buffer_ms == pytest.approx(81.92)
+
+    def test_low_latency_post_trigger_fits_the_spin_minimum(self):
+        settings = resolve_radar_profile(
+            "low-latency", sample_rate_ksps=30, pre_trigger_segments=16
+        )
+        processor = RollingBufferProcessor(
+            sample_rate=settings.sample_rate_ksps * 1000,
+            scale_speed_band=settings.scale_speed_band,
+        )
+
+        post_samples = (BUFFER_SEGMENTS - settings.pre_trigger_segments) * 128
+        assert post_samples // processor.WINDOW_SIZE == 12
+        assert post_samples > processor.SPIN_MIN_SAMPLES
+        assert processor.SPIN_MIN_SAMPLES / processor.SAMPLE_RATE == pytest.approx(0.020)
 
     @pytest.mark.parametrize("pre_trigger", [0, 12, 32])
     def test_low_latency_split_stays_inside_the_buffer(self, pre_trigger):
@@ -320,8 +335,8 @@ class TestRadarProfile:
             "low-latency", sample_rate_ksps=30, pre_trigger_segments=pre_trigger
         )
 
-        assert 0 <= settings.pre_trigger_segments <= BUFFER_SEGMENTS
-        expected_ms = min(pre_trigger * 128 / 30, settings.buffer_ms)
+        assert 0 <= settings.pre_trigger_segments <= LOW_LATENCY_MAX_PRE_TRIGGER_SEGMENTS
+        expected_ms = min(pre_trigger * 128 / 30, LOW_LATENCY_MAX_PRE_TRIGGER_SEGMENTS * 2.56)
         assert settings.pre_trigger_ms == pytest.approx(expected_ms, abs=settings.segment_ms / 2)
 
     def test_unknown_profile_is_rejected(self):
@@ -401,7 +416,7 @@ class TestRadarProfileWiring:
         )
 
         assert fake_monitor["sample_rate_ksps"] == 50
-        assert fake_monitor["pre_trigger_segments"] == 27
+        assert fake_monitor["pre_trigger_segments"] == 20
         assert fake_monitor["scale_speed_band"] is True
         assert fake_monitor["fast_dsp"] is True
 
@@ -436,6 +451,30 @@ class TestProcessorSampleRateHandling:
         assert processor.MIN_PEAK_SEPARATION_BINS == 30
         # Unscaled 50 ksps keeps the historical bin counts.
         assert RollingBufferProcessor(sample_rate=50000).DC_MASK_BINS == 150
+
+    def test_spin_sample_counts_unchanged_at_30_ksps(self):
+        for processor in (
+            RollingBufferProcessor(),
+            RollingBufferProcessor(sample_rate=30000, scale_speed_band=True),
+            RollingBufferProcessor(sample_rate=50000),
+        ):
+            assert processor.SPIN_MIN_SAMPLES == 600
+            assert processor.SPIN_SIGNAL_LOSS_SMOOTH_SAMPLES == 90
+            assert processor.SPIN_SIGNAL_LOSS_REF_SAMPLES == 450
+            assert processor.SPIN_SIGNAL_LOSS_HOLD_SAMPLES == 150
+            assert processor.SPIN_SIGNAL_LOSS_THRESHOLD == 0.15
+            assert processor.MULTITAPER_MIN_SAMPLES == 128
+
+    def test_scale_speed_band_keeps_spin_durations_at_50_ksps(self):
+        processor = RollingBufferProcessor(sample_rate=50000, scale_speed_band=True)
+        assert processor.SPIN_MIN_SAMPLES == 1000
+        assert processor.SPIN_SIGNAL_LOSS_SMOOTH_SAMPLES == 150
+        assert processor.SPIN_SIGNAL_LOSS_REF_SAMPLES == 750
+        assert processor.SPIN_SIGNAL_LOSS_HOLD_SAMPLES == 250
+        assert processor.SPIN_SIGNAL_LOSS_THRESHOLD == 0.15
+        assert processor.MULTITAPER_MIN_SAMPLES == 213
+        # Class constants are untouched for other processors.
+        assert RollingBufferProcessor.SPIN_MIN_SAMPLES == 600
 
     def test_capture_duration_follows_its_sample_rate(self):
         default = IQCapture(0.0, 0.068, [2048] * 4096, [2048] * 4096)

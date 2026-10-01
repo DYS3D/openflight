@@ -5658,8 +5658,8 @@ def main():
             "OPS243 rolling-buffer profile. standard (default) uses --sample-rate and "
             "--sound-pre-trigger as given. low-latency samples at 50 ksps and re-splits "
             "the 4096-sample buffer so the pre-trigger span keeps the same duration, "
-            "shortening the post-impact wait before the dump; the buffer then covers "
-            "82 ms instead of 137 ms"
+            "capped at S#20 (51 ms pre / 31 ms post), shortening the post-impact wait "
+            "before the dump; the buffer then covers 82 ms instead of 137 ms"
         ),
     )
     parser.add_argument(

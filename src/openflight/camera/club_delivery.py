@@ -1170,7 +1170,8 @@ def _detect_impact_index(
             return int(idx)
     if trigger_index is not None:
         return None
-    return int(indexes[-1])
+    usable = indexes[indexes <= len(frames) - 2]
+    return int(usable[-1]) if len(usable) else None
 
 
 def _club_mask(

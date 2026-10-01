@@ -77,6 +77,30 @@ def test_impact_detection_accepts_camera_departure_after_early_gpio_trigger():
     assert _detect_impact_index(frames, ball, trigger_index=44) == 52
 
 
+def test_untriggered_impact_detection_leaves_a_following_frame(monkeypatch):
+    frames = np.full((60, 20, 20), 150, dtype=np.uint8)
+    ball = ReferenceBall(10.0, 10.0, 12.0, 120)
+    monkeypatch.setattr(club_delivery_module, "detect_reference_ball", lambda _frames: ball)
+
+    assert _detect_impact_index(frames, ball) == len(frames) - 2
+    result = estimate_chained_delivery(
+        frames,
+        np.arange(60, dtype=np.int64) * 2_000_000,
+        trigger_index=None,
+        range_evidence=None,
+        geometry=CameraDeliveryGeometry(
+            camera_height_m=0.2032,
+            radar_height_m=0.1524,
+            tee_range_m=1.524,
+            ball_height_m=0.04,
+            image_width_px=20,
+            image_height_px=20,
+        ),
+        ops_club_speed_mph=80.0,
+    )
+    assert result.status.startswith("rejected")
+
+
 def test_reference_ball_tracker_falls_back_to_established_tee_anchor():
     tracker = ReferenceBallTracker()
     for x in (323.0, 324.0, 325.0):

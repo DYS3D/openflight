@@ -225,16 +225,16 @@ class TestServerLatencyInstrumentation:
         assert "initial_ui" not in latency
         # Every stage stamp comes from the fake clock, so they are exact
         # multiples of its step and strictly ordered.
-        assert latency["processed"] < latency["carry"] < latency["final"]
+        assert latency["processed"] < latency["carry"] < latency["ready"]
         assert latency["carry"] % 100.0 == 0.0
-        assert latency["final"] == latency["carry"] + 100.0
+        assert latency["ready"] == latency["carry"] + 100.0
         assert self.logged[0]["latency"] == latency
         assert self.logged[0]["initial_ui"] is None
         latency_lines = [r.getMessage() for r in caplog.records if "[LATENCY]" in r.getMessage()]
         assert latency_lines == [
-            "[LATENCY] shot #1: trigger→ui %.0f ms, →final %.0f ms "
+            "[LATENCY] shot #1: trigger→ui %.0f ms, →ready %.0f ms "
             "(→capture 250 ms, →processed 300 ms, →carry %.0f ms)"
-            % (latency["final"], latency["final"], latency["carry"])
+            % (latency["ready"], latency["ready"], latency["carry"])
         ]
 
     def test_enriched_shot_marks_initial_ui_and_iwr6843(self, monkeypatch, caplog):
@@ -261,14 +261,14 @@ class TestServerLatencyInstrumentation:
         latency = self.emitted[-1][1]["shot"]["latency_ms"]
         assert latency["initial_ui"] % 100.0 == 0.0
         assert latency["processed"] < latency["initial_ui"] < latency["iwr6843"]
-        assert latency["iwr6843"] < latency["carry"] < latency["final"]
+        assert latency["iwr6843"] < latency["carry"] < latency["ready"]
         assert self.logged[0]["initial_ui"] == latency["initial_ui"]
         assert self.logged[0]["latency"] == latency
         line = next(r.getMessage() for r in caplog.records if "[LATENCY]" in r.getMessage())
         assert line.startswith(
-            "[LATENCY] shot #1: trigger→ui %.0f ms, →final %.0f ms (→capture 250 ms, "
+            "[LATENCY] shot #1: trigger→ui %.0f ms, →ready %.0f ms (→capture 250 ms, "
             "→processed 300 ms, →iwr6843 %.0f ms, →carry %.0f ms)"
-            % (latency["initial_ui"], latency["final"], latency["iwr6843"], latency["carry"])
+            % (latency["initial_ui"], latency["ready"], latency["iwr6843"], latency["carry"])
         )
 
     def test_shot_without_trigger_timestamp_logs_no_latency_numbers(self, caplog):
@@ -280,7 +280,7 @@ class TestServerLatencyInstrumentation:
             _wait_for_shot_finalization_idle()
 
         latency = self.emitted[0][1]["shot"]["latency_ms"]
-        assert set(latency) == {"capture", "processed", "carry", "final"}
+        assert set(latency) == {"capture", "processed", "carry", "ready"}
         assert all(value is None for value in latency.values())
         assert any(
             "[LATENCY] shot #1: no trigger timestamp" in r.getMessage() for r in caplog.records

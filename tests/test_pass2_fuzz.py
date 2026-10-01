@@ -172,7 +172,7 @@ class TestFlightPayloadFuzz:
 class TestLatencyMarksFuzz:
     def test_latency_is_non_negative_rounded_and_keyed_by_mark(self):
         rng = random.Random(5)
-        stages = ["capture", "processed", "initial_ui", "iwr6843", "camera", "carry", "final"]
+        stages = ["capture", "processed", "initial_ui", "iwr6843", "camera", "carry", "ready"]
         for _ in range(500):
             impact = _maybe(rng, rng.uniform(1.0e9, 2.0e9))
             shot = Shot(ball_speed_mph=100.0, timestamp=datetime.now(), impact_timestamp=impact)
@@ -601,7 +601,7 @@ class TestMockServerStress:
         for entry in shots:
             shot = entry["shot"]
             assert "mode" not in shot and "readings" not in shot
-            assert set(shot["latency_ms"]) == {"carry", "final"}
+            assert set(shot["latency_ms"]) == {"carry", "ready"}
             assert all(value is None for value in shot["latency_ms"].values())
             assert shot["derived"]["smash_factor"]["source"] == "estimated"
             assert shot["flight"]["carry_yards"] == pytest.approx(
@@ -756,7 +756,7 @@ class TestGatedPostprocessingMisbehaviour:
         for payload in finals:
             shot = payload["shot"]
             assert "derived" in shot and "flight" in shot and "carry_normalized_yards" in shot
-            assert shot["latency_ms"]["final"] is not None
+            assert shot["latency_ms"]["ready"] is not None
         assert any("Gated iwr6843 stage failed" in r.getMessage() for r in caplog.records) is False
         assert any(
             "IWR6843 processing failed" in r.getMessage() or "exploded" in r.getMessage()

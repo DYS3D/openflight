@@ -237,7 +237,7 @@ the table-estimated launch angle and the `--kld7-ball-distance` /
 ## 9. Latency and self-check options (off by default)
 
 - [ ] **Baseline `[LATENCY]` lines** (always on). Hit 10 shots; note trigger→ui
-      and →final. Expect capture ≈ post-trigger span + serial dump time; the
+      and →ready. Expect capture ≈ post-trigger span + serial dump time; the
       dump dominates.
 - [ ] **`--fast-dsp`.** Same shots; ball/club speed and spin must be
       numerically equivalent (to ~1e-9) to the baseline;

@@ -56,7 +56,7 @@ Latency options (off by default; `docs/setup/hardware-validation.md` §9):
 | `--gated-iwr6843-budget-ms` | float; default 400 | With `--gated-postprocessing`: the IWR6843 stage budget |
 | `--gated-camera-budget-ms` | float; default 400 | With `--gated-postprocessing`: the camera stage budget. The camera waits up to 2 s for its clip, so raise this when clips are skipped. A camera result that arrives after its budget is discarded (no capture log, no replay) |
 
-Every shot now logs `[LATENCY] trigger→ui … ms, →final … ms` and carries `latency_ms` in the UI payload (Debug panel).
+Every shot now logs `[LATENCY] trigger→ui … ms, →ready … ms` and carries `latency_ms` in the UI payload (Debug panel).
 
 
 Serial port, baud, and sample rate.

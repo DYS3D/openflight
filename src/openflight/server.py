@@ -4054,28 +4054,28 @@ _LATENCY_STAGE_ORDER = (
     "iwr6843",
     "camera",
     "carry",
-    "final",
+    "ready",
 )
 
 
 def _log_shot_latency(shot: Shot, latency_ms: dict) -> None:
     """One INFO line per shot with the trigger-relative stage latencies."""
-    if latency_ms.get("final") is None:
+    if latency_ms.get("ready") is None:
         logger.info("[LATENCY] shot #%s: no trigger timestamp", shot.shot_number)
         return
     ui_ms = latency_ms.get("initial_ui")
     if ui_ms is None:
-        ui_ms = latency_ms["final"]
+        ui_ms = latency_ms["ready"]
     stages = ", ".join(
         f"→{stage} {latency_ms[stage]:.0f} ms"
         for stage in _LATENCY_STAGE_ORDER
-        if stage not in ("initial_ui", "final") and latency_ms.get(stage) is not None
+        if stage not in ("initial_ui", "ready") and latency_ms.get(stage) is not None
     )
     logger.info(
-        "[LATENCY] shot #%s: trigger→ui %.0f ms, →final %.0f ms (%s)",
+        "[LATENCY] shot #%s: trigger→ui %.0f ms, →ready %.0f ms (%s)",
         shot.shot_number,
         ui_ms,
-        latency_ms["final"],
+        latency_ms["ready"],
         stages,
     )
 
@@ -4173,7 +4173,9 @@ def _finalize_shot_detected(
             "%.0f" % (shot.spin_peak_freq_hz * 60) if shot.spin_peak_freq_hz is not None else "N/A",
         )
 
-    shot.mark_stage("final", time.time())
+    # "ready", not "final": latency_ms rides in the emitted payload, so it
+    # cannot include the emit itself.
+    shot.mark_stage("ready", time.time())
     latency_ms = shot.latency_ms()
     _log_shot_latency(shot, latency_ms)
 

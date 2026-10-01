@@ -238,3 +238,42 @@ test.describe('light theme contrast', () => {
     }
   });
 });
+
+for (const viewport of [SHORT_KIOSK, { width: 800, height: 480 }, { width: 1024, height: 600 }]) {
+  test(`the Simulate bubble leaves the derived strip readable at ${viewport.width}×${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await withControlSocket(async (socket) => {
+      await resetSession(socket);
+      await setClub(socket, 'driver');
+      await simulateShot(socket);
+    });
+    await seedBrowser(page, 'dark', { moreMetrics: true });
+    await gotoApp(page);
+    await page.locator('.picker-overlay__close').click();
+    const strip = page.locator('.live-panel__derived');
+    await expect(strip.locator('.metric-card').first()).toBeVisible();
+    const coveredTiles = () =>
+      page.evaluate(() => {
+        const bubble = document.querySelector('.simulate-bubble')!.getBoundingClientRect();
+        const strip = document.querySelector('.live-panel__derived')!.getBoundingClientRect();
+        return [...document.querySelectorAll<HTMLElement>('.live-panel__derived .metric-card')].flatMap((card) => {
+          const rect = card.getBoundingClientRect();
+          // The strip clips its overflow, so only the part of a tile inside it is visible.
+          const left = Math.max(rect.left, strip.left);
+          const right = Math.min(rect.right, strip.right);
+          const overlaps =
+            left < right &&
+            left < bubble.right &&
+            right > bubble.left &&
+            rect.top < bubble.bottom &&
+            rect.bottom > bubble.top;
+          return overlaps ? [card.innerText.replace(/\s+/g, ' ')] : [];
+        });
+      });
+    expect(await coveredTiles()).toEqual([]);
+    await strip.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
+    expect(await coveredTiles()).toEqual([]);
+  });
+}

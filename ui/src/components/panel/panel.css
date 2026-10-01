@@ -809,6 +809,11 @@
   display: none;
 }
 
+/* Mock mode: room for the Simulate bubble. */
+.panel:has(~ .simulate-bubble) .live-panel__derived {
+  margin-right: 12rem;
+}
+
 /* ----------------------------------------------------------- stats panel -- */
 
 .stats-panel {

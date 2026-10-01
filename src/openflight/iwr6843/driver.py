@@ -209,7 +209,10 @@ class IWR6843Radar:
                         expected = None
             elif len(buf) >= expected:
                 break
-        if expected is None:
+        if expected is None or len(buf) < expected:
+            # The firmware may still be streaming this dump; a command sent
+            # into that stream (the next l3dump) would be lost or misread.
+            self.drain_stale_output()
             return bytes(buf)
 
         payload = bytes(buf[:expected])

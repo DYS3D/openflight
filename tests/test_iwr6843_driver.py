@@ -193,3 +193,27 @@ def test_read_dump_sizes_v5_header_extension():
 
     assert dump == raw
     assert serial.writes == [b"l3dump\n"]
+
+
+def test_read_dump_drains_stalled_dump_before_next_command():
+    raw = pack_dump(np.ones((2, 6, 4, 7), dtype=complex), n_tx=3, version=3)
+    radar = IWR6843Radar.__new__(IWR6843Radar)
+    radar.ser = FakeSerial(b"l3dump\r\n" + raw[: len(raw) // 2])
+    drains = []
+    radar.drain_stale_output = lambda: drains.append(True)
+
+    partial = radar.read_dump(timeout_s=1.0, stall_tolerance_s=0.05)
+
+    assert len(partial) < len(raw)
+    assert drains == [True]
+
+
+def test_read_dump_does_not_drain_after_complete_dump():
+    raw = pack_dump(np.ones((1, 3, 4, 4), dtype=complex), n_tx=3, version=3)
+    radar = IWR6843Radar.__new__(IWR6843Radar)
+    radar.ser = FakeSerial(b"l3dump\r\n" + raw + b"Done\r\n")
+    drains = []
+    radar.drain_stale_output = lambda: drains.append(True)
+
+    assert radar.read_dump(timeout_s=0.1) == raw
+    assert drains == []

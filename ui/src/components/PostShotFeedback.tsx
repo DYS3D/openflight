@@ -1,6 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { getHtmlLang } from '../i18n';
-import { useI18n } from '../i18n/useI18n';
 import type { Shot } from '../types/shot';
 import { computeSwingSpeedStats, filterShotsByProfile } from '../types/shot';
 import { useUnitPreference } from '../state/useUnitPreference';
@@ -73,8 +71,6 @@ export function PostShotFeedback({
   const voiceCallout = voiceCalloutProp ?? storePreferences.voiceCallout;
   const moreMetrics = moreMetricsProp ?? storePreferences.moreMetrics;
   const { unitSystem } = useUnitPreference();
-  const { locale } = useI18n();
-  const lang = getHtmlLang(locale);
 
   let metric: LiveMetric | null = null;
   if (shot && (bigNumberAfterShot || voiceCallout)) {
@@ -92,7 +88,6 @@ export function PostShotFeedback({
     metric,
     bigNumberAfterShot,
     voiceCallout,
-    lang,
     liveView,
   });
   if (nextCue !== cue) {
@@ -106,9 +101,9 @@ export function PostShotFeedback({
     }
     spokenVersion.current = cue.seenVersion;
     if (cue.callout) {
-      speakCallout(cue.callout, lang);
+      speakCallout(cue.callout);
     }
-  }, [cue.seenVersion, cue.callout, lang]);
+  }, [cue.seenVersion, cue.callout]);
 
   useEffect(() => {
     if (cue.takeoverVersion === null) {

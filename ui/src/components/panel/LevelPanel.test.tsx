@@ -1,6 +1,5 @@
 import { renderToString } from 'react-dom/server';
-import { afterEach, describe, expect, it } from 'vitest';
-import { setActiveLocale } from '../../i18n';
+import { describe, expect, it } from 'vitest';
 import type { LevelStatus } from '../../types/socket';
 import { LevelPanel } from './LevelPanel';
 
@@ -12,10 +11,6 @@ const level: LevelStatus = { pitch_deg: 0.2, roll_deg: -0.4, level: true, thresh
 const tilted: LevelStatus = { pitch_deg: 2.6, roll_deg: -1.3, level: false, threshold_deg: 1 };
 
 describe('LevelPanel', () => {
-  afterEach(() => {
-    setActiveLocale('en');
-  });
-
   it('explains the server flags when no level_status has arrived', () => {
     const html = text(renderToString(<LevelPanel status={null} />));
 
@@ -62,14 +57,5 @@ describe('LevelPanel', () => {
     expect(cx).toBeLessThan(100);
     expect(cy).toBeLessThan(100);
     expect(Math.hypot(cx - 100, cy - 100)).toBeLessThanOrEqual(90 - 14 + 0.01);
-  });
-
-  it('translates the copy', () => {
-    setActiveLocale('fr');
-    const html = text(renderToString(<LevelPanel status={tilted} />));
-
-    expect(html).toContain('>Tangage<');
-    expect(html).toContain('>Roulis<');
-    expect(html).toContain('>Pas de niveau<');
   });
 });

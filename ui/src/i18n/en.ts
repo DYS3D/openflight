@@ -192,7 +192,6 @@ export const en = {
   'menu.theme': 'Theme',
   'menu.themeDark': 'Dark',
   'menu.themeLight': 'Light',
-  'menu.language': 'Language',
   'menu.system': 'System',
   'menu.battery': 'Battery',
   'menu.ballDetection': 'Ball detection',

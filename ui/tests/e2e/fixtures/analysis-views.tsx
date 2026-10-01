@@ -3,8 +3,6 @@ import { StatsPanel, type StatsView } from '../../../src/components/panel/StatsP
 import { LevelPanel } from '../../../src/components/panel/LevelPanel';
 import { PracticePanel } from '../../../src/components/panel/PracticePanel';
 import { TvDisplay } from '../../../src/components/TvDisplay';
-import { isLocaleId } from '../../../src/i18n';
-import { useLocaleStore } from '../../../src/stores/useLocaleStore';
 import { makeTestFlight, makeTestShot } from '../../../src/test/shotFixtures';
 import { applyTheme } from '../../../src/theme/theme';
 import type { Shot } from '../../../src/types/shot';
@@ -12,11 +10,7 @@ import '../../../src/components/panel/panel.css';
 
 const params = new URLSearchParams(window.location.search);
 const view = params.get('view') ?? 'dispersion';
-const locale = params.get('locale');
 applyTheme(params.get('theme') === 'light' ? 'light' : 'dark');
-if (isLocaleId(locale)) {
-  useLocaleStore.getState().setLocale(locale);
-}
 
 const BAG: ReadonlyArray<readonly [string, number]> = [
   ['driver', 250],

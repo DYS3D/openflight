@@ -3,7 +3,7 @@ import { LOCALE_STORAGE_KEY } from '../i18n';
 
 function installBrowser(initial: Record<string, string> = {}, options: { failWrites?: boolean } = {}) {
   const store = { ...initial };
-  const documentElement = { lang: 'en' };
+  const documentElement = { lang: '' };
   const localStorage = {
     getItem: (key: string) => store[key] ?? null,
     setItem: (key: string, value: string) => {
@@ -28,38 +28,41 @@ describe('useLocaleStore', () => {
     vi.unstubAllGlobals();
   });
 
-  it('defaults to English and persists Spanish', async () => {
-    const { documentElement, store } = installBrowser();
+  it('defaults to English and sets <html lang>', async () => {
+    const { documentElement } = installBrowser();
     const { useLocaleStore } = await import('./useLocaleStore');
     const { t } = await import('../i18n');
 
     expect(useLocaleStore.getState().locale).toBe('en');
+    expect(documentElement.lang).toBe('en');
     expect(t('nav.live')).toBe('Live');
-
-    useLocaleStore.getState().setLocale('es');
-
-    expect(useLocaleStore.getState().locale).toBe('es');
-    expect(store[LOCALE_STORAGE_KEY]).toBe('es');
-    expect(documentElement.lang).toBe('es');
-    expect(t('nav.live')).toBe('En vivo');
   });
 
-  it('hydrates from stored Portuguese', async () => {
-    const { documentElement } = installBrowser({ [LOCALE_STORAGE_KEY]: 'pt' });
+  it('falls back to English when storage holds a locale that is no longer shipped', async () => {
+    const { documentElement } = installBrowser({ [LOCALE_STORAGE_KEY]: 'es' });
     const { useLocaleStore } = await import('./useLocaleStore');
     const { t } = await import('../i18n');
 
-    expect(useLocaleStore.getState().locale).toBe('pt');
-    expect(documentElement.lang).toBe('pt-BR');
-    expect(t('nav.live')).toBe('Ao vivo');
+    expect(useLocaleStore.getState().locale).toBe('en');
+    expect(documentElement.lang).toBe('en');
+    expect(t('nav.live')).toBe('Live');
+  });
+
+  it('persists the chosen locale', async () => {
+    const { store } = installBrowser();
+    const { useLocaleStore } = await import('./useLocaleStore');
+
+    useLocaleStore.getState().setLocale('en');
+
+    expect(store[LOCALE_STORAGE_KEY]).toBe('en');
   });
 
   it('applies the locale for the session when storage rejects the write', async () => {
     const { documentElement } = installBrowser({}, { failWrites: true });
     const { useLocaleStore } = await import('./useLocaleStore');
 
-    expect(() => useLocaleStore.getState().setLocale('fr')).not.toThrow();
-    expect(useLocaleStore.getState().locale).toBe('fr');
-    expect(documentElement.lang).toBe('fr');
+    expect(() => useLocaleStore.getState().setLocale('en')).not.toThrow();
+    expect(useLocaleStore.getState().locale).toBe('en');
+    expect(documentElement.lang).toBe('en');
   });
 });

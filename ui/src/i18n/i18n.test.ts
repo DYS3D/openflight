@@ -7,11 +7,12 @@ describe('i18n catalogs', () => {
     setActiveLocale('en');
   });
 
-  it('ships English, Spanish, French, and Portuguese', () => {
-    expect(LOCALES.map((locale) => locale.id)).toEqual(['en', 'es', 'fr', 'pt']);
+  it('ships English only', () => {
+    expect(LOCALES.map((locale) => locale.id)).toEqual(['en']);
+    expect(Object.keys(catalogs)).toEqual(['en']);
   });
 
-  it('keeps every locale in lockstep with English keys', () => {
+  it('keeps every catalog in lockstep with English keys', () => {
     const englishKeys = Object.keys(en).sort();
     expect(englishKeys.length).toBeGreaterThan(80);
 
@@ -20,16 +21,13 @@ describe('i18n catalogs', () => {
     }
   });
 
-  it('interpolates placeholders in the active locale', () => {
+  it('interpolates placeholders and leaves unknown ones visible', () => {
     expect(t('profiles.shots', { count: '3' })).toBe('3 shots');
-
-    setActiveLocale('es');
-    expect(t('nav.live')).toBe('En vivo');
-    expect(t('profiles.shots', { count: '3' })).toBe('3 golpes');
+    expect(t('profiles.shots', {})).toBe('{count} shots');
   });
 
   it('falls back to English when a locale id is unknown', () => {
-    setActiveLocale('de');
+    expect(setActiveLocale('de')).toBe('en');
     expect(t('nav.live')).toBe('Live');
   });
 });

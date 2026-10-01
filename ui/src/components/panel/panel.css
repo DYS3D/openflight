@@ -1417,7 +1417,6 @@
   gap: 6px;
 }
 
-.menu-sheet__select,
 .menu-sheet__input {
   flex: 1;
   min-width: 0;
@@ -1429,13 +1428,6 @@
   color: var(--color-text);
   font-family: inherit;
   font-size: 0.8125rem;
-}
-
-.menu-sheet__select {
-  flex: 0 0 auto;
-  width: 100%;
-  min-height: 44px;
-  appearance: auto;
 }
 
 .menu-sheet__status-row {

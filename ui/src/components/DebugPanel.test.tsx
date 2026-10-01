@@ -1,6 +1,5 @@
 import { renderToString } from 'react-dom/server';
-import { afterEach, describe, expect, it } from 'vitest';
-import { setActiveLocale } from '../i18n';
+import { describe, expect, it } from 'vitest';
 import type { TriggerStatus } from '../types/shot';
 import { latencyRows } from '../utils/shotLatency';
 import { DebugPanel } from './DebugPanel';
@@ -35,10 +34,6 @@ function render(shotLatency?: Parameters<typeof latencyRows>[0]) {
 }
 
 describe('latencyRows', () => {
-  afterEach(() => {
-    setActiveLocale('en');
-  });
-
   it('returns nothing without latency data', () => {
     expect(latencyRows(undefined)).toEqual([]);
     expect(latencyRows(null)).toEqual([]);
@@ -51,11 +46,6 @@ describe('latencyRows', () => {
       { key: 'trigger_to_final', label: 'Trigger → final', ms: 1210 },
       { key: 'camera_to_ui', label: 'camera to ui', ms: 40 },
     ]);
-  });
-
-  it('translates the stage labels', () => {
-    setActiveLocale('es');
-    expect(latencyRows({ trigger_to_ui: 5 })[0]?.label).toBe('Disparo → interfaz');
   });
 });
 

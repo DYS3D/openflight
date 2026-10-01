@@ -2,21 +2,19 @@ import { test, type Page } from '@playwright/test';
 import { expect, gotoApp, resetSession, setClub, simulateShot, withControlSocket } from './helpers';
 
 const FIXTURE = '/tests/e2e/fixtures/analysis-views.html';
-const LOCALES = ['es', 'fr', 'pt'] as const;
 const SHORT_KIOSK = { width: 800, height: 400 };
 const TV_VIEWPORTS = [
   { width: 1280, height: 720 },
   { width: 1920, height: 1080 },
 ];
 
-async function seedBrowser(page: Page, locale: string, theme: 'dark' | 'light', preferences: Record<string, boolean>) {
+async function seedBrowser(page: Page, theme: 'dark' | 'light', preferences: Record<string, boolean>) {
   await page.addInitScript(
-    ({ locale, theme, preferences }) => {
-      window.localStorage.setItem('openflight.locale:v1', locale);
+    ({ theme, preferences }) => {
       window.localStorage.setItem('openflight.theme', theme);
       window.localStorage.setItem('openflight.display-preferences', JSON.stringify(preferences));
     },
-    { locale, theme, preferences }
+    { theme, preferences }
   );
 }
 
@@ -50,7 +48,7 @@ async function layoutDefects(page: Page, screen: string): Promise<string[]> {
   }, screen);
 }
 
-test.describe('long locales on an 800×400 kiosk', () => {
+test.describe('kiosk views on an 800×400 kiosk', () => {
   test.use({ viewport: SHORT_KIOSK });
 
   test.beforeEach(async () => {
@@ -61,48 +59,47 @@ test.describe('long locales on an 800×400 kiosk', () => {
     });
   });
 
-  for (const locale of LOCALES) {
-    test(`fits the new kiosk views in ${locale}`, async ({ page }) => {
-      await seedBrowser(page, locale, 'dark', {
-        bigNumberAfterShot: true,
-        consistencyColors: true,
-        showNormalizedCarry: true,
-        moreMetrics: true,
-      });
-      const defects: string[] = [];
-      await gotoApp(page);
-      await page.locator('.picker-overlay__close').click();
-      await expect(page.locator('.live-panel__grid .metric-card')).toHaveCount(10);
-      await expect(page.locator('.live-panel__derived .metric-card').first()).toBeVisible();
-      defects.push(...(await layoutDefects(page, `live (${locale})`)));
-
-      await page.locator('.simulate-bubble').click();
-      const takeover = page.locator('.post-shot-takeover');
-      await expect(takeover).toBeVisible();
-      defects.push(...(await layoutDefects(page, `takeover (${locale})`)));
-      await takeover.click();
-
-      await page.locator('.panel-footer__menu').click();
-      const sheet = page.locator('.menu-sheet');
-      await expect(sheet).toBeVisible();
-      await expect(sheet.getByRole('switch')).toHaveCount(5);
-      defects.push(...(await layoutDefects(page, `menu (${locale})`)));
-
-      await sheet.locator('.menu-sheet__practice').first().click();
-      await expect(page.locator('.practice-panel')).toBeVisible();
-      defects.push(...(await layoutDefects(page, `practice target (${locale})`)));
-      await page.locator('.practice__mode button').nth(1).click();
-      defects.push(...(await layoutDefects(page, `practice ladder (${locale})`)));
-
-      for (const view of ['flight', 'dispersion', 'gapping', 'level']) {
-        await gotoApp(page, `${FIXTURE}?view=${view}&locale=${locale}`);
-        await expect(page.locator('.panel-header__title')).toBeVisible();
-        defects.push(...(await layoutDefects(page, `${view} (${locale})`)));
-      }
-
-      expect(defects).toEqual([]);
+  test('fits the new kiosk views without clipping', async ({ page }) => {
+    await seedBrowser(page, 'dark', {
+      bigNumberAfterShot: true,
+      consistencyColors: true,
+      showNormalizedCarry: true,
+      moreMetrics: true,
     });
-  }
+    const defects: string[] = [];
+    await gotoApp(page);
+    await page.locator('.picker-overlay__close').click();
+    await expect(page.locator('.live-panel__grid .metric-card')).toHaveCount(10);
+    await expect(page.locator('.live-panel__derived .metric-card').first()).toBeVisible();
+    defects.push(...(await layoutDefects(page, 'live')));
+
+    await page.locator('.simulate-bubble').click();
+    const takeover = page.locator('.post-shot-takeover');
+    await expect(takeover).toBeVisible();
+    defects.push(...(await layoutDefects(page, 'takeover')));
+    await takeover.click();
+
+    await page.locator('.panel-footer__menu').click();
+    const sheet = page.locator('.menu-sheet');
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole('switch')).toHaveCount(5);
+    await expect(sheet.locator('select')).toHaveCount(0);
+    defects.push(...(await layoutDefects(page, 'menu')));
+
+    await sheet.locator('.menu-sheet__practice').first().click();
+    await expect(page.locator('.practice-panel')).toBeVisible();
+    defects.push(...(await layoutDefects(page, 'practice target')));
+    await page.locator('.practice__mode button').nth(1).click();
+    defects.push(...(await layoutDefects(page, 'practice ladder')));
+
+    for (const view of ['flight', 'dispersion', 'gapping', 'level']) {
+      await gotoApp(page, `${FIXTURE}?view=${view}`);
+      await expect(page.locator('.panel-header__title')).toBeVisible();
+      defects.push(...(await layoutDefects(page, view)));
+    }
+
+    expect(defects).toEqual([]);
+  });
 });
 
 for (const viewport of TV_VIEWPORTS) {
@@ -158,7 +155,7 @@ test.describe('light theme contrast', () => {
       await setClub(socket, '7-iron');
       for (let index = 0; index < 6; index += 1) await simulateShot(socket);
     });
-    await seedBrowser(page, 'en', 'light', { consistencyColors: true });
+    await seedBrowser(page, 'light', { consistencyColors: true });
 
     // Parses `rgb()` / `rgba()`, walks up to the first opaque ancestor background, and returns the WCAG ratio.
     const contrastScript = ([selector, property]: [string, string]) => {

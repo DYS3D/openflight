@@ -1,6 +1,5 @@
 import { renderToString } from 'react-dom/server';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setActiveLocale } from '../i18n';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SimNotice } from '../stores/useBannerStore';
 import type { LevelStatus, RadarHealth } from '../types/socket';
 import { StatusBanner } from './StatusBanner';
@@ -23,10 +22,6 @@ describe('StatusBanner', () => {
     bannerState.reconnectAttempt = null;
     bannerState.levelWarning = null;
     bannerState.radarHealth = null;
-  });
-
-  afterEach(() => {
-    setActiveLocale('en');
   });
 
   it('renders nothing when there is nothing to report', () => {
@@ -76,22 +71,6 @@ describe('StatusBanner', () => {
     expect(html).not.toContain('status-banner__dismiss');
   });
 
-  it('translates the level warning', () => {
-    setActiveLocale('pt');
-    bannerState.levelWarning = { pitch_deg: 0.2, roll_deg: 3, level: false, threshold_deg: 1.5 };
-
-    expect(renderToString(<StatusBanner />).replace(/<!-- -->/g, '')).toContain(
-      'A unidade não está nivelada (arfagem 0.2°, rolagem 3.0°)'
-    );
-  });
-
-  it('translates the banner text', () => {
-    setActiveLocale('es');
-    bannerState.reconnectAttempt = 2;
-
-    expect(renderToString(<StatusBanner />)).toContain('Reconectando (2)…');
-  });
-
   it('stays silent for radar health without interference', () => {
     bannerState.radarHealth = {
       interference: false,
@@ -115,17 +94,5 @@ describe('StatusBanner', () => {
     expect(html).toContain('status-banner--interference');
     expect(html).toContain('role="status"');
     expect(html).toContain('Radar interference detected (noise +3.5 dB)');
-  });
-
-  it('translates the interference banner', () => {
-    setActiveLocale('pt');
-    bannerState.radarHealth = {
-      interference: true,
-      noise_floor_db: -60,
-      baseline_db: -62,
-      updated_at: '2026-09-30T10:00:00Z',
-    };
-
-    expect(renderToString(<StatusBanner />)).toContain('Interferência de radar detectada (ruído +2.0 dB)');
   });
 });

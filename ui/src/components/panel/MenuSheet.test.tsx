@@ -19,19 +19,6 @@ describe('MenuSheet profiles', () => {
   });
 });
 
-describe('MenuSheet language', () => {
-  it('offers a language dropdown with the shipped locales', () => {
-    const html = renderMenu();
-
-    expect(html).toContain('menu-sheet__section-title">Language');
-    expect(html).toContain('aria-label="Language"');
-    expect(html).toContain('>English</option>');
-    expect(html).toContain('>Español</option>');
-    expect(html).toContain('>Français</option>');
-    expect(html).toContain('>Português</option>');
-  });
-});
-
 describe('MenuSheet battery', () => {
   it('does not show battery in the menu, even when telemetry is present', () => {
     const powerStatus: PowerStatus = {

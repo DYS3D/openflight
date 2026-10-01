@@ -1,9 +1,7 @@
 import { useRef } from 'react';
-import { LOCALES, type LocaleId } from '../../i18n';
 import { useI18n } from '../../i18n/useI18n';
 import { useSystemStore } from '../../stores/useSystemStore';
 import { useThemeStore } from '../../stores/useThemeStore';
-import { useLocaleStore } from '../../stores/useLocaleStore';
 import { useUnitPreference } from '../../state/useUnitPreference';
 import { useDisplayPreferencesStore } from '../../stores/useDisplayPreferencesStore';
 import { useDragScroll } from '../../hooks/useDragScroll';
@@ -45,7 +43,6 @@ export function MenuSheet({
   const { t } = useI18n();
   const { unitSystem, setUnitSystem } = useUnitPreference();
   const { theme, setTheme } = useThemeStore();
-  const { locale, setLocale } = useLocaleStore();
   const { preferences, setPreference } = useDisplayPreferencesStore();
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragScroll = useDragScroll(sheetRef);
@@ -89,22 +86,6 @@ export function MenuSheet({
             ]}
             onChange={setTheme}
           />
-        </section>
-
-        <section className="menu-sheet__section">
-          <span className="menu-sheet__section-title">{t('menu.language')}</span>
-          <select
-            className="menu-sheet__select"
-            aria-label={t('menu.language')}
-            value={locale}
-            onChange={(event) => setLocale(event.target.value as LocaleId)}
-          >
-            {LOCALES.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.nativeName}
-              </option>
-            ))}
-          </select>
         </section>
 
         <section className="menu-sheet__section">

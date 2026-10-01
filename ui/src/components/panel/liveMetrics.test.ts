@@ -1,5 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { setActiveLocale } from '../../i18n';
+import { describe, expect, it } from 'vitest';
 import type { Shot, ShotDerived, SwingSpeedStats } from '../../types/shot';
 import {
   buildDerivedMetrics,
@@ -324,10 +323,6 @@ const derived: ShotDerived = {
 };
 
 describe('buildDerivedMetrics', () => {
-  afterEach(() => {
-    setActiveLocale('en');
-  });
-
   it('returns nothing for a shot without derived data', () => {
     expect(buildDerivedMetrics(makeShot(), 'imperial')).toEqual([]);
     expect(buildDerivedMetrics(makeShot({ derived: {} }), 'imperial')).toEqual([]);
@@ -403,16 +398,15 @@ describe('buildDerivedMetrics', () => {
     expect(metrics.map((m) => m.id)).toEqual(['derived_roll']);
   });
 
-  it('localizes the shot shape and passes unknown shapes through', () => {
-    setActiveLocale('es');
-    const spanish = buildDerivedMetrics(makeShot({ derived }), 'imperial');
-    expect(byId(spanish, 'derived_shot_shape').label).toBe('Forma del golpe');
+  it('labels the shot shape and passes unknown shapes through', () => {
+    const labelled = buildDerivedMetrics(makeShot({ derived }), 'imperial');
+    expect(byId(labelled, 'derived_shot_shape').label).toBe('Shot shape');
 
     const straight = buildDerivedMetrics(
       makeShot({ derived: { shot_shape: { value: 'straight', source: 'estimated' } } }),
       'imperial'
     );
-    expect(byId(straight, 'derived_shot_shape').value).toBe('Recto');
+    expect(byId(straight, 'derived_shot_shape').value).toBe('Straight');
 
     const unknown = buildDerivedMetrics(
       makeShot({ derived: { shot_shape: { value: 'banana', source: 'estimated' } } }),

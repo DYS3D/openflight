@@ -1,29 +1,19 @@
 import { en, type MessageKey, type Messages } from './en';
-import { es } from './es';
-import { fr } from './fr';
-import { pt } from './pt';
 
-export type LocaleId = 'en' | 'es' | 'fr' | 'pt';
+export type LocaleId = 'en';
 
 export interface LocaleOption {
   id: LocaleId;
-  /** Native name shown in the language dropdown. */
-  nativeName: string;
   /** BCP 47 tag for <html lang> and number formatting. */
   htmlLang: string;
 }
 
-export const LOCALES: readonly LocaleOption[] = [
-  { id: 'en', nativeName: 'English', htmlLang: 'en' },
-  { id: 'es', nativeName: 'Español', htmlLang: 'es' },
-  { id: 'fr', nativeName: 'Français', htmlLang: 'fr' },
-  { id: 'pt', nativeName: 'Português', htmlLang: 'pt-BR' },
-];
+export const LOCALES: readonly LocaleOption[] = [{ id: 'en', htmlLang: 'en' }];
 
 export const DEFAULT_LOCALE: LocaleId = 'en';
 export const LOCALE_STORAGE_KEY = 'openflight.locale:v1';
 
-export const catalogs: Record<LocaleId, Messages> = { en, es, fr, pt };
+export const catalogs: Record<LocaleId, Messages> = { en };
 
 const localeIds = new Set<string>(LOCALES.map((locale) => locale.id));
 

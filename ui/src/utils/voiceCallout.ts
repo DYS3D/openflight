@@ -1,3 +1,6 @@
+/** The kiosk UI ships in English only, so every callout is spoken as US English. */
+export const CALLOUT_LANG = 'en-US';
+
 export interface SpeechEnvironment {
   synth: Pick<SpeechSynthesis, 'cancel' | 'speak'>;
   createUtterance: (text: string) => SpeechSynthesisUtterance;
@@ -19,14 +22,14 @@ function browserSpeech(): SpeechEnvironment | null {
 }
 
 /** Replaces anything still being spoken, so rapid shots never queue up. */
-export function speakCallout(text: string, lang: string, speech: SpeechEnvironment | null = browserSpeech()): void {
+export function speakCallout(text: string, speech: SpeechEnvironment | null = browserSpeech()): void {
   if (!speech) {
     return;
   }
 
   try {
     const utterance = speech.createUtterance(text);
-    utterance.lang = lang;
+    utterance.lang = CALLOUT_LANG;
     speech.synth.cancel();
     speech.synth.speak(utterance);
   } catch {

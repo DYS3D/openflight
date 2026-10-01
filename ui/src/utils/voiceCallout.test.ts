@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { speakCallout, type SpeechEnvironment } from './voiceCallout';
+import { CALLOUT_LANG, speakCallout, type SpeechEnvironment } from './voiceCallout';
 
 function fakeSpeech(options: { failSpeak?: boolean } = {}) {
   const calls: string[] = [];
@@ -25,32 +25,33 @@ describe('speakCallout', () => {
     vi.unstubAllGlobals();
   });
 
-  it('speaks the text in the requested language, cutting off the previous callout', () => {
+  it('speaks the text in US English, cutting off the previous callout', () => {
     const { speech, calls, spoken } = fakeSpeech();
 
-    speakCallout('214 yardas', 'es', speech);
+    speakCallout('214 yards', speech);
 
+    expect(CALLOUT_LANG).toBe('en-US');
     expect(calls).toEqual(['cancel', 'speak']);
-    expect(spoken).toEqual([{ text: '214 yardas', lang: 'es' }]);
+    expect(spoken).toEqual([{ text: '214 yards', lang: 'en-US' }]);
   });
 
   it('is a silent no-op when the browser has no speech synthesis', () => {
     vi.stubGlobal('window', {});
 
-    expect(() => speakCallout('214 yards', 'en')).not.toThrow();
-    expect(() => speakCallout('214 yards', 'en', null)).not.toThrow();
+    expect(() => speakCallout('214 yards')).not.toThrow();
+    expect(() => speakCallout('214 yards', null)).not.toThrow();
   });
 
   it('is a silent no-op with no window at all', () => {
     vi.stubGlobal('window', undefined);
 
-    expect(() => speakCallout('214 yards', 'en')).not.toThrow();
+    expect(() => speakCallout('214 yards')).not.toThrow();
   });
 
   it('swallows a speech engine failure (e.g. no voices on the Pi)', () => {
     const { speech } = fakeSpeech({ failSpeak: true });
 
-    expect(() => speakCallout('214 yards', 'en', speech)).not.toThrow();
+    expect(() => speakCallout('214 yards', speech)).not.toThrow();
   });
 
   it('uses window.speechSynthesis when available', () => {
@@ -64,9 +65,9 @@ describe('speakCallout', () => {
     }
     vi.stubGlobal('window', { speechSynthesis: { speak, cancel: vi.fn() }, SpeechSynthesisUtterance: FakeUtterance });
 
-    speakCallout('92.0 miles per hour', 'en');
+    speakCallout('92.0 miles per hour');
 
     expect(speak).toHaveBeenCalledTimes(1);
-    expect(speak.mock.calls[0][0]).toMatchObject({ text: '92.0 miles per hour', lang: 'en' });
+    expect(speak.mock.calls[0][0]).toMatchObject({ text: '92.0 miles per hour', lang: 'en-US' });
   });
 });

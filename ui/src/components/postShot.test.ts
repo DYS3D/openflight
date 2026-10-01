@@ -1,5 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { setActiveLocale } from '../i18n';
+import { describe, expect, it } from 'vitest';
 import type { LiveMetric } from './panel/liveMetrics';
 import { calloutText, hasCalloutValue, initialShotCue, nextShotCue, type ShotCueInput } from './postShot';
 
@@ -12,7 +11,6 @@ function input(overrides: Partial<ShotCueInput> = {}): ShotCueInput {
     metric: carry,
     bigNumberAfterShot: true,
     voiceCallout: false,
-    lang: 'en',
     liveView: true,
     ...overrides,
   };
@@ -82,49 +80,31 @@ describe('hasCalloutValue', () => {
 });
 
 describe('calloutText', () => {
-  afterEach(() => {
-    setActiveLocale('en');
-  });
-
   it('speaks the value with the unit spelled out', () => {
-    expect(calloutText(carry, 'en')).toBe('214 yards');
-    expect(calloutText({ id: 'ball_speed', label: 'Ball speed', value: '148.1', unit: 'km/h' }, 'en')).toBe(
+    expect(calloutText(carry)).toBe('214 yards');
+    expect(calloutText({ id: 'ball_speed', label: 'Ball speed', value: '148.1', unit: 'km/h' })).toBe(
       '148.1 kilometers per hour'
     );
-    expect(calloutText({ id: 'launch_v', label: 'V. launch', value: '13.4', unit: '°' }, 'en')).toBe('13.4 degrees');
+    expect(calloutText({ id: 'launch_v', label: 'V. launch', value: '13.4', unit: '°' })).toBe('13.4 degrees');
   });
 
   it('leaves a unitless value bare and an unknown unit as is', () => {
-    expect(calloutText({ id: 'smash', label: 'Smash', value: '1.45' }, 'en')).toBe('1.45');
-    expect(calloutText({ id: 'x', label: 'X', value: '3', unit: 'g' }, 'en')).toBe('3 g');
+    expect(calloutText({ id: 'smash', label: 'Smash', value: '1.45' })).toBe('1.45');
+    expect(calloutText({ id: 'x', label: 'X', value: '3', unit: 'g' })).toBe('3 g');
   });
 
-  it('uses the active language for words and the decimal separator', () => {
-    setActiveLocale('fr');
-    expect(calloutText({ id: 'ball_speed', label: 'Vit. balle', value: '92.0', unit: 'mph' }, 'fr')).toBe(
-      '92,0 miles par heure'
-    );
+  it('speaks a grouped spin value as is, never as a decimal', () => {
+    const spin = { id: 'spin', label: 'Spin', value: (2328).toLocaleString('en-US'), unit: 'rpm' };
+    expect(spin.value).toBe('2,328');
+    expect(calloutText(spin)).toBe('2,328 rpm');
 
-    setActiveLocale('pt');
-    expect(calloutText({ id: 'carry', label: 'Carry', value: '196', unit: 'm' }, 'pt-BR')).toBe('196 metros');
-
-    setActiveLocale('es');
-    expect(calloutText(carry, 'es')).toBe('214 yardas');
-  });
-
-  it('does not turn a locale thousands separator into a decimal', () => {
-    setActiveLocale('pt');
-    const spin = { id: 'spin', label: 'Spin', value: (2328).toLocaleString('pt-BR'), unit: 'rpm' };
-    expect(calloutText(spin, 'pt-BR')).toBe('2328 rpm');
-
-    setActiveLocale('es');
-    const wedgeSpin = { id: 'spin', label: 'Spin', value: (10250).toLocaleString('es'), unit: 'rpm' };
-    expect(calloutText(wedgeSpin, 'es')).toBe('10250 rpm');
-    expect(calloutText({ id: 'smash', label: 'Smash', value: '1.48' }, 'es')).toBe('1,48');
+    const wedgeSpin = { id: 'spin', label: 'Spin', value: (10250).toLocaleString('en-US'), unit: 'rpm' };
+    expect(calloutText(wedgeSpin)).toBe('10,250 rpm');
+    expect(calloutText({ id: 'smash', label: 'Smash', value: '1.48' })).toBe('1.48');
   });
 
   it('has nothing to say without a value', () => {
-    expect(calloutText({ ...carry, value: '—' }, 'en')).toBeNull();
-    expect(calloutText(null, 'en')).toBeNull();
+    expect(calloutText({ ...carry, value: '—' })).toBeNull();
+    expect(calloutText(null)).toBeNull();
   });
 });

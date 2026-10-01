@@ -1,8 +1,7 @@
 import { isValidElement, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { setActiveLocale } from '../i18n';
-import { AppErrorBoundary, ErrorFallback } from './AppErrorBoundary';
+import { AppErrorBoundary } from './AppErrorBoundary';
 
 function renderBoundary(error: Error | null) {
   const boundary = new AppErrorBoundary({ children: <p>app content</p> });
@@ -12,7 +11,6 @@ function renderBoundary(error: Error | null) {
 
 describe('AppErrorBoundary', () => {
   afterEach(() => {
-    setActiveLocale('en');
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -56,13 +54,5 @@ describe('AppErrorBoundary', () => {
     boundary.componentDidCatch(error, { componentStack: '\n    at Broken' });
 
     expect(log).toHaveBeenCalledWith('Unhandled UI error', error, '\n    at Broken');
-  });
-
-  it('uses the active locale', () => {
-    setActiveLocale('es');
-    const html = renderToString(<ErrorFallback onReload={() => {}} />);
-
-    expect(html).toContain('Algo salió mal');
-    expect(html).toContain('>Recargar</button>');
   });
 });

@@ -467,9 +467,15 @@ class TestRollZero:
             )
         ]
 
-    @pytest.mark.parametrize(("argv", "expected"), [([], 0.0), (["-1.25"], -1.25)])
-    def test_cli_flag_reaches_init_inclinometer(self, monkeypatch, argv, expected):
-        flag = ["--inclinometer-roll-zero-deg", *argv] if argv else []
+    @pytest.mark.parametrize(
+        ("flag", "expected"),
+        [
+            ([], {"roll_zero_deg": 0.0, "bus_number": 1}),
+            (["--inclinometer-roll-zero-deg", "-1.25"], {"roll_zero_deg": -1.25}),
+            (["--inclinometer-i2c-bus", "3"], {"bus_number": 3}),
+        ],
+    )
+    def test_cli_flag_reaches_init_inclinometer(self, monkeypatch, flag, expected):
         seen = {}
 
         def fake_init_inclinometer(**kwargs):
@@ -510,5 +516,6 @@ class TestRollZero:
         with pytest.raises(SystemExit):
             server_module.main()
 
-        assert seen["roll_zero_deg"] == expected
+        for key, value in expected.items():
+            assert seen[key] == value
         assert seen["zero_offset_deg"] == 0.0

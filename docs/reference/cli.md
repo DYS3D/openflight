@@ -131,6 +131,7 @@ LIS3DH enclosure tilt compensation.
 | `--inclinometer` | flag | Enable LIS3DH enclosure pitch compensation for IWR6843 tilt |
 | `--inclinometer-zero-offset` | float | Degrees added to raw LIS3DH pitch (default: 0) |
 | `--inclinometer-roll-zero-deg` | float | Degrees added to raw LIS3DH roll before roll compensation and the level warning (default: 0) |
+| `--inclinometer-i2c-bus` | int; default `1` | I2C bus of the LIS3DH. Set it to the bus an `i2c-gpio` overlay creates when the header's hardware bus does not see the sensor |
 
 ## Ballistics & spin
 

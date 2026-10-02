@@ -5801,6 +5801,15 @@ def main():
         help="Degrees added to raw LIS3DH roll (default: 0)",
     )
     parser.add_argument(
+        "--inclinometer-i2c-bus",
+        type=int,
+        default=1,
+        help=(
+            "I2C bus number of the LIS3DH (default: 1, the header's hardware bus). "
+            "Use the bus an i2c-gpio overlay creates when the hardware bus is unusable"
+        ),
+    )
+    parser.add_argument(
         "--inclinometer-roll-compensation",
         action="store_true",
         help=(
@@ -6438,6 +6447,7 @@ def main():
         if not init_inclinometer(
             zero_offset_deg=args.inclinometer_zero_offset,
             roll_zero_deg=args.inclinometer_roll_zero_deg,
+            bus_number=args.inclinometer_i2c_bus,
         ):
             logger.warning("Inclinometer unavailable; continuing with configured IWR6843 tilt")
             startup_status.skip("inclinometer", "Inclinometer unavailable; continuing")

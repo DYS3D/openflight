@@ -133,6 +133,22 @@ The default LIS3DH address is `0x18`, so the scan should contain `18`:
 10: -- -- -- -- -- -- -- -- 18 -- -- -- -- -- -- --
 ```
 
+### Sensor powered but missing from the scan
+
+If the board's LED is on, VIN/SDA/SCL all read 3.3 V and `i2cdetect -y 1` is
+still empty, rule out the Pi's hardware I2C with a software bus on two other
+pins. Move SDA to physical pin 16 (GPIO23) and SCL to pin 18 (GPIO24), then:
+
+```bash
+sudo dtoverlay i2c-gpio bus=3 i2c_gpio_sda=23 i2c_gpio_scl=24
+sudo i2cdetect -y 3
+```
+
+If `18` appears, the sensor is fine. Make the bus permanent by adding
+`dtoverlay=i2c-gpio,bus=3,i2c_gpio_sda=23,i2c_gpio_scl=24` to
+`/boot/firmware/config.txt`, reboot, and start OpenFlight with
+`--inclinometer-i2c-bus 3` (the hardware-test scripts take `--bus 3`).
+
 ## Install Software
 
 From the OpenFlight checkout:

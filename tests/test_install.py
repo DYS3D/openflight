@@ -528,17 +528,28 @@ class TestUdevRules:
         (rule,) = [line for line in self._rules() if f'SYMLINK+="{symlink}"' in line]
         return rule
 
+    def _rules_for(self, symlink: str) -> list:
+        return [line for line in self._rules() if f'SYMLINK+="{symlink}"' in line]
+
     def test_every_rule_grants_dialout_access(self):
         rules = self._rules()
-        assert len(rules) == 3
+        assert len(rules) == 4
         for rule in rules:
             assert 'SUBSYSTEM=="tty"' in rule
             assert 'GROUP="dialout"' in rule and 'MODE="0660"' in rule
 
     def test_ops243_is_the_stm_cdc_acm_device(self):
-        rule = self._rule_for("openflight-ops243")
+        (rule,) = [r for r in self._rules_for("openflight-ops243") if "0483" in r]
         assert 'KERNEL=="ttyACM*"' in rule
         assert 'ATTRS{idVendor}=="0483"' in rule  # OPS243Radar.VENDOR_IDS
+
+    def test_ops243_infineon_cdc_board_gets_the_stable_name(self):
+        # Field report 2026-10-02: an OPS243-A enumerated as
+        # usb-Infineon_IFX_CDC-if00, so the STM rule never matched it.
+        (rule,) = [r for r in self._rules_for("openflight-ops243") if "Infineon" in r]
+        assert 'KERNEL=="ttyACM*"' in rule
+        assert 'ENV{ID_VENDOR}=="Infineon"' in rule
+        assert 'ENV{ID_MODEL}=="IFX_CDC"' in rule
 
     @pytest.mark.parametrize(
         ("symlink", "interface"), [("openflight-iwr-cli", "00"), ("openflight-iwr-data", "01")]

@@ -4,6 +4,10 @@
 
 # OPS243-A over USB (STMicroelectronics CDC ACM).
 SUBSYSTEM=="tty", KERNEL=="ttyACM*", ATTRS{idVendor}=="0483", GROUP="dialout", MODE="0660", SYMLINK+="openflight-ops243"
+# Newer OPS243-A boards enumerate as an Infineon CDC ACM device
+# (/dev/serial/by-id/usb-Infineon_IFX_CDC-if00). ID_VENDOR/ID_MODEL come from
+# the usb_id builtin in 60-serial.rules.
+SUBSYSTEM=="tty", KERNEL=="ttyACM*", ENV{ID_VENDOR}=="Infineon", ENV{ID_MODEL}=="IFX_CDC", GROUP="dialout", MODE="0660", SYMLINK+="openflight-ops243"
 
 # IWR6843LEVM Silicon Labs CP2105. ID_USB_INTERFACE_NUM comes from the usb_id
 # builtin in 60-serial.rules (ATTRS cannot mix the device's idVendor with the

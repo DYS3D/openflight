@@ -848,11 +848,19 @@ class OPS243Radar:
     def get_firmware_version(self) -> str:
         """Get firmware version string."""
         response = self._send_command("?V")
-        try:
-            data = json.loads(response)
-            return data.get("Version", "unknown")
-        except json.JSONDecodeError:
-            return response
+        # A streaming radar interleaves speed reports with the reply, so pick
+        # the JSON line carrying "Version" instead of parsing the whole buffer.
+        for line in response.splitlines():
+            line = line.strip()
+            if not (line.startswith("{") and line.endswith("}")):
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict) and "Version" in data:
+                return str(data["Version"])
+        return response.strip() or "unknown"
 
     def set_units(self, unit: SpeedUnit):
         """

@@ -736,3 +736,13 @@ class TestSwallowedHardwareDump:
 
         assert radar.wait_for_hardware_trigger(timeout=1.0) == dump.decode("ascii")
         assert radar.last_hardware_trigger_swallowed_dump is False
+
+
+def test_firmware_version_ignores_interleaved_speed_reports(monkeypatch):
+    """Doctor printed '{"Version":"1.3.0"}\\n-0.18' when speed lines arrived with the reply."""
+    from openflight.ops243 import OPS243Radar
+
+    radar = OPS243Radar(port="/dev/null")
+    monkeypatch.setattr(radar, "_send_command", lambda _cmd: '-0.82\n{"Version":"1.3.0"}\n-0.41\n')
+
+    assert radar.get_firmware_version() == "1.3.0"

@@ -19,6 +19,29 @@ _ensure_kiosk_ui_build() {
     fi
 }
 
+# A git pull updates ui/src but leaves the old ui/dist in place, so the kiosk
+# would keep serving the previous interface. Rebuild when any source is newer
+# than the bundle; keep the old bundle if the rebuild cannot run or fails.
+_rebuild_stale_kiosk_ui() {
+    local ui_dir="$PROJECT_DIR/ui"
+    local bundle="$ui_dir/dist/index.html"
+    [ -f "$bundle" ] || return 0
+    [ -d "$ui_dir/node_modules" ] || return 0
+    if [ -z "$(find "$ui_dir/src" "$ui_dir/index.html" "$ui_dir/package.json" -newer "$bundle" -print -quit 2>/dev/null)" ]; then
+        return 0
+    fi
+    # shellcheck source=require-node.sh
+    source "$SCRIPT_DIR/require-node.sh"
+    if ! openflight_node_meets_min; then
+        warn "UI sources changed but Node.js is too old to rebuild; using existing UI bundle"
+        return 0
+    fi
+    warn "UI sources changed since the last build. Rebuilding..."
+    if ! (cd "$ui_dir" && npm run build); then
+        warn "UI rebuild failed; using existing UI bundle"
+    fi
+}
+
 _try_install_electron_shell() {
     warn "Electron kiosk shell missing. Attempting install..."
     # shellcheck source=require-node.sh
@@ -47,6 +70,8 @@ ensure_kiosk_ui() {
         _ensure_kiosk_ui_build
         return
     fi
+
+    _rebuild_stale_kiosk_ui
 
     if [ -x "$electron_bin" ]; then
         return 0

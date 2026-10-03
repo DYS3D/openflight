@@ -415,6 +415,7 @@ def _run_ensure_kiosk_ui(
     has_dist: bool,
     npm_exit: int,
     has_node_modules: bool = False,
+    stale_source: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     repo_scripts = REPO_ROOT / "scripts"
     scripts_dir = tmp_path / "scripts"
@@ -430,6 +431,13 @@ def _run_ensure_kiosk_ui(
         (ui_dir / "dist" / "index.html").write_text("<html></html>\n", encoding="utf-8")
     if has_node_modules:
         (ui_dir / "node_modules").mkdir()
+    (ui_dir / "src").mkdir()
+    source_file = ui_dir / "src" / "main.tsx"
+    source_file.write_text("export {};\n", encoding="utf-8")
+    if has_dist:
+        bundle_mtime = (ui_dir / "dist" / "index.html").stat().st_mtime
+        source_mtime = bundle_mtime + 60 if stale_source else bundle_mtime - 60
+        os.utime(source_file, (source_mtime, source_mtime))
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -541,6 +549,39 @@ def test_existing_ui_continues_when_electron_npm_install_fails(tmp_path):
     assert "CONTINUED" in result.stdout
     assert "FAILURE" not in combined
     assert (tmp_path / "npm-called").exists()
+
+
+def test_existing_ui_is_rebuilt_when_sources_are_newer(tmp_path):
+    """After a git pull the kiosk must rebuild instead of serving the old bundle."""
+    result = _run_ensure_kiosk_ui(
+        tmp_path,
+        node_version="22.12.0",
+        has_dist=True,
+        has_node_modules=True,
+        npm_exit=0,
+        stale_source=True,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert "CONTINUED" in result.stdout
+    assert "run build" in (tmp_path / "npm-called").read_text(encoding="utf-8")
+
+
+def test_stale_ui_keeps_old_bundle_when_rebuild_fails(tmp_path):
+    result = _run_ensure_kiosk_ui(
+        tmp_path,
+        node_version="22.12.0",
+        has_dist=True,
+        has_node_modules=True,
+        npm_exit=1,
+        stale_source=True,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert "CONTINUED" in result.stdout
+    assert "UI rebuild failed" in result.stdout
 
 
 def test_missing_ui_still_fails_when_npm_install_is_unavailable(tmp_path):

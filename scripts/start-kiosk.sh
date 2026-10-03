@@ -442,7 +442,12 @@ uv run "${UV_RUN_ARGS[@]}" "${SERVER_CMD[@]}" &
 SERVER_PID=$!
 
 log "Waiting for server to start..."
-for _ in {1..30}; do
+# With the camera, the IWR6843 (~6 s to configure) and the OPS243 rolling
+# buffer all enabled, startup takes well over 15 s. A server that is still
+# alive is still initialising hardware, so give it this long before giving up.
+SERVER_START_WAIT_S="${OPENFLIGHT_SERVER_START_WAIT_S:-90}"
+server_start_deadline=$((SECONDS + SERVER_START_WAIT_S))
+while [ "$SECONDS" -lt "$server_start_deadline" ]; do
     curl -fsS "http://$HOST:$WEB_PORT" >/dev/null 2>&1 && break
     kill -0 "$SERVER_PID" 2>/dev/null || break
     sleep 0.5

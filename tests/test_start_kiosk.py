@@ -197,6 +197,17 @@ def test_shutdown_waits_for_an_update_rollback_before_force_kill():
     assert shutdown.index('"updating"') < shutdown.index("kill -TERM")
 
 
+def test_server_start_wait_covers_full_hardware_startup():
+    """Field failure 2026-10-03: camera + IWR6843 + OPS243 took >15 s, so the
+    fixed 30 x 0.5 s wait killed a healthy server and systemd looped."""
+    script = _script()
+    wait = script[script.index('log "Waiting for server to start..."') :]
+    wait = wait[: wait.index("done")]
+    assert "{1..30}" not in wait
+    assert "OPENFLIGHT_SERVER_START_WAIT_S:-90" in wait
+    assert 'kill -0 "$SERVER_PID"' in wait
+
+
 def test_camera_capture_uses_system_python_for_sync_and_server_start():
     script = _script()
     camera_branch = script[

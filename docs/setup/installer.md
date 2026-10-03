@@ -83,6 +83,11 @@ the installer stops before changing anything if the saved arguments still
 contain `--mock` and you add `--with-camera` or `--with-iwr6843`. Remove `--mock`
 from `/etc/default/openflight` once the radar is connected, then re-run.
 
+The launcher waits up to 90 s for the server to answer before reporting
+`OpenFlight server timed out` (set `OPENFLIGHT_SERVER_START_WAIT_S` in the env
+file to change it); with the camera and both radars enabled, startup takes
+about 20 s.
+
 At boot the kiosk waits up to 60 s for the desktop's display to appear before
 opening the browser (set `OPENFLIGHT_DISPLAY_WAIT_S` in the env file to change
 it). If the display never appears, or the browser exits during start-up, the

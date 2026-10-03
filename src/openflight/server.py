@@ -2514,6 +2514,8 @@ radar_config = {
 }
 # --radar-auto-reconnect: off keeps the capture loops retrying a dead port.
 radar_auto_reconnect_enabled = False
+# --ops-software-trigger: relay the BCM17 sound edge to the OPS243 as S!.
+ops_software_trigger_enabled = False
 # --ball-marker / --spin-octave-check / --spin-octave-prior, recorded with the
 # session metadata.
 spin_runtime_config: dict = {
@@ -4930,9 +4932,30 @@ def start_monitor(
             radar_health_callback=on_radar_health,
         )
         if iwr6843_runtime is not None:
+            if ops_software_trigger_enabled:
+                _attach_ops_software_trigger(iwr6843_runtime.capture_monitor, monitor.radar)
             iwr6843_runtime.capture_monitor.arm()
     else:
         monitor.start(shot_callback=on_shot_detected, live_callback=on_live_reading)
+
+
+def _attach_ops_software_trigger(capture_monitor, radar) -> None:
+    """Relay each accepted BCM17 sound edge to the OPS243 as ``S!``.
+
+    For builds where the detector's GATE reaches the Pi but not OPS J3 pin 3
+    (HOST_INT). The edge is the one the IWR6843 and camera already use, so all
+    three sensors still capture the same impact.
+    """
+
+    def relay(_edge_timestamp: float) -> None:
+        try:
+            if not radar.send_software_trigger():
+                logger.debug("[OPS] Software trigger skipped: radar not waiting")
+        except Exception:  # pylint: disable=broad-exception-caught
+            logger.warning("[OPS] Software trigger relay failed", exc_info=True)
+
+    capture_monitor.add_trigger_observer(relay)
+    logger.info("[SERVER] OPS243 software trigger enabled: BCM17 edges are relayed as S!")
 
 
 def _cloud_raw_uploads_enabled() -> bool:
@@ -5784,6 +5807,15 @@ def main():
         help="Enable TI IWR6843 L3 capture and LCMF-v1 vertical launch angle",
     )
     parser.add_argument(
+        "--ops-software-trigger",
+        action="store_true",
+        help=(
+            "Relay the sound-trigger edge the Pi sees on the IWR6843 trigger pin to "
+            "the OPS243 as an S! command over its serial link, for builds whose GATE "
+            "wire does not reach OPS J3 pin 3 (HOST_INT). Requires --iwr6843. Default off"
+        ),
+    )
+    parser.add_argument(
         "--inclinometer",
         action="store_true",
         help="Enable LIS3DH enclosure pitch compensation for IWR6843 tilt",
@@ -6134,6 +6166,10 @@ def main():
         parser.error("--iwr6843 and horizontal --kld7 cannot both own club path")
     if args.inclinometer and not args.iwr6843:
         parser.error("--inclinometer requires --iwr6843")
+    if args.ops_software_trigger and not args.iwr6843:
+        parser.error("--ops-software-trigger requires --iwr6843")
+    if args.ops_software_trigger and args.trigger != "sound":
+        parser.error("--ops-software-trigger requires --trigger sound")
     if args.level_warning_deg < 0:
         parser.error("--level-warning-deg must not be negative")
     if args.inclinometer_roll_compensation and not args.inclinometer:
@@ -6222,6 +6258,8 @@ def main():
     inclinometer_roll_compensation_enabled = args.inclinometer_roll_compensation
     global radar_auto_reconnect_enabled
     radar_auto_reconnect_enabled = args.radar_auto_reconnect
+    global ops_software_trigger_enabled
+    ops_software_trigger_enabled = args.ops_software_trigger
     global spin_runtime_config
     spin_runtime_config = {
         "ball_marker": args.ball_marker,

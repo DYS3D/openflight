@@ -247,6 +247,9 @@ class OPS243Radar:
         self._speed_read_buffer = ""
         self.last_hardware_trigger_first_byte_timestamp: Optional[float] = None
         self.last_hardware_trigger_swallowed_dump = False
+        # True only while wait_for_hardware_trigger() is idle-waiting for a
+        # dump to start; send_software_trigger() may write S! only then.
+        self._awaiting_hardware_trigger = False
         # Most recent OPS-clock -> host-epoch sync (see read_clock_sync).
         self.last_clock_sync: Optional[dict] = None
 
@@ -1594,12 +1597,77 @@ class OPS243Radar:
         capture_markers = (b'{"sample_time"', b'{"trigger_time"')
         start_time = time.time()
         deadline = start_time + timeout
-        last_data_time = None
-        bytes_received = 0
         last_idle_time = start_time
         self.last_hardware_trigger_first_byte_timestamp = None
         self.last_hardware_trigger_swallowed_dump = False
 
+        self._awaiting_hardware_trigger = True
+        try:
+            full_response = self._read_hardware_trigger_dump(
+                response_lines=response_lines,
+                idle_bytes=idle_bytes,
+                capture_markers=capture_markers,
+                start_time=start_time,
+                deadline=deadline,
+                discarded_idle_bytes=discarded_idle_bytes,
+                last_idle_time=last_idle_time,
+                dump_grace=dump_grace,
+                cancel_event=cancel_event,
+                on_first_byte=on_first_byte,
+            )
+        finally:
+            self._awaiting_hardware_trigger = False
+        self._check_capture_terminator(full_response, "Hardware trigger")
+
+        if not full_response:
+            logger.info("[OPS] Hardware trigger: no data received within %.0fs", timeout)
+        else:
+            logger.info(
+                "[OPS] Hardware trigger: %d bytes in %.1fs",
+                len(full_response),
+                time.time() - start_time,
+            )
+
+        return full_response
+
+    def send_software_trigger(self) -> bool:
+        """Dump the rolling buffer now with ``S!``, as a HOST_INT edge would.
+
+        For builds where the sound detector's GATE reaches the Pi but not
+        J3 pin 3: the Pi relays the edge over serial. The dump itself is
+        read by the wait_for_hardware_trigger() call already in progress.
+
+        Returns:
+            True if ``S!`` was sent; False when no hardware-trigger wait is
+            idle (a dump is already in flight, or the radar is not armed),
+            so a relayed edge can never interrupt a dump or a re-arm.
+        """
+        if not getattr(self, "_awaiting_hardware_trigger", False):
+            return False
+        if not self.serial or not self.serial.is_open:
+            return False
+        self.serial.write(b"S!\r")
+        self.serial.flush()
+        logger.info("[OPS] Software trigger relayed (S!)")
+        return True
+
+    def _read_hardware_trigger_dump(
+        self,
+        *,
+        response_lines: list,
+        idle_bytes: bytearray,
+        capture_markers: tuple,
+        start_time: float,
+        deadline: float,
+        discarded_idle_bytes: int,
+        last_idle_time: float,
+        dump_grace: float,
+        cancel_event: Optional[threading.Event],
+        on_first_byte: Optional[Callable[[], None]],
+    ) -> str:
+        """Read loop of wait_for_hardware_trigger(); returns the raw dump."""
+        last_data_time = None
+        bytes_received = 0
         while time.time() < deadline:
             waiting = self.serial.in_waiting
             if waiting:
@@ -1623,6 +1691,7 @@ class OPS243Radar:
                     chunk = bytes(idle_bytes[capture_start:])
                     idle_bytes.clear()
                     first_byte_timestamp = time.time()
+                    self._awaiting_hardware_trigger = False
 
                 response_lines.append(chunk.decode("ascii", errors="ignore"))
                 bytes_received += len(chunk)
@@ -1679,19 +1748,7 @@ class OPS243Radar:
                         break
                 time.sleep(0.02)
 
-        full_response = "".join(response_lines) if response_lines else ""
-        self._check_capture_terminator(full_response, "Hardware trigger")
-
-        if not full_response:
-            logger.info("[OPS] Hardware trigger: no data received within %.0fs", timeout)
-        else:
-            logger.info(
-                "[OPS] Hardware trigger: %d bytes in %.1fs",
-                len(full_response),
-                time.time() - start_time,
-            )
-
-        return full_response
+        return "".join(response_lines) if response_lines else ""
 
     def rearm_rolling_buffer(self, pre_trigger_segments: int = 16):
         """

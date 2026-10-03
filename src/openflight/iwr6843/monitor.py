@@ -190,6 +190,10 @@ class IWR6843CaptureMonitor:
         self._armed = True
         logger.info("[IWR6843] Armed on BCM%d", self.gpio_pin)
 
+    def add_trigger_observer(self, observer: Callable[[float], None]) -> None:
+        """Call ``observer(edge_timestamp)`` for every accepted trigger edge."""
+        self._trigger_observers.append(observer)
+
     def notify_trigger(self, timestamp: float | None = None) -> bool:
         """Queue a GPIO edge without doing serial work in the callback."""
         if not self._running or not self._armed:

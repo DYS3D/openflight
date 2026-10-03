@@ -156,6 +156,15 @@ The preamp gain is too high for 3.3V operation.
 3. Verify HOST_INT is J3 **Pin 3** (not Pin 2)
 4. Run `uv run python scripts/hardware-test/test_rolling_buffer_persist.py --test` to confirm radar is in rolling buffer mode
 
+### IWR6843 triggers on a clap but the OPS243 never does
+
+The detector works (the Pi sees `GATE` on pin 11) but nothing reaches OPS
+`HOST_INT`: the J3 pin 3 wire is loose or on the wrong pin, or the radar's
+`HOST_INT` input no longer responds. If you cannot get to the wiring, start
+OpenFlight with `--ops-software-trigger`: the Pi relays each edge to the OPS243
+as `S!` over USB/UART. Check it first with
+`uv run python scripts/hardware-test/test_sound_trigger_gpio.py --gpio 17`.
+
 ### Triggers constantly / too sensitive
 
 - Use a lower-value R17 resistor to reduce gain

@@ -109,6 +109,7 @@ The supported angle radar.
 | `--iwr6843-config` | default `config/iwr6843_l3dump_wide_24f3ms_53bin_iq16.cfg` | TI RF config matching the flashed L3 firmware |
 | `--iwr6843-cal` | default `config/iwr6843_calibration_reference.json` | TI complex array/range calibration JSON |
 | `--iwr6843-trigger-pin` | int; default `17` | BCM GPIO receiving the shared sound-trigger edge (default: 17) |
+| `--ops-software-trigger` | flag; default off | Relay each sound-trigger edge the Pi sees on the IWR6843 trigger pin to the OPS243 as an `S!` command over its serial link. For builds whose `GATE` wire reaches Pi pin 11 but not OPS J3 pin 3 (`HOST_INT`). Requires `--iwr6843` and `--trigger sound`. `S!` is sent only while the OPS is idle-waiting for a dump |
 | `--iwr6843-tee-m` | float; default `1.575` | Antenna-center to tee slant range in metres (default: 1.575) |
 | `--iwr6843-net-m` | float; default `4.6` | Antenna-center to net range in metres (default: 4.6) |
 | `--iwr6843-tilt-deg` | float | Override mount tilt from the TI calibration JSON |

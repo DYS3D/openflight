@@ -746,3 +746,73 @@ def test_firmware_version_ignores_interleaved_speed_reports(monkeypatch):
     monkeypatch.setattr(radar, "_send_command", lambda _cmd: '-0.82\n{"Version":"1.3.0"}\n-0.41\n')
 
     assert radar.get_firmware_version() == "1.3.0"
+
+
+class _SoftwareTriggerSerial:
+    """Releases a complete dump only after S! is written, like the radar."""
+
+    def __init__(self, dump: bytes):
+        self.is_open = True
+        self.writes: list[bytes] = []
+        self._dump = dump
+        self._pending = b""
+
+    def reset_input_buffer(self):
+        self._pending = b""
+
+    def write(self, data):
+        self.writes.append(data)
+        if data == b"S!\r":
+            self._pending += self._dump
+
+    def flush(self):
+        pass
+
+    @property
+    def in_waiting(self):
+        return len(self._pending)
+
+    def read(self, n):
+        chunk, self._pending = self._pending[:n], self._pending[n:]
+        return chunk
+
+
+class TestSoftwareTriggerRelay:
+    """--ops-software-trigger: the Pi's GATE edge becomes S! on the OPS link."""
+
+    _DUMP = b"".join(TestWaitForHardwareTrigger._DUMP)
+
+    def _radar(self, serial_obj):
+        radar = OPS243Radar.__new__(OPS243Radar)
+        radar.serial = serial_obj
+        radar.last_hardware_trigger_first_byte_timestamp = None
+        return radar
+
+    def test_not_sent_unless_a_hardware_trigger_wait_is_idle(self):
+        serial_obj = _SoftwareTriggerSerial(self._DUMP)
+        radar = self._radar(serial_obj)
+
+        assert radar.send_software_trigger() is False
+        assert serial_obj.writes == []
+
+    def test_relayed_edge_is_read_by_the_waiting_hardware_trigger(self):
+        """Field case 2026-10-03: GATE reached BCM17 but never OPS HOST_INT."""
+        serial_obj = _SoftwareTriggerSerial(self._DUMP)
+        radar = self._radar(serial_obj)
+        result = {}
+
+        waiter = threading.Thread(
+            target=lambda: result.update(response=radar.wait_for_hardware_trigger(timeout=2.0))
+        )
+        waiter.start()
+        deadline = time.time() + 1.0
+        while not getattr(radar, "_awaiting_hardware_trigger", False) and time.time() < deadline:
+            time.sleep(0.005)
+
+        assert radar.send_software_trigger() is True
+        waiter.join(timeout=3.0)
+
+        assert serial_obj.writes == [b"S!\r"]
+        assert result["response"] == self._DUMP.decode("ascii")
+        # Once the dump is in, further relayed edges must not write again.
+        assert radar.send_software_trigger() is False

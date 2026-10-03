@@ -7,11 +7,14 @@ icon: lucide/cable
 Power and data for the IWR6843, the Raspberry Pi UART, serial and GPIO
 permissions, and the sound-trigger line.
 
-!!! warning "Do the OPS243 UART migration first"
+!!! warning "Choose how the OPS243 connects first"
 
-    The IWR6843 needs the USB bus, so the OPS243 has to move to the Pi GPIO
-    UART before you start. See
-    [Moving the OPS243 to the Pi GPIO UART](../build/ops243-uart.md).
+    The IWR6843 needs a USB port and real current, so the OPS243 either moves
+    to the Pi GPIO UART ([Option A](#option-a-ops-through-the-pi-gpio-uart-non-wifi-ops-only),
+    see [Moving the OPS243 to the Pi GPIO UART](../build/ops243-uart.md)) or
+    stays on USB through an externally powered hub
+    ([Option B](#option-b-ops-through-usb)). Either way, the sound detector
+    `GATE` also goes to Pi BCM17 / physical pin 11.
 
 ## Connect The Hardware
 

@@ -114,6 +114,11 @@
   background: var(--color-surface-hero);
 }
 
+[data-theme='copper'] .panel-footer__tabs .nav__button--active {
+  color: var(--color-text);
+  box-shadow: inset 0 -2px 0 var(--color-border-emphasis);
+}
+
 [data-theme='copper'] .live-panel__grid > .metric-card:nth-child(-n + 2) .metric-card__value {
   background: var(--copper-gradient);
   -webkit-background-clip: text;

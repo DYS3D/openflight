@@ -3,8 +3,12 @@ import { useDebugStore } from '../../stores/useDebugStore';
 import { useLaunchDaddyStore } from '../../stores/useLaunchDaddyStore';
 import { useSystemStore } from '../../stores/useSystemStore';
 import { useBannerStore } from '../../stores/useBannerStore';
+import { useCameraStore } from '../../stores/useCameraStore';
+import { useThemeStore } from '../../stores/useThemeStore';
 import { useI18n } from '../../i18n/useI18n';
 import { StatusMenu } from './StatusMenu';
+import { SensorDots } from './SensorDots';
+import { buildSensorDots } from './sensorStatus';
 
 interface PanelHeaderProps {
   /** Uppercase panel name, e.g. "Live". */
@@ -27,6 +31,8 @@ interface PanelHeaderProps {
    * tap (the path the kiosk uses).
    */
   statusMenuOpen?: boolean;
+  /** Copper header sensor dots. Omit to follow the theme. */
+  sensorDots?: boolean;
 }
 
 /**
@@ -55,6 +61,7 @@ export function PanelHeader({
   connected: connectedProp,
   radarConnected: radarConnectedProp,
   statusMenuOpen: statusMenuOpenProp,
+  sensorDots: sensorDotsProp,
 }: PanelHeaderProps) {
   const { t } = useI18n();
   const storeConnected = useSystemStore((state) => state.connected);
@@ -63,6 +70,9 @@ export function PanelHeader({
   const iwr6843State = useDebugStore((state) => state.triggerStatus.iwr6843_state);
   const radarHealth = useBannerStore((state) => state.radarHealth);
   const handleSecretTap = useLaunchDaddyStore((state) => state.handleSecretTap);
+  const themeIsCopper = useThemeStore((state) => state.theme === 'copper');
+  const cameraSettings = useCameraStore((state) => state.captureSettings);
+  const simStatuses = useSystemStore((state) => state.simStatuses);
   const [internalOpen, setInternalOpen] = useState(false);
 
   const connected = connectedProp ?? storeConnected;
@@ -70,6 +80,16 @@ export function PanelHeader({
   const menuOpen = statusMenuOpenProp ?? internalOpen;
   const status = connected ? 'connected' : 'disconnected';
   const statusLabel = connected ? t('header.serverConnected') : t('header.serverDisconnected');
+  const showSensorDots = sensorDotsProp ?? themeIsCopper;
+  const sensorDots = showSensorDots
+    ? buildSensorDots({
+        opsState: radarConnectedProp === undefined ? radarState : radarConnected ? 'connected' : 'disconnected',
+        iwr6843State,
+        camera: cameraSettings,
+        simStatuses,
+        labels: { ops: t('header.sensorOps'), angle: t('header.sensorAngle'), camera: t('header.sensorCamera') },
+      })
+    : [];
 
   const toggleMenu = () => {
     handleSecretTap();
@@ -95,6 +115,7 @@ export function PanelHeader({
         {subtitle ? <IdentityPart className="panel-header__subtitle">{subtitle}</IdentityPart> : null}
         {club ? <IdentityPart className="panel-header__club">{club}</IdentityPart> : null}
       </div>
+      {sensorDots.length > 0 ? <SensorDots dots={sensorDots} /> : null}
       {actions ? <div className="panel-header__actions">{actions}</div> : null}
       {menuOpen ? (
         <StatusMenu

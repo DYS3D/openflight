@@ -73,8 +73,27 @@ export function applySharedFitFontSize(rows: HTMLElement[], minPx = 12): void {
 }
 
 /**
+ * Split rows by the nearest `data-fit-group`, so differently sized tiles (the
+ * Copper hero tiles) each share a size with their own kind.
+ */
+export function groupRowsByFitGroup(rows: HTMLElement[]): HTMLElement[][] {
+  const groups = new Map<string, HTMLElement[]>();
+  for (const row of rows) {
+    const key = row.closest<HTMLElement>('[data-fit-group]')?.dataset.fitGroup ?? '';
+    const group = groups.get(key);
+    if (group) {
+      group.push(row);
+    } else {
+      groups.set(key, [row]);
+    }
+  }
+  return [...groups.values()];
+}
+
+/**
  * Fit every `.metric-card__value-row` in a grid to the same font-size so Live
- * numbers stay consistent (181 and 2,328 look the same size).
+ * numbers stay consistent (181 and 2,328 look the same size). Tiles marked
+ * with a `data-fit-group` are fitted with their group instead.
  */
 export function useSharedFitFontSize(enabled: boolean, token: string): RefObject<HTMLDivElement | null> {
   const ref = useRef<HTMLDivElement>(null);
@@ -94,7 +113,9 @@ export function useSharedFitFontSize(enabled: boolean, token: string): RefObject
         return;
       }
       mutationObserver.disconnect();
-      applySharedFitFontSize([...grid.querySelectorAll<HTMLElement>('.metric-card__value-row')]);
+      for (const group of groupRowsByFitGroup([...grid.querySelectorAll<HTMLElement>('.metric-card__value-row')])) {
+        applySharedFitFontSize(group);
+      }
       if (!cancelled) {
         mutationObserver.observe(grid, { subtree: true, characterData: true, childList: true });
       }

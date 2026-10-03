@@ -52,4 +52,12 @@ describe('PanelHeader', () => {
     expect(html).toContain('panel-header__actions');
     expect(html).toContain('Change club');
   });
+
+  it('shows sensor dots only when asked (Copper theme)', () => {
+    expect(renderToString(<PanelHeader title="Live" sensorDots radarConnected />)).toContain(
+      'aria-label="OPS: Connected"'
+    );
+    expect(renderToString(<PanelHeader title="Live" sensorDots={false} radarConnected />)).not.toContain('sensor-dots');
+    expect(renderToString(<PanelHeader title="Live" radarConnected />)).not.toContain('sensor-dots');
+  });
 });

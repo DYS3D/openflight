@@ -442,4 +442,49 @@ describe('LivePanel', () => {
     expect(html.match(/metric-card--interactive/g)).toHaveLength(5);
     expect(tileLabels(html)[0]).toBe('Last swing');
   });
+
+  describe('copper layout', () => {
+    function renderCopper(copperLayout: boolean, shots: Shot[]) {
+      return text(
+        renderToString(
+          <LivePanel
+            shot={shots[shots.length - 1]}
+            shots={shots}
+            profileId="james"
+            profileName="James"
+            clubLabel="DR"
+            copperLayout={copperLayout}
+          />
+        )
+      );
+    }
+
+    const shots = [
+      makeShot({ timestamp: '2026-08-19T10:00:00Z', carry_spin_adjusted: 200 }),
+      makeShot({ timestamp: '2026-08-19T10:01:00Z', launch_angle_vertical: 8.9, spin_rpm: 2400 }),
+    ];
+
+    it('fits ball speed and carry as hero tiles with the carry trend and range markers', () => {
+      const html = renderCopper(true, shots);
+
+      expect(html).toContain('live-panel__grid--copper');
+      expect(html.match(/data-fit-group="hero"/g)).toHaveLength(2);
+      expect(html).toContain('carry-trend');
+      expect(html).toContain('metric-card__range--low');
+      expect(html).toContain('metric-card__range--in');
+    });
+
+    it('leaves the default table untouched when off', () => {
+      const html = renderCopper(false, shots);
+
+      expect(html).not.toContain('live-panel__grid--copper');
+      expect(html).not.toContain('data-fit-group');
+      expect(html).not.toContain('carry-trend');
+      expect(html).not.toContain('metric-card__range');
+    });
+
+    it('skips the carry trend until there is a second shot', () => {
+      expect(renderCopper(true, [shots[0]])).not.toContain('metric-card__aside');
+    });
+  });
 });

@@ -44,6 +44,31 @@ for (const viewport of KIOSK_VIEWPORTS) {
       expect(await overflowingLiveMetricValues(page)).toEqual([]);
     });
 
+    test('keeps copper hero and tile values inside their tiles', async ({ page }) => {
+      await page.addInitScript(() => window.localStorage.setItem('openflight.theme', 'copper'));
+      await withControlSocket(async (socket) => {
+        await simulateShot(socket);
+        await simulateShot(socket);
+      });
+
+      await gotoApp(page);
+      await dismissPicker(page);
+
+      await expect(page.locator('.live-panel__grid--copper .metric-card')).toHaveCount(10);
+      await expect(page.locator('.live-panel__grid--copper [data-fit-group="hero"]')).toHaveCount(2);
+      await expect(page.locator('.carry-trend')).toBeVisible();
+
+      await page.locator('.live-panel__grid .metric-card__value').evaluateAll((values, widest) => {
+        for (const value of values) {
+          value.textContent = widest;
+        }
+      }, WIDEST_LIVE_METRIC_VALUE);
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+      expect(await overflowingLiveMetricValues(page)).toEqual([]);
+      expect(await overflowingLiveMetricMetadata(page)).toEqual([]);
+    });
+
     test('keeps long metric subtitles readable inside each live tile', async ({ page }) => {
       await withControlSocket(async (socket) => {
         await simulateShot(socket);

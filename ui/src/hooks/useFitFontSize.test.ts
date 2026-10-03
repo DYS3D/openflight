@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applySharedFitFontSize, rowOverflowsWidth } from './useFitFontSize';
+import { applySharedFitFontSize, groupRowsByFitGroup, rowOverflowsWidth } from './useFitFontSize';
 
 function fakeRow(contentWidthAt16: number, boxWidth: number): HTMLElement {
   const row = {
@@ -49,5 +49,21 @@ describe('applySharedFitFontSize', () => {
 
     expect(a.style.fontSize).toBe('');
     expect(b.style.fontSize).toBe('');
+  });
+});
+
+describe('groupRowsByFitGroup', () => {
+  function rowIn(group: string | undefined): HTMLElement {
+    return {
+      closest: () => (group === undefined ? null : { dataset: { fitGroup: group } }),
+    } as unknown as HTMLElement;
+  }
+
+  it('keeps ungrouped rows together and splits marked tiles into their own group', () => {
+    const plain = [rowIn(undefined), rowIn(undefined)];
+    const hero = [rowIn('hero'), rowIn('hero')];
+
+    expect(groupRowsByFitGroup([hero[0], plain[0], hero[1], plain[1]])).toEqual([hero, plain]);
+    expect(groupRowsByFitGroup(plain)).toEqual([plain]);
   });
 });

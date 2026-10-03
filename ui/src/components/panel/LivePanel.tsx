@@ -7,10 +7,19 @@ import { useI18n } from '../../i18n/useI18n';
 import { useSharedFitFontSize } from '../../hooks/useFitFontSize';
 import { useDragScroll } from '../../hooks/useDragScroll';
 import { useDisplayPreferencesStore } from '../../stores/useDisplayPreferencesStore';
+import { useThemeStore } from '../../stores/useThemeStore';
 import { MetricCard } from '../ui/MetricCard';
 import { PanelHeader } from './PanelHeader';
-import { buildDerivedMetrics, buildLiveMetrics, DERIVED_HERO_IDS, pinSelectedMetric } from './liveMetrics';
+import {
+  buildDerivedMetrics,
+  buildLiveMetrics,
+  DERIVED_HERO_IDS,
+  LIVE_METRIC_COUNT,
+  pinSelectedMetric,
+} from './liveMetrics';
 import { consistencyBands } from './consistency';
+import { CarryTrend } from './CarryTrend';
+import { rangeStatus } from './launchWindows';
 
 interface LivePanelProps {
   shot: Shot | null;
@@ -33,6 +42,8 @@ interface LivePanelProps {
   moreMetrics?: boolean;
   /** Makes the profile name a button that opens the golfer picker. */
   onSwitchProfile?: () => void;
+  /** Copper tile layout (hero tiles, carry trend, range markers). Omit to follow the theme. */
+  copperLayout?: boolean;
 }
 
 /**
@@ -54,6 +65,7 @@ export function LivePanel({
   showNormalizedCarry: showNormalizedCarryProp,
   moreMetrics: moreMetricsProp,
   onSwitchProfile,
+  copperLayout: copperLayoutProp,
 }: LivePanelProps) {
   const { locale, t } = useI18n();
   const { unitSystem } = useUnitPreference();
@@ -61,6 +73,8 @@ export function LivePanel({
   const consistencyColors = consistencyColorsProp ?? storePreferences.consistencyColors;
   const showNormalizedCarry = showNormalizedCarryProp ?? storePreferences.showNormalizedCarry;
   const moreMetrics = moreMetricsProp ?? storePreferences.moreMetrics;
+  const themeIsCopper = useThemeStore((state) => state.theme === 'copper');
+  const copperLayout = copperLayoutProp ?? themeIsCopper;
   const stripRef = useRef<HTMLDivElement>(null);
   const stripScroll = useDragScroll(stripRef, 'x');
   const profileShots = useMemo(() => filterShotsByProfile(shots, profileId), [shots, profileId]);
@@ -97,6 +111,12 @@ export function LivePanel({
         })
       : undefined;
   const selected = metrics[0] ?? null;
+  const metricRange = (id: string) => {
+    if (!copperLayout || !displayedShot) return undefined;
+    if (id === 'launch_v') return rangeStatus(id, displayedShot.launch_angle_vertical, displayedShot.club);
+    if (id === 'spin') return rangeStatus(id, displayedShot.spin_rpm, displayedShot.club);
+    return undefined;
+  };
   // A derived hero (Total, Shot shape) lives in the strip; the base table then has no highlight.
   const derivedHeroId =
     selectedMetricId !== null &&
@@ -144,8 +164,11 @@ export function LivePanel({
         className={`panel__body live-panel__body${derivedMetrics.length > 0 ? ' live-panel__body--with-derived' : ''}`}
       >
         {isProfileNewShot ? <div className="shot-flash" /> : null}
-        <div ref={gridRef} className={`live-panel__grid live-panel__grid--of-${metrics.length}`}>
-          {metrics.map((metric) => (
+        <div
+          ref={gridRef}
+          className={`live-panel__grid live-panel__grid--of-${metrics.length}${copperLayout ? ' live-panel__grid--copper' : ''}`}
+        >
+          {metrics.map((metric, index) => (
             <MetricCard
               key={metric.id}
               label={metric.label}
@@ -157,6 +180,13 @@ export function LivePanel({
               confidence={metric.confidence}
               confidenceLabel={metric.confidenceLabel}
               consistency={bands[metric.id]}
+              range={metricRange(metric.id)}
+              fitGroup={copperLayout && metrics.length === LIVE_METRIC_COUNT && index < 2 ? 'hero' : undefined}
+              aside={
+                copperLayout && metric.id === 'carry' && profileShots.length >= 2 ? (
+                  <CarryTrend shots={profileShots} unitSystem={unitSystem} />
+                ) : undefined
+              }
               labelPosition="above"
               selected={metric.id === selectedId}
               onClick={onSelectMetric ? () => onSelectMetric(metric.id) : undefined}

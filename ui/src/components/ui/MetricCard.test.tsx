@@ -23,6 +23,29 @@ describe('MetricCard', () => {
     expect(html).toContain('metric-card--hero');
   });
 
+  it('renders the copper range marker, aside, and fit group only when given', () => {
+    const plain = renderToString(<MetricCard value="8.9" unit="°" label="Launch" labelPosition="above" />);
+    expect(plain).not.toContain('metric-card__range');
+    expect(plain).not.toContain('metric-card__aside');
+    expect(plain).not.toContain('data-fit-group');
+
+    const html = renderToString(
+      <MetricCard
+        value="8.9"
+        unit="°"
+        label="Launch"
+        labelPosition="above"
+        range="low"
+        aside={<span>trend</span>}
+        fitGroup="hero"
+      />
+    );
+    expect(html).toContain('metric-card__range--low');
+    expect(html).toContain('Low');
+    expect(html).toContain('metric-card--with-aside');
+    expect(html).toContain('data-fit-group="hero"');
+  });
+
   it('labels experimental spin without confidence dots', () => {
     const html = renderToString(<MetricCard value="8,750" unit="rpm" label="Spin Rate" confidence="experimental" />);
     expect(html).toContain('metric-card__confidence--experimental');

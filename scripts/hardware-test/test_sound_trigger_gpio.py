@@ -141,7 +141,10 @@ def run(port: str, gpio_pin: int, pre_trigger_segments: int,
         from openflight.gpio_factory import ensure_lgpio_pin_factory
 
         ensure_lgpio_pin_factory()
-        button = Button(gpio_pin, pull_up=False, bounce_time=debounce_ms / 1000.0)
+        # No gpiozero bounce_time: lgpio drops any pulse shorter than the
+        # debounce interval, and a GATE pulse is often shorter than 200 ms.
+        # The loop below debounces in software instead.
+        button = Button(gpio_pin, pull_up=False, bounce_time=None)
 
         def on_trigger():
             trigger_event["triggered"] = True
@@ -194,7 +197,7 @@ def run(port: str, gpio_pin: int, pre_trigger_segments: int,
             if GPIO_LIB == "gpiozero":
                 # gpiozero - check for trigger event
                 if not trigger_event["triggered"]:
-                    time.sleep(0.1)
+                    time.sleep(0.002)
                     # Print dot every second
                     if int(time.time()) % 10 == 0 and int(time.time() * 10) % 10 == 0:
                         print(".", end="", flush=True)
@@ -207,9 +210,9 @@ def run(port: str, gpio_pin: int, pre_trigger_segments: int,
                     print(".", end="", flush=True)
                     continue
 
-            # Debounce - ignore triggers too close together (for RPi.GPIO)
+            # Debounce - ignore triggers too close together
             now = time.time()
-            if GPIO_LIB != "gpiozero" and (now - last_trigger_time) * 1000 < debounce_ms:
+            if (now - last_trigger_time) * 1000 < debounce_ms:
                 continue
             last_trigger_time = now
 

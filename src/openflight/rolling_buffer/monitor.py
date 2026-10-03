@@ -205,6 +205,7 @@ class RollingBufferMonitor:
         fast_dsp: bool = False,
         cap_spin_prior: bool = False,
         ball_speed_magnitude_gate: bool = False,
+        runtime_rolling_buffer: bool = False,
         **trigger_kwargs,
     ):
         """
@@ -246,6 +247,10 @@ class RollingBufferMonitor:
                 and the detector ceiling; see RollingBufferProcessor.
             ball_speed_magnitude_gate: Skip weak ball-speed bins (e.g.
                 clipping aliases); see RollingBufferProcessor.
+            runtime_rolling_buffer: Enter rolling-buffer mode at connect
+                (GC/S#/PA) instead of relying on the flash-persisted mode.
+                For --ops-software-trigger, where captures are started by
+                S! and the HOST_INT persistence workaround does not apply.
             **trigger_kwargs: Arguments for trigger strategy
         """
         self.timing = ActiveRadarTiming(radar_timing)
@@ -263,6 +268,7 @@ class RollingBufferMonitor:
         )
         self.trigger_type = trigger_type
         self.sample_rate_ksps = sample_rate_ksps
+        self.runtime_rolling_buffer = runtime_rolling_buffer
         if trigger_type == "sound":
             trigger_kwargs["timing"] = self.timing
         self.trigger = create_trigger(trigger_type, **trigger_kwargs)
@@ -317,10 +323,18 @@ class RollingBufferMonitor:
         # Speed trigger handles its own configuration (starts in speed mode).
         if self.trigger_type != "speed":
             pre_trigger_segments = getattr(self.trigger, "pre_trigger_segments", 12)
-            self.radar.prepare_persisted_rolling_buffer(
-                pre_trigger_segments=pre_trigger_segments,
-                sample_rate_ksps=self.sample_rate_ksps,
-            )
+            if getattr(self, "runtime_rolling_buffer", False):
+                # S!-started captures: a board that did not boot in rolling
+                # buffer mode (or lost it) ignores S!, so enter it now.
+                self.radar.configure_for_rolling_buffer(
+                    pre_trigger_segments=pre_trigger_segments,
+                    sample_rate_ksps=self.sample_rate_ksps,
+                )
+            else:
+                self.radar.prepare_persisted_rolling_buffer(
+                    pre_trigger_segments=pre_trigger_segments,
+                    sample_rate_ksps=self.sample_rate_ksps,
+                )
             logger.info(
                 "[MONITOR] Rolling buffer mode configured with S#%d, S=%d",
                 pre_trigger_segments,

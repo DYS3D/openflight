@@ -4812,6 +4812,7 @@ def start_monitor(
             interference_check=interference_check,
             scale_speed_band=profile.scale_speed_band,
             fast_dsp=fast_dsp,
+            runtime_rolling_buffer=ops_software_trigger_enabled,
             **trigger_kwargs,
         )
         logger.info(

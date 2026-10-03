@@ -3179,6 +3179,26 @@ class TestRollingBufferStartupMode:
         )
         assert not monitor.radar.configure_for_rolling_buffer.called
 
+    def test_software_trigger_enters_rolling_buffer_at_connect(self):
+        """Field case 2026-10-03: S! got no dump from the persisted mode."""
+        from openflight.rolling_buffer import RollingBufferMonitor
+
+        monitor = RollingBufferMonitor(
+            port=None,
+            trigger_type="sound",
+            pre_trigger_segments=16,
+            runtime_rolling_buffer=True,
+        )
+        monitor.radar = MagicMock()
+
+        assert monitor.connect() is True
+
+        monitor.radar.configure_for_rolling_buffer.assert_called_once_with(
+            pre_trigger_segments=16,
+            sample_rate_ksps=30,
+        )
+        assert not monitor.radar.prepare_persisted_rolling_buffer.called
+
     def test_speed_trigger_defers_runtime_configuration(self):
         from openflight.rolling_buffer import RollingBufferMonitor
 

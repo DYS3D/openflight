@@ -137,6 +137,10 @@ def run(port: str, gpio_pin: int, pre_trigger_segments: int,
 
     if GPIO_LIB == "gpiozero":
         # gpiozero approach - simpler and more compatible
+        # gpiozero cannot auto-detect a pin factory on a Pi 5; pick it explicitly.
+        from openflight.gpio_factory import ensure_lgpio_pin_factory
+
+        ensure_lgpio_pin_factory()
         button = Button(gpio_pin, pull_up=False, bounce_time=debounce_ms / 1000.0)
 
         def on_trigger():

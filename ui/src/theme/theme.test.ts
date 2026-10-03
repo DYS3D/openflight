@@ -21,9 +21,10 @@ afterEach(() => {
 });
 
 describe('theme helpers', () => {
-  it('accepts only dark and light', () => {
+  it('accepts only dark, light and copper', () => {
     expect(isTheme('dark')).toBe(true);
     expect(isTheme('light')).toBe(true);
+    expect(isTheme('copper')).toBe(true);
     expect(isTheme('solar')).toBe(false);
     expect(isTheme(null)).toBe(false);
   });
@@ -38,6 +39,13 @@ describe('theme helpers', () => {
   it('reads a stored light theme', () => {
     installBrowser({ [THEME_STORAGE_KEY]: 'light' });
     expect(readStoredTheme()).toBe('light');
+  });
+
+  it('reads a stored copper theme and keeps dark as the default', () => {
+    installBrowser({ [THEME_STORAGE_KEY]: 'copper' });
+    expect(readStoredTheme()).toBe('copper');
+    installBrowser();
+    expect(readStoredTheme()).toBe('dark');
   });
 
   it('writes data-theme on the document element', () => {

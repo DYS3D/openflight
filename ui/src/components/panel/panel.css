@@ -1987,9 +1987,10 @@
     bottom: 58px;
   }
 
-  /* Keep "MPH / YDS" on one line inside the sheet's half-width segments. */
+  /* Keep "MPH / YDS" on one line inside the sheet's half-width segments,
+   * and "Copper" inside the three-way theme control's third. */
   .menu-sheet .segmented-control__button {
-    padding-inline: var(--space-sm);
+    padding-inline: 2px;
   }
 
   .picker-overlay__header {

@@ -1,9 +1,9 @@
-export type Theme = 'dark' | 'light';
+export type Theme = 'dark' | 'light' | 'copper';
 
 export const THEME_STORAGE_KEY = 'openflight.theme';
 
 export function isTheme(value: unknown): value is Theme {
-  return value === 'dark' || value === 'light';
+  return value === 'dark' || value === 'light' || value === 'copper';
 }
 
 export function readStoredTheme(): Theme {

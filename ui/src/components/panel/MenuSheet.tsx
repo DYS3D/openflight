@@ -83,6 +83,7 @@ export function MenuSheet({
             options={[
               { id: 'dark', label: t('menu.themeDark') },
               { id: 'light', label: t('menu.themeLight') },
+              { id: 'copper', label: t('menu.themeCopper') },
             ]}
             onChange={setTheme}
           />

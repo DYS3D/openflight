@@ -99,3 +99,13 @@ describe('MenuSheet level tool', () => {
     expect(renderMenu()).not.toContain('>Level<');
   });
 });
+
+describe('MenuSheet theme', () => {
+  it('offers the Copper theme alongside Dark and Light', () => {
+    const html = renderMenu();
+
+    expect(html).toContain('>Dark<');
+    expect(html).toContain('>Light<');
+    expect(html).toContain('>Copper<');
+  });
+});

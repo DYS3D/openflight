@@ -1,5 +1,6 @@
 /* OpenFlight - Instrument Panel Design System */
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap');
 
 * {
   box-sizing: border-box;
@@ -75,6 +76,49 @@
   --color-consistency-good: #15803d;
   --color-consistency-fair: #b45309;
   --color-consistency-poor: #b91c1c;
+}
+
+/*
+ * Copper: navy surfaces with a copper accent and Archivo type, from the
+ * "A · Copper Tiles" concept. Opt-in from the menu; dark stays the default.
+ * Copper is never a flat block behind text except the light C2 tone used for
+ * chips, always paired with navy text.
+ */
+[data-theme='copper'] {
+  color-scheme: dark;
+  --font-body: 'Archivo', system-ui, -apple-system, sans-serif;
+  --color-bg: #071120;
+  --color-surface: #0a1c37;
+  --color-surface-hero: #0d2441;
+  --color-accent: #e8c99a;
+  --color-accent-block: #e8c99a;
+  --color-accent-fg: #071120;
+  --color-text: #f4ead6;
+  --color-text-muted: #b9c2d6;
+  --color-text-faint: #8f9cb8;
+  --color-border: rgba(232, 201, 154, 0.32);
+  --color-border-soft: rgba(232, 201, 154, 0.16);
+  --color-border-emphasis: #c98f4e;
+  --color-scrim: rgba(4, 10, 20, 0.65);
+  --color-hatch: #081729;
+  --color-danger: #f0a493;
+  --color-danger-border: rgba(240, 164, 147, 0.5);
+  --color-consistency-good: #9fd8b4;
+  --color-consistency-fair: #e8c99a;
+  --color-consistency-poor: #f0a493;
+  --copper-gradient: linear-gradient(180deg, #fdf3df 0%, #e8c99a 22%, #c98f4e 52%, #a66e34 75%, #6d4722 100%);
+}
+
+/* The two lead Live tiles (ball speed, carry) carry the copper numerals. */
+[data-theme='copper'] .live-panel__grid > .metric-card:nth-child(-n + 2) {
+  background: var(--color-surface-hero);
+}
+
+[data-theme='copper'] .live-panel__grid > .metric-card:nth-child(-n + 2) .metric-card__value {
+  background: var(--copper-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 html {

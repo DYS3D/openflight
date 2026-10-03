@@ -81,6 +81,7 @@ from .radar_profile import DEFAULT_RADAR_PROFILE, RADAR_PROFILES, resolve_radar_
 from .radar_reconnect import RADAR_STATE_CONNECTED
 from .radar_timing import RadarTimingConfig, add_radar_timing_args
 from .rolling_buffer.monitor import estimate_carry_with_spin, get_optimal_spin_for_ball_speed
+from .session_log_api import add_session_log_api_args, create_session_log_blueprint
 from .session_logger import (
     SessionLogger,
     get_session_logger,
@@ -2441,6 +2442,9 @@ def handle_delete_shot(data=None):
         _reply("delete_shot_error", {"error": "Shot not found"})
         return
 
+    session_logger = get_session_logger()
+    if session_logger:
+        session_logger.log_shot_deleted(timestamp)
     socketio.emit("session_state", _session_state_payload())
 
 
@@ -6129,6 +6133,7 @@ def main():
     add_radar_timing_args(parser)
     add_access_args(parser)
     add_update_args(parser)
+    add_session_log_api_args(parser)
     server_group = parser.add_argument_group("Web server limits (off by default)")
     server_group.add_argument(
         "--request-rate-limit",
@@ -6333,6 +6338,13 @@ def main():
     else:
         init_session_logger(enabled=False)
         logger.info("Session logging DISABLED")
+
+    if args.session_log_api:
+        session_log_dir = (
+            Path(args.log_dir).expanduser() if args.log_dir else SessionLogger.DEFAULT_LOG_DIR
+        )
+        app.register_blueprint(create_session_log_blueprint(lambda: session_log_dir))
+        logger.info("Session log API enabled at /api/session-logs (%s)", session_log_dir)
 
     if ballistics_enabled:
         logger.info("Ballistic carry model: ENABLED (simulator + drag/Magnus)")

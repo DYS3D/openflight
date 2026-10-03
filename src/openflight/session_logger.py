@@ -494,6 +494,13 @@ class SessionLogger:
 
         self._write_entry("shot_detected", data)
 
+    def log_shot_deleted(self, timestamp: str):
+        """Record that the user deleted a shot, so readers of the log can skip it."""
+        if not self.enabled:
+            return
+
+        self._write_entry("shot_deleted", {"shot_timestamp": timestamp})
+
     def log_camera_capture(
         self,
         *,

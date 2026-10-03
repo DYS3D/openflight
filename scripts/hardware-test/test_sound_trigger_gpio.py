@@ -190,6 +190,7 @@ def run(port: str, gpio_pin: int, pre_trigger_segments: int,
     trigger_count = 0
     swing_count = 0
     last_trigger_time = 0
+    last_dot_time = time.time()
 
     try:
         while True:
@@ -198,8 +199,9 @@ def run(port: str, gpio_pin: int, pre_trigger_segments: int,
                 # gpiozero - check for trigger event
                 if not trigger_event["triggered"]:
                     time.sleep(0.002)
-                    # Print dot every second
-                    if int(time.time()) % 10 == 0 and int(time.time() * 10) % 10 == 0:
+                    # Print a dot every 10 s so the wait is visibly alive
+                    if time.time() - last_dot_time >= 10:
+                        last_dot_time = time.time()
                         print(".", end="", flush=True)
                     continue
                 trigger_event["triggered"] = False

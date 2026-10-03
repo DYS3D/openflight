@@ -88,7 +88,7 @@ def process_capture(processor: RollingBufferProcessor, response: str,
     timeline = processor.process_standard(capture)
 
     print()
-    print(f"  Processed {len(timeline.readings)} speed readings across 32 segments:")
+    print(f"  Processed {len(timeline.readings)} speed readings:")
     print()
 
     # Show readings grouped by segment like AN-027 Appendix A output
@@ -96,7 +96,7 @@ def process_capture(processor: RollingBufferProcessor, response: str,
     for reading in timeline.readings:
         direction = "OUT" if reading.is_outbound else " IN"
         marker = " <--" if reading.is_outbound and reading.speed_mph >= 15.0 else ""
-        print(f"    Seg {reading.segment_index:>2}: {reading.speed_mph:>6.1f} mph "
+        print(f"    {reading.timestamp_ms:>6.1f} ms: {reading.speed_mph:>6.1f} mph "
               f"{direction} (mag: {reading.magnitude:>6.1f}){marker}")
         if reading.is_outbound and reading.speed_mph >= 15.0:
             outbound_readings.append(reading)
@@ -113,7 +113,7 @@ def process_capture(processor: RollingBufferProcessor, response: str,
 
     peak_reading = max(outbound_readings, key=lambda r: r.speed_mph)
     print(f"  Peak outbound:  {peak_reading.speed_mph:.1f} mph "
-          f"(segment {peak_reading.segment_index}, mag {peak_reading.magnitude:.1f})")
+          f"(at {peak_reading.timestamp_ms:.1f} ms, mag {peak_reading.magnitude:.1f})")
     print(f"  Outbound count: {len(outbound_readings)} readings >= 15 mph")
     print("=" * 60)
     print()

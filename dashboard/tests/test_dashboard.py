@@ -404,3 +404,102 @@ def test_second_dashboard_refuses_a_port_already_in_use(tmp_path):
         with pytest.raises(SystemExit, match="already in use"):
             main(["--data-dir", str(tmp_path), "--port", str(port)])
     assert not port_in_use(port)
+
+
+SKYTRAK_CSV = """﻿,,,,,,,,,,,,,,,,,,
+PRACTICE: 10/4/2026 4:00 PM,,,,,,,,,,,,,,,,,,
+PLAYER: JCROSS1324,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,
+SHOT,HAND,EXPECTED DIST.,BALL SPEED,LAUNCH,BACK,SIDE,SIDE,OFFLINE,CARRY,ROLL,TOTAL,FLIGHT,DSCNT,HEIGHT,CLUB SPEED,SMASH,PATH,FTT
+#,L/R,SCORE,MPH,DEG,RPM,RPM,DEG,YD,YD,YD,YD,SEC,DEG,YD,MPH,FACTOR,DEG,DEG
+8 IRON ,,,,,,,,,,,,,,,,,,
+1,R,116,107,18,4989,297,-9,-24,151,10,161,5,40,21,76,1.42,-10.6,-9.2
+2,R,77,94,20,4781,746,-5,-5,126,10,136,5,39,18,73,1.28,-8.4,-4.3
+AVG,,91,98,20,5310,1169,-7,-6,132,9,141,5,40,19,77,1.29,-10.8,-5.6
+,,,,,,,,,,,,,,,,,,
+DRIVER 1,,,,,,,,,,,,,,,,,,
+1,R,--,130,17,2476,1131,-2,29,203,19,221,6,36,24,86,1.5,-6.9,-0.6
+"""
+
+
+def test_skytrak_export_becomes_a_session_under_the_golfer(tmp_path):
+    from openflight_dashboard.skytrak import import_export
+
+    store = Store(tmp_path / "db.sqlite3")
+    store.ingest(
+        NAME,
+        log_text(shot("2026-10-03T19:10:00", profile="pi-justin", profile_name="Justin")),
+        1,
+        1,
+    )
+
+    session_id, shots = import_export(store, SKYTRAK_CSV, "justin")
+
+    assert (session_id, shots) == ("session_20261004_160000_skytrak", 3)
+    rows = store.query(
+        "SELECT club, profile_id, ball_speed, carry, launch_v, launch_h, spin FROM shots "
+        "WHERE session_id = ? ORDER BY timestamp",
+        (session_id,),
+    )
+    assert [tuple(row) for row in rows] == [
+        ("8-iron", "pi-justin", 107.0, 151.0, 18.0, -9.0, 4998),
+        ("8-iron", "pi-justin", 94.0, 126.0, 20.0, -5.0, 4839),
+        ("driver", "pi-justin", 130.0, 203.0, 17.0, -2.0, 2722),
+    ]
+    # Importing the same export again replaces it.
+    assert import_export(store, SKYTRAK_CSV, "Justin")[1] == 3
+    assert (
+        store.query("SELECT COUNT(*) AS n FROM shots WHERE session_id = ?", (session_id,))[0]["n"]
+        == 3
+    )
+
+
+def test_skytrak_import_gives_a_new_golfer_their_own_profile(tmp_path):
+    from openflight_dashboard.skytrak import import_export
+
+    store = Store(tmp_path / "db.sqlite3")
+    import_export(store, SKYTRAK_CSV, "Sam Smith")
+
+    assert {row["profile_id"] for row in store.query("SELECT profile_id FROM shots")} == {
+        "skytrak-sam-smith"
+    }
+
+
+def test_skytrak_import_rejects_other_files(tmp_path):
+    from openflight_dashboard.skytrak import SkyTrakFormatError, import_export
+
+    with pytest.raises(SkyTrakFormatError):
+        import_export(Store(tmp_path / "db.sqlite3"), "a,b\n1,2\n", "Justin")
+
+
+def test_skytrak_upload_endpoint_and_cli(tmp_path):
+    import io
+
+    from openflight_dashboard.__main__ import main
+
+    store = Store(tmp_path / "openflight.sqlite3")
+    client = create_app(store, None, None).test_client()
+    response = client.post(
+        "/api/import/skytrak",
+        data={
+            "golfer": "Justin",
+            "files": [
+                (io.BytesIO(SKYTRAK_CSV.encode()), "export.csv"),
+                (io.BytesIO(b"nope"), "bad.csv"),
+            ],
+        },
+        content_type="multipart/form-data",
+    )
+    results = response.get_json()["results"]
+    assert results[0] == {
+        "file": "export.csv",
+        "session": "session_20261004_160000_skytrak",
+        "shots": 3,
+    }
+    assert "error" in results[1]
+
+    folder = tmp_path / "exports"
+    folder.mkdir()
+    (folder / "one.csv").write_text(SKYTRAK_CSV.replace("4:00 PM", "5:00 PM"), encoding="utf-8")
+    main(["--data-dir", str(tmp_path), "import-skytrak", str(folder), "--golfer", "Justin"])
+    assert "session_20261004_170000_skytrak" in Store(tmp_path / "openflight.sqlite3").session_ids()

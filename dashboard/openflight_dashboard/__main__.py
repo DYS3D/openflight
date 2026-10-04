@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from .app import create_app
+from .skytrak import SkyTrakFormatError, import_export
 from .store import Store
 from .sync import PiSource, SyncLoop
 
@@ -83,6 +84,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     importer = commands.add_parser("import", help="Load session_*.jsonl files copied by hand")
     importer.add_argument("files", nargs="+", type=Path)
+    skytrak = commands.add_parser(
+        "import-skytrak",
+        help="Load SkyTrak shots-history CSV exports (files or a folder of them)",
+    )
+    skytrak.add_argument("paths", nargs="+", type=Path)
+    skytrak.add_argument(
+        "--golfer", required=True, help="Whose shots these are, e.g. Justin (matches Pi profiles)"
+    )
     return parser
 
 
@@ -103,6 +112,23 @@ def main(argv: list[str] | None = None) -> None:
         print(
             f"Hid {len(chosen)} session(s); {len(visible) - len(set(chosen) & set(visible))} left"
         )
+        return
+
+    if args.command == "import-skytrak":
+        files = [
+            file
+            for path in args.paths
+            for file in (sorted(path.glob("*.csv")) if path.is_dir() else [path])
+        ]
+        for file in files:
+            try:
+                session_id, shots = import_export(
+                    store, file.read_text(encoding="utf-8-sig"), args.golfer
+                )
+            except SkyTrakFormatError as exc:
+                print(f"{file.name}: skipped ({exc})")
+                continue
+            print(f"{file.name}: {shots} shots -> {session_id}")
         return
 
     if args.command == "import":

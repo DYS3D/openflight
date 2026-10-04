@@ -9,6 +9,7 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 
 from . import home as home_page
 from . import stats
+from .skytrak import SkyTrakFormatError, import_export
 from .store import Store
 from .sync import SyncLoop
 
@@ -53,6 +54,19 @@ def create_app(store: Store, sync: SyncLoop | None, pi_url: str | None) -> Flask
         # Shot timestamps are the Pi's local time, so "now" is local too.
         today = datetime.now()  # noqa: DTZ005
         return jsonify(home_page.home(store, profile(), days or None, today))
+
+    @app.post("/api/import/skytrak")
+    def import_skytrak():
+        golfer = request.form.get("golfer", "")
+        results = []
+        for upload in request.files.getlist("files"):
+            try:
+                text = upload.read().decode("utf-8-sig")
+                session_id, shots = import_export(store, text, golfer)
+                results.append({"file": upload.filename, "session": session_id, "shots": shots})
+            except (SkyTrakFormatError, UnicodeDecodeError) as exc:
+                results.append({"file": upload.filename, "error": str(exc)})
+        return jsonify({"results": results})
 
     @app.get("/api/profiles")
     def profiles():

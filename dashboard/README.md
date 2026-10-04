@@ -61,6 +61,19 @@ Each session lands in its own folder under `data/raw/` (change it with
 `--raw-dir`): the `.jsonl` log, a `captures/` folder and the Pi's
 `manifest.json`. The summaries still go into the database as usual.
 
+## Import SkyTrak sessions
+
+On the Sessions page, use **Import SkyTrak**: type the golfer's name (it
+matches their Pi profile), pick one or more SkyTrak "Shots History" CSV
+exports and press Import. Importing the same export again replaces it. From a
+terminal:
+
+```powershell
+uv run openflight-dashboard import-skytrak C:\path\to\SkyTrak\Export --golfer Justin
+```
+
+A folder imports every CSV in it.
+
 ## Updating
 
 On Windows, run `update.ps1`. It pulls the latest code, stops whatever is

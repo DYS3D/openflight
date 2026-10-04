@@ -109,6 +109,15 @@ class Store:
         rows = self.query("SELECT id FROM sessions ORDER BY started_at DESC, id DESC")
         return [row["id"] for row in rows]
 
+    def profile_id_for_name(self, name: str) -> str | None:
+        """The profile id already used for this golfer's name, ignoring case."""
+        rows = self.query(
+            "SELECT profile_id FROM shots WHERE profile_id IS NOT NULL "
+            "AND lower(profile_name) = lower(?) GROUP BY profile_id ORDER BY COUNT(*) DESC",
+            (name,),
+        )
+        return rows[0]["profile_id"] if rows else None
+
     def hide(self, session_ids: list[str]) -> int:
         """Take sessions off the dashboard for good. Raw files on disk are kept."""
         with self._lock, self._conn:

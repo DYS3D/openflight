@@ -24,7 +24,7 @@ const profileSelect = document.getElementById('profile');
 const syncStatus = document.getElementById('sync-status');
 const syncButton = document.getElementById('sync-now');
 
-const viewState = { trendClub: null, trendMetric: 'carry', gappingRange: '' };
+const viewState = { trendClub: null, trendMetric: 'carry', gappingRange: '', importStatus: '' };
 
 /* ----------------------------------------------------------------- helpers */
 
@@ -417,9 +417,63 @@ function noShotsYet() {
   );
 }
 
+/* SkyTrak "Shots History" CSV exports, loaded under a golfer's profile. */
+async function skytrakImport() {
+  const profiles = await api('/api/profiles');
+  const golfer = el('input', {
+    class: 'input',
+    name: 'golfer',
+    list: 'skytrak-golfers',
+    placeholder: 'Golfer',
+    required: true,
+    value: profiles[0]?.name || '',
+    'aria-label': 'Golfer',
+  });
+  const files = el('input', { type: 'file', name: 'files', accept: '.csv', multiple: true, required: true, 'aria-label': 'SkyTrak CSV files' });
+  // Survives the re-render that shows the imported sessions.
+  const status = el('p', { class: 'import__status', role: 'status' }, viewState.importStatus);
+  const submit = el('button', { type: 'submit', class: 'button' }, 'Import');
+  const form = el(
+    'form',
+    {
+      class: 'import',
+      onsubmit: async (event) => {
+        event.preventDefault();
+        submit.disabled = true;
+        status.textContent = 'Importing…';
+        try {
+          const response = await fetch('/api/import/skytrak', { method: 'POST', body: new FormData(form) });
+          if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+          const { results } = await response.json();
+          const loaded = results.filter((result) => !result.error);
+          const shots = loaded.reduce((sum, result) => sum + result.shots, 0);
+          const failed = results.filter((result) => result.error).map((result) => `${result.file}: ${result.error}`);
+          viewState.importStatus =
+            `Imported ${loaded.length} session(s), ${shots} shots.` + (failed.length ? ` Skipped ${failed.join('; ')}` : '');
+          status.textContent = viewState.importStatus;
+          if (loaded.length) {
+            await loadProfiles();
+            await render();
+          }
+        } catch (error) {
+          status.textContent = `Import failed: ${error.message}`;
+        } finally {
+          submit.disabled = false;
+        }
+      },
+    },
+    el('h2', {}, 'Import SkyTrak'),
+    el('p', { class: 'lede' }, 'Add SkyTrak "Shots History" CSV exports to a golfer. Importing the same export again replaces it.'),
+    el('datalist', { id: 'skytrak-golfers' }, profiles.map((profile) => el('option', { value: profile.name || profile.id }))),
+    el('div', { class: 'import__row' }, golfer, files, submit),
+    status,
+  );
+  return form;
+}
+
 async function sessionsPage() {
   const sessions = await api('/api/sessions');
-  if (!sessions.length) return [el('h1', {}, 'Sessions'), noShotsYet()];
+  if (!sessions.length) return [el('h1', {}, 'Sessions'), noShotsYet(), await skytrakImport()];
   const totalShots = sessions.reduce((sum, session) => sum + session.shots, 0);
   const latest = sessions[0];
   return [
@@ -451,6 +505,7 @@ async function sessionsPage() {
         window.location.hash = `#/sessions/${encodeURIComponent(sessions[index].id)}`;
       },
     ),
+    await skytrakImport(),
   ];
 }
 

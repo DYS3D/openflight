@@ -958,3 +958,33 @@ a.record__date:hover {
   border-color: var(--hairline-strong);
   color: var(--text-muted);
 }
+
+/* SkyTrak import form (Sessions page). */
+.import {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--hairline);
+}
+
+.import__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.input {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+}
+
+.import__status {
+  min-height: 1.4em;
+  margin-top: 12px;
+  color: var(--text-muted);
+}

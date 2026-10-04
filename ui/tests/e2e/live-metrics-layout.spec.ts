@@ -69,6 +69,32 @@ for (const viewport of KIOSK_VIEWPORTS) {
       expect(await overflowingLiveMetricMetadata(page)).toEqual([]);
     });
 
+    test('keeps copper rejection captions inside their tiles', async ({ page }) => {
+      await page.addInitScript(() => window.localStorage.setItem('openflight.theme', 'copper'));
+      await withControlSocket(async (socket) => {
+        await simulateShot(socket);
+      });
+
+      await gotoApp(page);
+      await dismissPicker(page);
+      await expect(page.locator('.live-panel__grid--copper .metric-card')).toHaveCount(10);
+
+      // Club path and AoA with no camera capture show only the rejection
+      // reason (no value, so no experimental chip).
+      await page.locator('.live-panel__grid .metric-card').evaluateAll((cards) => {
+        for (const card of cards.slice(-2)) {
+          const meta = card.querySelector('.metric-card__meta');
+          if (!(meta instanceof HTMLElement)) continue;
+          const reason = document.createElement('span');
+          reason.className = 'metric-card__subtext metric-card__confidence-label';
+          reason.textContent = 'rejected: no camera capture';
+          meta.replaceChildren(reason);
+        }
+      });
+
+      expect(await overflowingLiveMetricMetadata(page)).toEqual([]);
+    });
+
     test('keeps long metric subtitles readable inside each live tile', async ({ page }) => {
       await withControlSocket(async (socket) => {
         await simulateShot(socket);

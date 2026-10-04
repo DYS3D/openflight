@@ -187,7 +187,7 @@ describe('buildLiveMetrics', () => {
     });
   });
 
-  it('keeps camera-fusion rejection status but hides superseded radar candidates', () => {
+  it('keeps camera-fusion rejection status, without an experimental chip, and hides superseded radar candidates', () => {
     const metrics = buildLiveMetrics(
       makeShot({
         club_angle_deg: null,
@@ -203,12 +203,12 @@ describe('buildLiveMetrics', () => {
     expect(byId(metrics, 'club_aoa')).toMatchObject({
       value: NO_VALUE,
       subtext: 'rejected: no impact',
-      confidence: 'experimental',
+      confidence: null,
     });
     expect(byId(metrics, 'club_path')).toMatchObject({
       value: NO_VALUE,
       subtext: 'rejected: no impact',
-      confidence: 'experimental',
+      confidence: null,
     });
   });
 

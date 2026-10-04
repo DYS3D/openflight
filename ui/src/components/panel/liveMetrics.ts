@@ -180,7 +180,11 @@ function buildBallStrikeMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[
             : clubPathIsExperimental
               ? experimentalStatus(shot.experimental_club_path_status)
               : undefined,
-      confidence: clubPathIsExperimental ? (shot.experimental_fused_club_path_confidence ?? 'experimental') : null,
+      // A rejected attempt has no value to qualify, only its reason.
+      confidence:
+        clubPathIsExperimental && clubPath !== null
+          ? (shot.experimental_fused_club_path_confidence ?? 'experimental')
+          : null,
       confidenceLabel: shot.experimental_fused_club_path_confidence ? 'experimental' : undefined,
     },
     {
@@ -198,7 +202,10 @@ function buildBallStrikeMetrics(shot: Shot, unitSystem: UnitSystem): LiveMetric[
             : attackIsExperimental
               ? experimentalStatus(shot.experimental_attack_angle_status)
               : undefined,
-      confidence: attackIsExperimental ? (shot.experimental_fused_attack_angle_confidence ?? 'experimental') : null,
+      confidence:
+        attackIsExperimental && attackAngle !== null
+          ? (shot.experimental_fused_attack_angle_confidence ?? 'experimental')
+          : null,
       confidenceLabel: shot.experimental_fused_attack_angle_confidence ? 'experimental' : undefined,
     },
   ];

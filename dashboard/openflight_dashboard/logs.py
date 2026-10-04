@@ -30,6 +30,8 @@ class Shot:
     spin_axis: float | None
     # Wedge matrix tag from the kiosk: "full", "3/4" or "1/2".
     swing: str | None = None
+    # Shots-screen labels, comma separated ("mishit,toe"); None when untagged.
+    tags: str | None = None
 
 
 @dataclass
@@ -54,6 +56,12 @@ def _started_from_name(name: str) -> str | None:
 
 def _number(value) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _tags(value) -> str | None:
+    if not isinstance(value, list):
+        return None
+    return ",".join(tag for tag in value if isinstance(tag, str)) or None
 
 
 def _shot(entry: dict) -> Shot | None:
@@ -82,6 +90,7 @@ def _shot(entry: dict) -> Shot | None:
         spin=_number(entry.get("spin_rpm")),
         spin_axis=_number(entry.get("spin_axis_deg")),
         swing=entry.get("swing_length") if entry.get("swing_length") in SWING_LENGTHS else None,
+        tags=_tags(entry.get("tags")),
     )
 
 
@@ -109,6 +118,10 @@ def parse_session_log(name: str, text: str) -> ParsedSession:
             shot = _shot(entry)
             if shot is not None:
                 shots[shot.timestamp] = shot
+        elif kind == "shot_tagged":
+            tagged = shots.get(str(entry.get("shot_timestamp")))
+            if tagged is not None:
+                tagged.tags = _tags(entry.get("tags"))
         elif kind == "shot_deleted":
             shots.pop(str(entry.get("shot_timestamp")), None)
         if started_at is None and isinstance(entry.get("ts"), str):

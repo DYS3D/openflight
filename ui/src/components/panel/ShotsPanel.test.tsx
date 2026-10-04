@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { Shot } from '../../types/shot';
-import { ShotsPanel } from './ShotsPanel';
+import { ShotsPanel, TagPicker } from './ShotsPanel';
 
 const css = readFileSync(fileURLToPath(new URL('./panel.css', import.meta.url)), 'utf8');
 
@@ -195,5 +195,19 @@ describe('ShotsPanel', () => {
   it('paints the list on the same surface as the header', () => {
     expect(render([makeShot()])).toContain('panel shots-panel');
     expect(css).toMatch(/\.panel\.shots-panel \{[^}]*background: var\(--color-surface\)/);
+  });
+
+  it('lists the tags beside the club', () => {
+    const html = render([makeShot({ club: '8-iron', tags: ['mishit', 'toe'] })]);
+    expect(html).toContain('8-iron · Mishit · Toe');
+  });
+});
+
+describe('TagPicker', () => {
+  it('shows every tag, pressed when the shot has it', () => {
+    const html = text(renderToString(<TagPicker shot={makeShot({ tags: ['good'] })} onTag={() => {}} />));
+    for (const label of ['Good', 'Mishit', 'Fat', 'Thin', 'Toe', 'Heel']) expect(html).toContain(`>${label}<`);
+    expect(html).toContain('aria-pressed="true">Good<');
+    expect(html).toContain('aria-pressed="false">Mishit<');
   });
 });

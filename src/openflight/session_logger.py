@@ -494,6 +494,13 @@ class SessionLogger:
 
         self._write_entry("shot_detected", data)
 
+    def log_shot_tagged(self, timestamp: str, tags: list):
+        """Record a shot's tags after the fact; readers apply the latest entry."""
+        if not self.enabled:
+            return
+
+        self._write_entry("shot_tagged", {"shot_timestamp": timestamp, "tags": list(tags)})
+
     def log_shot_deleted(self, timestamp: str):
         """Record that the user deleted a shot, so readers of the log can skip it."""
         if not self.enabled:

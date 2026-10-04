@@ -269,6 +269,8 @@ class Shot:
     profile_name: str = ""
     # Wedge matrix: "full", "3/4" or "1/2" while the golfer is tagging swings.
     swing_length: Optional[str] = None
+    # Labels the golfer added afterwards on the Shots screen (see SHOT_TAGS).
+    tags: list = field(default_factory=list)
     readings_data: Optional[list] = None
     camera_replay: Optional[dict] = None
     angle_source: Optional[str] = None  # "radar", "camera", "estimated", or None
@@ -430,6 +432,7 @@ class Shot:
             "profile_id": self.profile_id,
             "profile_name": self.profile_name,
             "swing_length": self.swing_length,
+            "tags": list(self.tags),
             "timestamp": self.timestamp.isoformat(),
             "impact_timestamp": self.impact_timestamp,
             "peak_magnitude": self.peak_magnitude,

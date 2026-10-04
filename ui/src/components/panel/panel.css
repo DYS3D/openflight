@@ -1319,6 +1319,45 @@
   color: var(--color-danger);
 }
 
+.shots-panel__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 26px 4px;
+}
+
+.shots-panel__tags-label {
+  margin-right: 4px;
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.shots-panel__tag {
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.shots-panel__tag--on {
+  border-color: var(--color-accent-block);
+  background: var(--color-accent-block);
+  color: var(--color-accent-fg);
+}
+
 .shots-panel__validation {
   display: flex;
   flex-wrap: wrap;

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import type { Shot } from '../../types/shot';
-import { carryYards, filterShotsByProfile, getSwingSpeedMph, isSwingSpeedShot } from '../../types/shot';
+import type { Shot, ShotTag } from '../../types/shot';
+import { carryYards, filterShotsByProfile, getSwingSpeedMph, isSwingSpeedShot, SHOT_TAGS } from '../../types/shot';
 import { useDragScroll } from '../../hooks/useDragScroll';
 import { useUnitPreference } from '../../state/useUnitPreference';
 import { useSystemStore } from '../../stores/useSystemStore';
@@ -12,7 +12,7 @@ import { formatDistance, formatSpeed } from '../../utils/units';
 import { buildValidationCsv, comparatorDifference, downloadCsv } from '../../utils/validationCsv';
 import { PanelHeader } from './PanelHeader';
 import { PanelAction } from './PanelAction';
-import { getHtmlLang } from '../../i18n';
+import { getHtmlLang, type MessageKey } from '../../i18n';
 import { useI18n } from '../../i18n/useI18n';
 
 interface ShotsPanelProps {
@@ -22,6 +22,8 @@ interface ShotsPanelProps {
   clubLabel?: string;
   onDeleteShot: (timestamp: string) => void;
   onReplayShot?: (shot: Shot) => void;
+  /** Omit to send tags to the unit; tests pass a spy. */
+  onTagShot?: (timestamp: string, tags: ShotTag[]) => void;
 }
 
 const COMPARATOR_DEVICES = ['Stack Radar', 'PRGR', 'TrackMan', 'Full Swing', 'Other'];
@@ -53,6 +55,30 @@ function rowValues(shot: Shot, unitSystem: UnitSystem): string[] {
     shot.spin_rpm === null ? '—' : shot.spin_rpm.toLocaleString(getHtmlLang(), { maximumFractionDigits: 0 }),
     formatDistance(carryYards(shot), unitSystem, 0),
   ];
+}
+
+export function TagPicker({ shot, onTag }: { shot: Shot; onTag: (timestamp: string, tags: ShotTag[]) => void }) {
+  const { t } = useI18n();
+  const tags = shot.tags ?? [];
+  return (
+    <div className="shots-panel__tags" role="group" aria-label={t('tags.label')}>
+      <span className="shots-panel__tags-label">{t('tags.label')}</span>
+      {SHOT_TAGS.map((tag) => {
+        const on = tags.includes(tag);
+        return (
+          <button
+            key={tag}
+            type="button"
+            className={`shots-panel__tag${on ? ' shots-panel__tag--on' : ''}`}
+            aria-pressed={on}
+            onClick={() => onTag(shot.timestamp, on ? tags.filter((item) => item !== tag) : [...tags, tag])}
+          >
+            {t(`tags.${tag}` as MessageKey)}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function ValidationEditor({
@@ -120,7 +146,15 @@ function ValidationEditor({
  * inline, so a row expands on tap to reveal them — the mockup's own "make the
  * shot rows tappable to open shot detail" follow-up.
  */
-export function ShotsPanel({ shots, profileId, profileName, clubLabel, onDeleteShot, onReplayShot }: ShotsPanelProps) {
+export function ShotsPanel({
+  shots,
+  profileId,
+  profileName,
+  clubLabel,
+  onDeleteShot,
+  onReplayShot,
+  onTagShot = (timestamp, tags) => socketService.tagShot(timestamp, tags),
+}: ShotsPanelProps) {
   const { t } = useI18n();
   const { unitSystem } = useUnitPreference();
   const { entries, updateEntry } = useValidationStore();
@@ -231,7 +265,12 @@ export function ShotsPanel({ shots, profileId, profileName, clubLabel, onDeleteS
                   <span className="shots-panel__index">{shotNumber}</span>
                   <span className="shots-panel__profile">
                     <span className="shots-panel__profile-name">{profileName}</span>
-                    <span className="shots-panel__profile-club">{shot.training_implement_label ?? shot.club}</span>
+                    <span className="shots-panel__profile-club">
+                      {[
+                        shot.training_implement_label ?? shot.club,
+                        ...(shot.tags ?? []).map((tag) => t(`tags.${tag}` as MessageKey)),
+                      ].join(' · ')}
+                    </span>
                   </span>
                   <span className="shots-panel__num shots-panel__value">{ball}</span>
                   <span className="shots-panel__num shots-panel__value">{club}</span>
@@ -260,7 +299,12 @@ export function ShotsPanel({ shots, profileId, profileName, clubLabel, onDeleteS
                   </button>
                 </div>
               </div>
-              {isOpen ? <ValidationEditor shot={shot} entry={entry} onUpdate={updateEntry} /> : null}
+              {isOpen ? (
+                <>
+                  {isSwingSpeedShot(shot) ? null : <TagPicker shot={shot} onTag={onTagShot} />}
+                  <ValidationEditor shot={shot} entry={entry} onUpdate={updateEntry} />
+                </>
+              ) : null}
             </div>
           );
         })}

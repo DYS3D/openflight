@@ -1217,6 +1217,8 @@ ball_speed_correction_enabled = False
 club_speed_scale = 1.0
 # Wedge matrix: the swing length the kiosk tags new shots with (None = untagged).
 SWING_LENGTHS = ("full", "3/4", "1/2")
+# Labels the Shots screen can put on a shot.
+SHOT_TAGS = ("good", "mishit", "fat", "thin", "toe", "heel")
 current_swing_length: Optional[str] = None
 ball_speed_correction_distance_ft = 5.5
 ball_speed_correction_ball_above_radar_ft = -4.0 / 12.0
@@ -2507,6 +2509,34 @@ def handle_delete_shot(data=None):
     session_logger = get_session_logger()
     if session_logger:
         session_logger.log_shot_deleted(timestamp)
+    socketio.emit("session_state", _session_state_payload())
+
+
+@socketio.on("tag_shot")
+def handle_tag_shot(data=None):
+    """Replace one shot's tags (Shots screen); logged so the dashboard sees them."""
+    payload = _payload_dict(data)
+    timestamp = payload.get("timestamp")
+    tags = payload.get("tags")
+    if not isinstance(tags, list) or any(tag not in SHOT_TAGS for tag in tags):
+        _reply("tag_shot_error", {"error": "Unknown tag"})
+        return
+    tags = [tag for tag in SHOT_TAGS if tag in tags]
+    shot = next(
+        (
+            item
+            for item in (monitor.get_shots() if monitor and hasattr(monitor, "get_shots") else [])
+            if item.timestamp.isoformat() == timestamp
+        ),
+        None,
+    )
+    if shot is None:
+        _reply("tag_shot_error", {"error": "Shot not found"})
+        return
+    shot.tags = tags
+    session_logger = get_session_logger()
+    if session_logger:
+        session_logger.log_shot_tagged(timestamp, tags)
     socketio.emit("session_state", _session_state_payload())
 
 

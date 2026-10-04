@@ -100,7 +100,14 @@ def create_app(store: Store, sync: SyncLoop | None, pi_url: str | None) -> Flask
 
     @app.get("/api/gapping")
     def gapping():
-        return jsonify(stats.gapping(store, profile(), request.args.get("since") or None))
+        return jsonify(
+            stats.gapping(
+                store,
+                profile(),
+                request.args.get("since") or None,
+                skip_mishits=request.args.get("skip_mishits") == "1",
+            )
+        )
 
     @app.get("/api/records")
     def records():

@@ -315,6 +315,11 @@ class SocketService {
     this.socket?.emit('simulate_shot');
   }
 
+  /** Replace a shot's tags; the server answers with a fresh session_state. */
+  tagShot(timestamp: string, tags: string[]) {
+    this.socket?.emit('tag_shot', { timestamp, tags });
+  }
+
   deleteShot(timestamp: string) {
     if (!this.socket) return;
     this.pendingDeletes.add(timestamp);

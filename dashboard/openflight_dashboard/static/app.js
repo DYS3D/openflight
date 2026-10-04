@@ -24,7 +24,7 @@ const profileSelect = document.getElementById('profile');
 const syncStatus = document.getElementById('sync-status');
 const syncButton = document.getElementById('sync-now');
 
-const viewState = { trendClub: null, trendMetric: 'carry', gappingRange: '', importStatus: '' };
+const viewState = { trendClub: null, trendMetric: 'carry', gappingRange: '', importStatus: '', skipMishits: true };
 
 /* ----------------------------------------------------------------- helpers */
 
@@ -560,6 +560,7 @@ async function sessionPage(sessionId) {
             { label: 'Direction' },
             { label: 'Spin' },
             { label: 'Carry' },
+            { label: 'Tags', left: true },
           ],
           shots.map((shot, index) => [
             String(shot.shot_number ?? index + 1),
@@ -571,6 +572,7 @@ async function sessionPage(sessionId) {
             shot.launch_h === null ? '—' : `${fmt(Math.abs(shot.launch_h), 1)}° ${shot.launch_h < 0 ? 'L' : 'R'}`,
             fmt(shot.spin),
             fmt(shot.carry),
+            shot.tags ? shot.tags.split(',').map((tag) => tag[0].toUpperCase() + tag.slice(1)).join(', ') : '',
           ]),
         )
       : empty('No shots for this golfer in this session.'),
@@ -633,7 +635,15 @@ async function gappingPage() {
     start.setDate(start.getDate() - Number(viewState.gappingRange));
     since = start.toISOString().slice(0, 19);
   }
-  const [rows, wedges] = await Promise.all([api('/api/gapping', { since }), api('/api/wedges')]);
+  const [rows, wedges] = await Promise.all([
+    api('/api/gapping', { since, skip_mishits: viewState.skipMishits ? '1' : '' }),
+    api('/api/wedges'),
+  ]);
+  const skipMishits = el('input', {
+    type: 'checkbox',
+    checked: viewState.skipMishits,
+    onchange: (event) => { viewState.skipMishits = event.target.checked; render(); },
+  });
   const rangeSelect = el(
     'select',
     { onchange: (event) => { viewState.gappingRange = event.target.value; render(); } },
@@ -642,7 +652,12 @@ async function gappingPage() {
   return [
     el('h1', {}, 'Club gapping'),
     el('p', { class: 'lede' }, 'Carry distance per club. The bar is where half your shots land; the dot is the middle shot.'),
-    el('div', { class: 'controls' }, el('label', { class: 'field' }, el('span', { class: 'field__label' }, 'Range'), rangeSelect)),
+    el(
+      'div',
+      { class: 'controls' },
+      el('label', { class: 'field' }, el('span', { class: 'field__label' }, 'Range'), rangeSelect),
+      el('label', { class: 'field' }, skipMishits, el('span', { class: 'field__label' }, 'Leave out mishits')),
+    ),
     rows.length
       ? el(
           'section',

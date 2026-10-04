@@ -136,10 +136,18 @@ def trends(store: Store, profile: str | None) -> list[dict]:
     return result
 
 
-def gapping(store: Store, profile: str | None, since: str | None) -> list[dict]:
+def is_mishit(row) -> bool:
+    return "mishit" in (row["tags"] or "").split(",")
+
+
+def gapping(
+    store: Store, profile: str | None, since: str | None, skip_mishits: bool = False
+) -> list[dict]:
     """Carry spread per club: quartiles, so a few mishits do not move the gaps."""
     result = []
     for club, rows in _shots_by_club(store, profile, since).items():
+        if skip_mishits:
+            rows = [row for row in rows if not is_mishit(row)]
         carries = sorted(row["carry"] for row in rows if row["carry"] is not None)
         if not carries:
             continue

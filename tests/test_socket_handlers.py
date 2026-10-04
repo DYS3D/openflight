@@ -28,7 +28,9 @@ VALID_PAYLOADS = {
     "get_trigger_status": None,
     "watch_level": {"watching": False},
     "set_club": {"club": "7-iron"},
-    "set_swing_length": {"swing_length": "3/4"},
+    # null (stop tagging) so the module-wide swing length stays unset for later tests.
+    "set_swing_length": {"swing_length": None},
+    "tag_shot": {"timestamp": "2026-10-04T12:00:00", "tags": ["mishit"]},
     "get_profiles": None,
     "set_active_profile": {"profile_id": "missing"},
     "add_profile": {"name": "Handler Test"},

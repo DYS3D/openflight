@@ -553,3 +553,32 @@ def test_old_database_gains_the_swing_column(tmp_path):
     store = Store(path)
 
     assert "swing" in {row["name"] for row in store.query("PRAGMA table_info(shots)")}
+
+
+def test_tags_follow_the_latest_shot_tagged_entry_and_gapping_can_skip_mishits(store):
+    lines = log_text(
+        shot("2026-10-03T19:10:00", club="8-iron", carry=150),
+        shot("2026-10-03T19:11:00", club="8-iron", carry=152),
+        shot("2026-10-03T19:12:00", club="8-iron", carry=60),
+    ) + "\n".join(
+        json.dumps(entry)
+        for entry in (
+            {"type": "shot_tagged", "shot_timestamp": "2026-10-03T19:12:00", "tags": ["fat"]},
+            {
+                "type": "shot_tagged",
+                "shot_timestamp": "2026-10-03T19:12:00",
+                "tags": ["mishit", "fat"],
+            },
+            {"type": "shot_tagged", "shot_timestamp": "2026-10-03T19:10:00", "tags": []},
+        )
+    )
+    store.ingest(NAME, lines, 1, 1)
+
+    tags = [row["tags"] for row in store.query("SELECT tags FROM shots ORDER BY timestamp")]
+    assert tags == [None, None, "mishit,fat"]
+    every = stats.gapping(store, None, None)[0]
+    clean = stats.gapping(store, None, None, skip_mishits=True)[0]
+    assert (every["shots"], clean["shots"]) == (3, 2)
+    assert clean["min"] == 150
+    client = create_app(store, None, None).test_client()
+    assert client.get("/api/gapping?skip_mishits=1").get_json()[0]["shots"] == 2

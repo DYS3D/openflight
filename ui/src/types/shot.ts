@@ -55,6 +55,10 @@ export interface ShotLatency {
 
 export type SwingLength = 'full' | '3/4' | '1/2';
 
+/** Labels a golfer can add to a shot on the Shots screen. */
+export const SHOT_TAGS = ['good', 'mishit', 'fat', 'thin', 'toe', 'heel'] as const;
+export type ShotTag = (typeof SHOT_TAGS)[number];
+
 export interface Shot {
   mode?: 'rolling-buffer' | 'mock' | 'swing-speed';
   shot_number?: number | null;
@@ -68,6 +72,7 @@ export interface Shot {
   profile_name?: string;
   /** Wedge matrix tag: "full", "3/4" or "1/2"; absent/null when not tagging. */
   swing_length?: SwingLength | null;
+  tags?: ShotTag[];
   timestamp: string;
   impact_timestamp?: number | null;
   peak_magnitude: number | null;

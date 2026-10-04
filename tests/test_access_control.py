@@ -112,17 +112,17 @@ class TestPolicyDefaults:
         policy = access.AccessPolicy.from_args(
             _args(auth_required=True, auth_token_file=str(tmp_path / "t")), environ={}
         )
-        assert "192.168.0.221" not in policy.allowed_hosts
-        assert policy.origin_ok("http://192.168.0.221:8080", "192.168.0.221:8080")
-        assert not policy.origin_ok("http://192.168.0.99:8080", "192.168.0.221:8080")
+        assert "192.168.0.20" not in policy.allowed_hosts
+        assert policy.origin_ok("http://192.168.0.20:8080", "192.168.0.20:8080")
+        assert not policy.origin_ok("http://192.168.0.99:8080", "192.168.0.20:8080")
         assert not policy.origin_ok("http://evil.example", "evil.example")
-        assert not policy.origin_ok("http://192.168.0.221:8080")
+        assert not policy.origin_ok("http://192.168.0.20:8080")
 
     def test_interface_address_is_accepted_without_matching_host(self, monkeypatch):
-        monkeypatch.setattr(access, "_primary_ipv4", lambda: "192.168.0.221")
+        monkeypatch.setattr(access, "_primary_ipv4", lambda: "192.168.0.20")
         monkeypatch.setattr(access, "_interface_ip_cache", (float("-inf"), frozenset()))
         policy = access.AccessPolicy(enabled=True, token="t")
-        assert policy.origin_ok("http://192.168.0.221:8080", "openflight.local:8080")
+        assert policy.origin_ok("http://192.168.0.20:8080", "openflight.local:8080")
         assert not policy.origin_ok("http://192.168.0.50:8080", "openflight.local:8080")
 
     def test_interface_addresses_are_cached_briefly(self, monkeypatch):
@@ -268,8 +268,8 @@ class TestFlagOn:
         response = _http(
             locked_server,
             LAN,
-            headers={access.TOKEN_HEADER: "s3cret", "Origin": "http://192.168.0.221:8080"},
-            base_url="http://192.168.0.221:8080",
+            headers={access.TOKEN_HEADER: "s3cret", "Origin": "http://192.168.0.20:8080"},
+            base_url="http://192.168.0.20:8080",
         )
         assert response.status_code == 404
 
@@ -310,7 +310,7 @@ class TestCrossSiteGuard:
     """Default on: another site's page cannot change state or open the socket."""
 
     @staticmethod
-    def _post(srv, origin=None, host="192.168.0.221:8080"):
+    def _post(srv, origin=None, host="192.168.0.20:8080"):
         headers = {"Origin": origin} if origin else {}
         return srv.app.test_client().post(
             "/api/no-such-action",
@@ -325,12 +325,12 @@ class TestCrossSiteGuard:
 
     @pytest.mark.parametrize(
         "origin",
-        [None, "http://192.168.0.221:8080", "http://openflight.lan:8080", "http://127.0.0.1:5173"],
+        [None, "http://192.168.0.20:8080", "http://openflight.lan:8080", "http://127.0.0.1:5173"],
     )
     def test_same_site_loopback_and_originless_posts_pass(self, open_server, monkeypatch, origin):
         monkeypatch.setattr(open_server, "cross_site_policy", access.AccessPolicy(enabled=True))
         host = (
-            "openflight.lan:8080" if origin and "openflight.lan" in origin else "192.168.0.221:8080"
+            "openflight.lan:8080" if origin and "openflight.lan" in origin else "192.168.0.20:8080"
         )
         assert self._post(open_server, origin, host).status_code != 403
 

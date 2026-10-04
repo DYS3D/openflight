@@ -7,6 +7,7 @@ CLUBS: list[tuple[str, str]] = [
     ("7-wood", "7 Wood"),
     ("9-wood", "9 Wood"),
     ("3-hybrid", "3 Hybrid"),
+    ("4-hybrid", "4 Hybrid"),
     ("5-hybrid", "5 Hybrid"),
     ("7-hybrid", "7 Hybrid"),
     ("9-hybrid", "9 Hybrid"),

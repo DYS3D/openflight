@@ -288,6 +288,11 @@ class SocketService {
     this.socket?.emit('remove_profile', { profile_id: profileId });
   }
 
+  /** Tag new shots with a swing length for the wedge matrix; null stops tagging. */
+  setSwingLength(swingLength: string | null) {
+    this.socket?.emit('set_swing_length', { swing_length: swingLength });
+  }
+
   /** Ask for every level reading (not just level/not-level changes) while the Level screen is open. */
   watchLevel(watching: boolean) {
     this.socket?.emit('watch_level', { watching });

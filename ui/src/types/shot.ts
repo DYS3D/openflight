@@ -53,6 +53,8 @@ export interface ShotLatency {
   [key: string]: number | undefined;
 }
 
+export type SwingLength = 'full' | '3/4' | '1/2';
+
 export interface Shot {
   mode?: 'rolling-buffer' | 'mock' | 'swing-speed';
   shot_number?: number | null;
@@ -64,6 +66,8 @@ export interface Shot {
   club: string;
   profile_id?: string;
   profile_name?: string;
+  /** Wedge matrix tag: "full", "3/4" or "1/2"; absent/null when not tagging. */
+  swing_length?: SwingLength | null;
   timestamp: string;
   impact_timestamp?: number | null;
   peak_magnitude: number | null;

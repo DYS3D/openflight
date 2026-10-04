@@ -1215,6 +1215,9 @@ def _session_start_config() -> dict:
 ball_speed_correction_enabled = False
 # --club-speed-scale: radar club speed multiplier (1.0 = off).
 club_speed_scale = 1.0
+# Wedge matrix: the swing length the kiosk tags new shots with (None = untagged).
+SWING_LENGTHS = ("full", "3/4", "1/2")
+current_swing_length: Optional[str] = None
 ball_speed_correction_distance_ft = 5.5
 ball_speed_correction_ball_above_radar_ft = -4.0 / 12.0
 calculated_spin_enabled = False
@@ -2338,6 +2341,18 @@ def handle_set_club(data=None):
     if monitor:
         monitor.set_club(club)
     socketio.emit("club_changed", {"club": club.value})
+
+
+@socketio.on("set_swing_length")
+def handle_set_swing_length(data=None):
+    """Tag new shots with a swing length (wedge matrix); null stops tagging."""
+    global current_swing_length  # pylint: disable=global-statement
+    swing = _payload_dict(data).get("swing_length")
+    if swing is not None and swing not in SWING_LENGTHS:
+        _reply("swing_length_error", {"error": "Unknown swing length"})
+        return
+    current_swing_length = swing
+    socketio.emit("swing_length_changed", {"swing_length": swing})
 
 
 def _payload_dict(data) -> dict:
@@ -4634,6 +4649,7 @@ def _handle_shot_detected(shot: Shot) -> None:
     active_profile = get_profile_store().get_active()
     shot.profile_id = active_profile.id
     shot.profile_name = active_profile.name
+    shot.swing_length = current_swing_length
     _apply_club_speed_scale(shot)
     logger.info("[SERVER] Shot callback: %.1f mph", shot.ball_speed_mph)
 

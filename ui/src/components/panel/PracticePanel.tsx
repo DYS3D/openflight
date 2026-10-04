@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import type { Shot } from '../../types/shot';
 import { filterShotsByProfile } from '../../types/shot';
 import { ballShots, carryYards } from '../../utils/shotAnalysis';
@@ -23,6 +23,7 @@ import { useI18n } from '../../i18n/useI18n';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { PanelAction } from './PanelAction';
 import { PanelHeader } from './PanelHeader';
+import { WedgeMatrix } from './WedgeMatrix';
 import './PracticePanel.css';
 
 function newSeed(): number {
@@ -33,13 +34,15 @@ interface PracticePanelProps {
   shots: Shot[];
   profileId: string;
   profileName: string;
+  /** Selected club, for the wedge matrix. */
+  club?: string;
 }
 
 /**
  * Client-side only: scores the active profile's shots hit since their round started.
  * Each golfer keeps their own round while the view is closed; a unit change restarts it.
  */
-export function PracticePanel({ shots, profileId, profileName }: PracticePanelProps) {
+export function PracticePanel({ shots, profileId, profileName, club = '' }: PracticePanelProps) {
   const { unitSystem } = useUnitPreference();
   const stored = usePracticeStore((state) => state.sessions[profileId]);
   const lastConfig = usePracticeStore((state) => state.lastConfig);
@@ -83,6 +86,11 @@ export function PracticePanel({ shots, profileId, profileName }: PracticePanelPr
       unitSystem={unitSystem}
       onChangeConfig={restart}
       onNewRound={() => restart(session.config)}
+      wedgeMatrix={
+        session.config.mode === 'wedges' ? (
+          <WedgeMatrix shots={filterShotsByProfile(shots, profileId)} club={club} unitSystem={unitSystem} />
+        ) : null
+      }
     />
   );
 }
@@ -94,6 +102,8 @@ interface PracticeBoardProps {
   unitSystem: UnitSystem;
   onChangeConfig: (config: PracticeConfig) => void;
   onNewRound: () => void;
+  /** Shown instead of the game in Wedges mode. */
+  wedgeMatrix?: ReactNode;
 }
 
 export function PracticeBoard({
@@ -103,7 +113,9 @@ export function PracticeBoard({
   unitSystem,
   onChangeConfig,
   onNewRound,
+  wedgeMatrix = null,
 }: PracticeBoardProps) {
+  const wedges = config.mode === 'wedges';
   const { t } = useI18n();
   const unit = getDistanceUnit(unitSystem);
   const toUnit = (yards: number) => convertDistanceFromYards(yards, unitSystem);
@@ -164,7 +176,7 @@ export function PracticeBoard({
       <PanelHeader
         title={t('practice.title')}
         subtitle={profileName}
-        actions={<PanelAction onClick={onNewRound}>{t('practice.newRound')}</PanelAction>}
+        actions={wedges ? undefined : <PanelAction onClick={onNewRound}>{t('practice.newRound')}</PanelAction>}
       />
       <div className="panel__body practice">
         <div className="practice__controls">
@@ -176,11 +188,12 @@ export function PracticeBoard({
                 { id: 'target', label: t('practice.modeTarget') },
                 { id: 'ladder', label: t('practice.modeLadder') },
                 { id: 'combine', label: t('practice.modeCombine') },
+                { id: 'wedges', label: t('practice.modeWedges') },
               ]}
               onChange={(mode) => onChangeConfig({ ...config, mode })}
             />
           </div>
-          {config.mode !== 'ladder' ? (
+          {wedges ? null : config.mode !== 'ladder' ? (
             <>
               {stepper('minTarget', t('practice.shortest'))}
               {stepper('maxTarget', t('practice.longest'))}
@@ -188,86 +201,96 @@ export function PracticeBoard({
           ) : (
             stepper('ladderStart', t('practice.start'))
           )}
-          <span className="practice__hint">
-            {config.mode === 'target'
-              ? t('practice.targetHint')
-              : config.mode === 'combine'
-                ? t('practice.combineHint', { targets: COMBINE_TARGETS, repeats: COMBINE_REPEATS })
-                : t('practice.ladderHint', { step: LADDER_STEP, unit })}
-          </span>
+          {wedges ? null : (
+            <span className="practice__hint">
+              {config.mode === 'target'
+                ? t('practice.targetHint')
+                : config.mode === 'combine'
+                  ? t('practice.combineHint', { targets: COMBINE_TARGETS, repeats: COMBINE_REPEATS })
+                  : t('practice.ladderHint', { step: LADDER_STEP, unit })}
+            </span>
+          )}
         </div>
 
-        {round.complete ? (
-          <div className="practice__play practice__play--summary" aria-live="polite">
-            <div className="practice__card">
-              <span className="practice__label">
-                {config.mode === 'combine' ? t('practice.combineScore') : t('practice.roundComplete')}
-              </span>
-              <span className="practice__big">
-                {config.mode === 'combine' ? round.score : round.totalPoints}
-                <span className="practice__unit">/ {config.mode === 'combine' ? 100 : round.shots * MAX_POINTS}</span>
-              </span>
-              <PanelAction onClick={onNewRound}>{t('practice.playAgain')}</PanelAction>
-            </div>
-            <div className="practice__totals">
-              {stat('average', t('metric.average'), (round.averagePoints ?? 0).toFixed(1))}
-              {stat('hits', t('practice.hits'), `${round.hits} / ${round.shots}`)}
-              {stat(
-                'best',
-                t('practice.closest'),
-                `${Math.min(...round.attempts.map((attempt) => attempt.errorPercent)).toFixed(1)}%`
-              )}
-            </div>
-          </div>
+        {wedges ? (
+          wedgeMatrix
         ) : (
-          <div className="practice__play" aria-live="polite">
-            <div className="practice__card">
-              <span className="practice__label">{t('practice.target')}</span>
-              <span className="practice__big">
-                {round.nextTarget}
-                <span className="practice__unit">{unit}</span>
-              </span>
-            </div>
-            <div className="practice__card">
-              <span className="practice__label">{t('practice.lastShot')}</span>
-              {last ? (
-                <>
-                  <span className="practice__medium">
-                    {toUnit(last.carryYards).toFixed(0)}
+          <>
+            {round.complete ? (
+              <div className="practice__play practice__play--summary" aria-live="polite">
+                <div className="practice__card">
+                  <span className="practice__label">
+                    {config.mode === 'combine' ? t('practice.combineScore') : t('practice.roundComplete')}
+                  </span>
+                  <span className="practice__big">
+                    {config.mode === 'combine' ? round.score : round.totalPoints}
+                    <span className="practice__unit">
+                      / {config.mode === 'combine' ? 100 : round.shots * MAX_POINTS}
+                    </span>
+                  </span>
+                  <PanelAction onClick={onNewRound}>{t('practice.playAgain')}</PanelAction>
+                </div>
+                <div className="practice__totals">
+                  {stat('average', t('metric.average'), (round.averagePoints ?? 0).toFixed(1))}
+                  {stat('hits', t('practice.hits'), `${round.hits} / ${round.shots}`)}
+                  {stat(
+                    'best',
+                    t('practice.closest'),
+                    `${Math.min(...round.attempts.map((attempt) => attempt.errorPercent)).toFixed(1)}%`
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="practice__play" aria-live="polite">
+                <div className="practice__card">
+                  <span className="practice__label">{t('practice.target')}</span>
+                  <span className="practice__big">
+                    {round.nextTarget}
                     <span className="practice__unit">{unit}</span>
                   </span>
-                  <span className="practice__detail">
-                    {`${last.carryYards >= last.targetYards ? '+' : '−'}${Math.abs(toUnit(last.carryYards - last.targetYards)).toFixed(0)} ${unit} · ${last.errorPercent.toFixed(1)}%`}
-                  </span>
-                  <span className="practice__points">{t('practice.points', { points: last.points })}</span>
-                </>
-              ) : (
-                <span className="practice__detail">{t('practice.waiting')}</span>
-              )}
-            </div>
-            <div className="practice__totals">{totals}</div>
-          </div>
-        )}
+                </div>
+                <div className="practice__card">
+                  <span className="practice__label">{t('practice.lastShot')}</span>
+                  {last ? (
+                    <>
+                      <span className="practice__medium">
+                        {toUnit(last.carryYards).toFixed(0)}
+                        <span className="practice__unit">{unit}</span>
+                      </span>
+                      <span className="practice__detail">
+                        {`${last.carryYards >= last.targetYards ? '+' : '−'}${Math.abs(toUnit(last.carryYards - last.targetYards)).toFixed(0)} ${unit} · ${last.errorPercent.toFixed(1)}%`}
+                      </span>
+                      <span className="practice__points">{t('practice.points', { points: last.points })}</span>
+                    </>
+                  ) : (
+                    <span className="practice__detail">{t('practice.waiting')}</span>
+                  )}
+                </div>
+                <div className="practice__totals">{totals}</div>
+              </div>
+            )}
 
-        <ol
-          className={`practice__strip${config.mode === 'combine' ? ' practice__strip--combine' : ''}`}
-          aria-label={t('practice.historyAria')}
-        >
-          {Array.from({ length: stripSize }, (_, offset) => {
-            const index = stripStart + offset;
-            const attempt = round.attempts[index];
-            const current = !round.complete && index === round.attempts.length;
-            return (
-              <li
-                key={index}
-                className={`practice__cell${current ? ' practice__cell--current' : ''}${attempt?.hit ? ' practice__cell--hit' : ''}`}
-              >
-                {attempt ? attempt.points : ''}
-              </li>
-            );
-          })}
-        </ol>
-        <span className="practice__scoring">{t('practice.scoring')}</span>
+            <ol
+              className={`practice__strip${config.mode === 'combine' ? ' practice__strip--combine' : ''}`}
+              aria-label={t('practice.historyAria')}
+            >
+              {Array.from({ length: stripSize }, (_, offset) => {
+                const index = stripStart + offset;
+                const attempt = round.attempts[index];
+                const current = !round.complete && index === round.attempts.length;
+                return (
+                  <li
+                    key={index}
+                    className={`practice__cell${current ? ' practice__cell--current' : ''}${attempt?.hit ? ' practice__cell--hit' : ''}`}
+                  >
+                    {attempt ? attempt.points : ''}
+                  </li>
+                );
+              })}
+            </ol>
+            <span className="practice__scoring">{t('practice.scoring')}</span>
+          </>
+        )}
       </div>
     </div>
   );

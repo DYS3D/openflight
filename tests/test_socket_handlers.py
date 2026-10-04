@@ -28,6 +28,7 @@ VALID_PAYLOADS = {
     "get_trigger_status": None,
     "watch_level": {"watching": False},
     "set_club": {"club": "7-iron"},
+    "set_swing_length": {"swing_length": "3/4"},
     "get_profiles": None,
     "set_active_profile": {"profile_id": "missing"},
     "add_profile": {"name": "Handler Test"},

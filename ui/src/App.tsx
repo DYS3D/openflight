@@ -372,7 +372,12 @@ function AppContent() {
         )}
         {currentView === 'debug' && <DebugView />}
         {currentView === 'practice' && (
-          <PracticePanel shots={shots} profileId={activeProfileId} profileName={activeProfileName} />
+          <PracticePanel
+            shots={shots}
+            profileId={activeProfileId}
+            profileName={activeProfileName}
+            club={selectedClub}
+          />
         )}
         {currentView === 'level' && <LevelPanel />}
         {mockMode && (currentView === 'live' || currentView === 'practice') ? (

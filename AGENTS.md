@@ -258,7 +258,7 @@ React UI (WebSocket) ──► Flask Server ──► RollingBufferMonitor ─�
 Logs written to `~/openflight_sessions/session_*.jsonl` with entry types:
 
 - `session_start`, `session_end` - Session metadata
-- `shot_detected` - Detected shots with metrics (ball_speed, club_speed, spin_rpm, carry_spin_adjusted)
+- `shot_detected` - Detected shots with metrics (ball_speed, club_speed, spin_rpm, carry_spin_adjusted; `swing_length` "full"/"3/4"/"1/2" when tagged from Practice → Wedges)
 - `shot_deleted` - A shot the user deleted on the unit (`shot_timestamp` matches its `timestamp`)
 - `trigger_event` - Trigger accept/reject with latency (for rolling buffer mode)
 - `rolling_buffer_capture` - Raw I/Q samples (4096 each) for offline analysis

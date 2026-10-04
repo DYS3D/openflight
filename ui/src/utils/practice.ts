@@ -1,6 +1,6 @@
 import { convertDistanceFromYards, convertDistanceToYards, type UnitSystem } from './units';
 
-export type PracticeMode = 'target' | 'ladder' | 'combine';
+export type PracticeMode = 'target' | 'ladder' | 'combine' | 'wedges';
 
 export const ROUND_SHOTS = 10;
 /** Combine: this many distances spread from min to max target, each hit COMBINE_REPEATS times. */

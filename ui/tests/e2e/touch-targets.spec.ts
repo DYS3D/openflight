@@ -130,7 +130,7 @@ for (const viewport of KIOSK_VIEWPORTS) {
 
       // Shutdown confirmation.
       await page.locator('.panel-footer').getByRole('button', { name: 'Shut down' }).click();
-      await expect(page.getByRole('dialog', { name: 'Shut down OpenFlight?' })).toBeVisible();
+      await expect(page.getByRole('dialog', { name: 'Shut down Copperline?' })).toBeVisible();
       await check('shutdown dialog');
       await page.getByRole('button', { name: 'Cancel' }).click();
 

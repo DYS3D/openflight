@@ -87,7 +87,7 @@ test('keeps shutdown visible and asks for confirmation', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Shut down' }).click();
 
-  await expect(page.getByRole('dialog', { name: 'Shut down OpenFlight?' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Shut down Copperline?' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Shut Down', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
 });
@@ -575,7 +575,7 @@ test('display route shows latest shot and recent shots from mock backend session
 
   await gotoApp(page, '/display');
 
-  await expect(page.getByText('OpenFlight Display')).toBeVisible();
+  await expect(page.getByText('Copperline Display')).toBeVisible();
   await expect(page.getByText('Socket connected')).toBeVisible();
   await expect(page.getByLabel('Recent shots').locator('.display-shot-chip')).toHaveCount(3);
   await expect(page.getByLabel('Recent shots')).toContainText('pw');

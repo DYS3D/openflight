@@ -26,6 +26,18 @@ browsers, or a Chrome tab cast to a Chromecast.
 4. For Chromecast, open that page in Chrome and use Chrome's built-in **Cast**
    feature to cast the tab.
 
+For a TV across the bay, add `?layout=tv`:
+
+```
+http://<openflight-host>:8080/display?layout=tv
+```
+
+It shows the unit's copper Live screen (all ten metrics) beside the latest
+ball flight and the landing dispersion, with the last five shots underneath
+on a full-HD browser. Smaller TV browsers (under 1600 px wide) drop the
+recent-shots strip, and very small ones (under 1100 px) show the Live screen
+alone.
+
 !!! tip "Prefer the hostname over the IP"
 
     Raspberry Pi OS broadcasts its hostname over mDNS (Avahi), so

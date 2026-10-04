@@ -22,13 +22,16 @@ const session = [
 ].map((shot) => ({ ...shot, flight: makeTestFlight(shot.estimated_carry_yards, 2) }));
 
 describe('TvDisplay', () => {
-  it('leads with a big carry for the latest shot', () => {
+  it('leads with the copper Live screen for the latest shot', () => {
     const html = render(session);
 
     expect(html).toContain('aria-label="TV display"');
-    expect(html).toContain('tv-display__carry">154<span class="tv-display__unit">yds</span>');
-    expect(html).toContain('tv-display__speed">118.0<');
-    expect(html).toContain('tv-display__club">7-iron<');
+    expect(html).toContain('live-panel__grid--copper');
+    expect(html.match(/class="metric-card /g)).toHaveLength(10);
+    expect(html).toContain('>154<');
+    expect(html).toContain('>118.0<');
+    expect(html).toContain('7 Iron');
+    expect(html).toContain('James');
     expect(html).not.toContain('Socket disconnected');
   });
 
@@ -40,7 +43,8 @@ describe('TvDisplay', () => {
     expect(html.match(/class="flight-chart__ghost"/g)).toHaveLength(3);
     expect(html).toContain('aria-label="Landing positions by club"');
     expect(html).toContain('data-club="driver"');
-    expect(html).not.toContain('<button');
+    // The TV is for watching: no controls beyond the Live tiles' own selection.
+    expect(html).not.toContain('Change club');
   });
 
   it('strips the last five shots, newest first, with club, ball speed and carry', () => {
@@ -48,7 +52,7 @@ describe('TvDisplay', () => {
     const strip = html.slice(html.indexOf('tv-display__recent'));
     const clubs = [...strip.matchAll(/tv-display__shot-club">([^<]+)</g)].map((match) => match[1]);
 
-    expect(clubs).toEqual(['7-iron', '7-iron', '7-iron', '7-iron', 'driver']);
+    expect(clubs).toEqual(['7 Iron', '7 Iron', '7 Iron', '7 Iron', 'Driver']);
     expect(strip).toContain('tv-display__shot-stat">118<');
     expect(strip).toContain('tv-display__shot-stat tv-display__shot-stat--carry">154<');
   });
@@ -62,14 +66,16 @@ describe('TvDisplay', () => {
     const html = render(shots, 'metric');
 
     expect(html).not.toContain('>pw<');
-    expect(html).toContain('tv-display__carry">141<span class="tv-display__unit">m</span>');
+    expect(html).toContain(
+      'tv-display__shot-stat tv-display__shot-stat--carry">141<span class="tv-display__unit">m</span>'
+    );
     expect(html).toContain('Side view · m');
   });
 
   it('waits politely before the first shot and flags a lost connection', () => {
     const html = render([], 'imperial', false);
 
-    expect(html).toContain('tv-display__carry">--<');
+    expect(html).toContain('live-panel');
     expect(html).toContain('No flight data yet');
     expect(html).toContain('No landing data yet');
     expect(html).toContain('Recent shots will appear here');

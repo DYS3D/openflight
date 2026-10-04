@@ -2,8 +2,8 @@
   box-sizing: border-box;
   height: 100vh;
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: clamp(0.75rem, 2vh, 1.5rem);
   padding: clamp(1rem, 3vh, 2.25rem) clamp(1rem, 2.5vw, 3rem);
   overflow: hidden;
@@ -15,72 +15,35 @@
   font-size: clamp(0.75rem, 1.7vh, 1.1rem);
 }
 
-.tv-display__hero {
+.tv-display__live {
+  position: relative;
   grid-column: 1;
-  grid-row: 1;
+  grid-row: 1 / 3;
   display: flex;
-  align-items: flex-end;
-  gap: clamp(1rem, 2.5vw, 3rem);
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
 }
 
-.tv-display__identity {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5vh;
+.tv-display__live > .panel {
+  flex: 1;
   min-width: 0;
-  margin-right: auto;
-}
-
-.tv-display__eyebrow,
-.tv-display__label {
-  font-weight: 700;
-  font-size: clamp(0.75rem, 2vh, 1.4rem);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.tv-display__club {
-  font-weight: 700;
-  /* The hero numbers take the width; club names wrap rather than clip. */
-  font-size: clamp(1.25rem, 3.4vw, 3.75rem);
-  line-height: 1;
-  text-transform: uppercase;
-  overflow-wrap: anywhere;
+  min-height: 0;
 }
 
 .tv-display__offline {
-  align-self: flex-start;
+  position: absolute;
+  top: 1vh;
+  right: 1vw;
   padding: 0.3vh 0.8vw;
   border: 1px solid var(--color-danger-border);
   border-radius: var(--radius);
+  background: var(--color-surface);
   color: var(--color-danger);
   font-weight: 700;
   font-size: clamp(0.75rem, 1.6vh, 1.1rem);
-}
-
-.tv-display__hero-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5vh;
-}
-
-.tv-display__carry,
-.tv-display__speed {
-  font-weight: 700;
-  line-height: 0.9;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.tv-display__carry {
-  font-size: clamp(4rem, 19vh, 14rem);
-}
-
-.tv-display__speed {
-  font-size: clamp(2rem, 7vh, 5.25rem);
 }
 
 .tv-display__unit {
@@ -104,13 +67,13 @@
 }
 
 .tv-display__flight {
-  grid-column: 1;
-  grid-row: 2;
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .tv-display__dispersion {
   grid-column: 2;
-  grid-row: 1 / 3;
+  grid-row: 2;
 }
 
 .tv-display__dispersion .chart-legend {
@@ -191,4 +154,37 @@
 
 .tv-display__shot-stat--carry {
   text-align: right;
+}
+
+/*
+ * Smaller TV viewports (many TV browsers report 1280×720 or less): the Live
+ * tiles get more of the width and all the height, and the flight legend gives
+ * way to its caption.
+ */
+@media (max-width: 1599px) {
+  .tv-display {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .tv-display__flight .chart__legend {
+    display: none;
+  }
+
+  /* The Live carry trend already shows the recent shots; the tiles need the height. */
+  .tv-display__recent {
+    display: none;
+  }
+}
+
+/* Very small TV browsers: the Live screen alone, as on the unit. */
+@media (max-width: 1099px) {
+  .tv-display {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tv-display__flight,
+  .tv-display__dispersion {
+    display: none;
+  }
 }

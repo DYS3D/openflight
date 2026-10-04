@@ -1,11 +1,14 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { Shot } from '../types/shot';
 import { filterShotsByProfile } from '../types/shot';
 import { ballShots, buildDispersion, carryYards, clubSeries, flightExtent, flightTraces } from '../utils/shotAnalysis';
 import { formatDistance, formatSpeed, getDistanceUnit, getSpeedUnit, type UnitSystem } from '../utils/units';
 import { useUnitPreference } from '../state/useUnitPreference';
 import { useI18n } from '../i18n/useI18n';
+import { getClubName } from '../data/clubs';
+import { applyTheme } from '../theme/theme';
 import { FlightChart, FlightKey } from './charts/FlightChart';
+import { LivePanel } from './panel';
 import { DispersionChart, DispersionLegend } from './charts/DispersionChart';
 import './TvDisplay.css';
 
@@ -20,7 +23,10 @@ interface TvDisplayProps {
   unitSystem?: UnitSystem;
 }
 
-/** `/display?layout=tv`: its own layout for a TV across the bay, not a mirror of the kiosk. */
+/**
+ * `/display?layout=tv`: the kiosk's copper Live screen (all ten metrics) for a TV
+ * across the bay, with the latest flight, dispersion and the last five shots.
+ */
 export function TvDisplay({ connected, shots, profileId, profileName, unitSystem: unitSystemProp }: TvDisplayProps) {
   const { t } = useI18n();
   const storeUnitSystem = useUnitPreference().unitSystem;
@@ -34,28 +40,21 @@ export function TvDisplay({ connected, shots, profileId, profileName, unitSystem
   const distanceUnit = getDistanceUnit(unitSystem);
   const speedUnit = getSpeedUnit(unitSystem);
 
+  // The TV always wears Copperline's copper look, whatever its browser last stored.
+  useEffect(() => applyTheme('copper'), []);
+
   return (
     <main className="tv-display" aria-label={t('tv.aria')}>
-      <section className="tv-display__hero">
-        <div className="tv-display__identity">
-          <span className="tv-display__eyebrow">{profileName || t('display.eyebrow')}</span>
-          <span className="tv-display__club">{latest ? latest.club : t('display.ready')}</span>
-          {!connected ? <span className="tv-display__offline">{t('display.socketOff')}</span> : null}
-        </div>
-        <div className="tv-display__hero-metric">
-          <span className="tv-display__label">{t('metric.carry')}</span>
-          <span className="tv-display__carry">
-            {latest ? formatDistance(carryYards(latest), unitSystem, 0) : '--'}
-            <span className="tv-display__unit">{distanceUnit}</span>
-          </span>
-        </div>
-        <div className="tv-display__hero-metric tv-display__hero-metric--secondary">
-          <span className="tv-display__label">{t('display.ballSpeed')}</span>
-          <span className="tv-display__speed">
-            {latest ? formatSpeed(latest.ball_speed_mph, unitSystem, 1) : '--'}
-            <span className="tv-display__unit">{speedUnit}</span>
-          </span>
-        </div>
+      <section className="tv-display__live">
+        <LivePanel
+          shot={latest}
+          shots={shots}
+          profileId={profileId}
+          profileName={profileName || t('display.eyebrow')}
+          clubLabel={latest ? getClubName(latest.club) : t('display.ready')}
+          copperLayout
+        />
+        {!connected ? <span className="tv-display__offline">{t('display.socketOff')}</span> : null}
       </section>
 
       <section className="tv-display__panel tv-display__flight" aria-label={t('tv.flight')}>
@@ -99,7 +98,7 @@ export function TvDisplay({ connected, shots, profileId, profileName, unitSystem
         ) : (
           recent.map((shot) => (
             <div key={shot.timestamp} className="tv-display__shot">
-              <span className="tv-display__shot-club">{shot.club}</span>
+              <span className="tv-display__shot-club">{getClubName(shot.club)}</span>
               <span className="tv-display__shot-stat">
                 {formatSpeed(shot.ball_speed_mph, unitSystem, 0)}
                 <span className="tv-display__unit">{speedUnit}</span>

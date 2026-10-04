@@ -351,6 +351,11 @@ inclinometer_roll_compensation_enabled = False
 level_monitor: LevelMonitor | None = None
 _level_status_stop = threading.Event()
 LEVEL_STATUS_POLL_S = 0.5
+# Faster while a client has the Level screen open, so the readout follows the feet.
+LEVEL_WATCH_POLL_S = 0.2
+# Socket ids with the Level screen open; they get every reading, not just changes.
+_level_watchers: set[str] = set()
+_level_watchers_lock = threading.Lock()
 
 # Ballistic model toggle. Shot carry comes from the physics simulator whenever
 # a vertical launch angle is available. Operators can explicitly disable it;
@@ -1655,9 +1660,14 @@ def _poll_level_status() -> None:
     snapshot = inclinometer_service.snapshot_for_impact(time.time()).snapshot
     if snapshot is None:
         return
-    if not level_monitor.update(snapshot.calibrated_pitch_deg, snapshot.roll_deg):
-        return
+    changed = level_monitor.update(snapshot.calibrated_pitch_deg, snapshot.roll_deg)
     status = level_monitor.status
+    if not changed:
+        with _level_watchers_lock:
+            watchers = list(_level_watchers)
+        for sid in watchers:
+            socketio.emit("level_status", status, to=sid)
+        return
     log = logger.info if status["level"] else logger.warning
     log(
         "[SERVER] Enclosure %s: pitch %+.2fdeg, roll %+.2fdeg (threshold %.2fdeg)",
@@ -1670,7 +1680,9 @@ def _poll_level_status() -> None:
 
 
 def _level_status_loop() -> None:
-    while not _level_status_stop.wait(LEVEL_STATUS_POLL_S):
+    while not _level_status_stop.wait(
+        LEVEL_WATCH_POLL_S if _level_watchers else LEVEL_STATUS_POLL_S
+    ):
         try:
             _poll_level_status()
         except Exception:  # pylint: disable=broad-exception-caught
@@ -2268,8 +2280,24 @@ def handle_connect(auth=None, *_args):
 def handle_disconnect(*_args):
     """Handle client disconnection."""
     logger.info("Client disconnected")
+    with _level_watchers_lock:
+        _level_watchers.discard(_current_sid())
     if update_service is not None:
         update_service.client_disconnected(_current_sid())
+
+
+@socketio.on("watch_level")
+def handle_watch_level(data=None):
+    """Stream every level reading to this client while its Level screen is open."""
+    watching = bool(data.get("watching")) if isinstance(data, dict) else False
+    sid = _current_sid()
+    with _level_watchers_lock:
+        if watching:
+            _level_watchers.add(sid)
+        else:
+            _level_watchers.discard(sid)
+    if watching and level_monitor is not None and level_monitor.status is not None:
+        _reply("level_status", level_monitor.status)
 
 
 @socketio.on("get_trigger_status")

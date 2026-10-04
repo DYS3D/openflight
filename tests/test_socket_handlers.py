@@ -26,6 +26,7 @@ VALID_PAYLOADS = {
     "get_camera_capture_settings": None,
     "set_camera_capture_settings": {"alignment_x_pct": 50.0, "alignment_y_pct": 50.0},
     "get_trigger_status": None,
+    "watch_level": {"watching": False},
     "set_club": {"club": "7-iron"},
     "get_profiles": None,
     "set_active_profile": {"profile_id": "missing"},

@@ -200,6 +200,49 @@ class TestLevelStatusEvents:
             {"pitch_deg": 0.1, "roll_deg": 0.9, "level": True, "threshold_deg": 1.5},
         ]
 
+    def test_open_level_screen_gets_every_reading(self, monkeypatch):
+        sent = []
+        monkeypatch.setattr(
+            server_module.socketio,
+            "emit",
+            lambda event, payload=None, **kw: sent.append((event, payload, kw.get("to"))),
+        )
+        sensor = FakeInclinometer(_selection(pitch_deg=0.3, roll_deg=0.2))
+        monkeypatch.setattr(server_module, "inclinometer_service", sensor)
+        monkeypatch.setattr(server_module, "level_monitor", LevelMonitor(1.5))
+        monkeypatch.setattr(server_module, "_level_watchers", {"watcher-sid"})
+
+        server_module._poll_level_status()
+        sensor.selection = _selection(pitch_deg=0.6, roll_deg=0.2)
+        server_module._poll_level_status()
+
+        assert sent[0][2] is None  # the first reading is a change: broadcast
+        assert sent[1] == (
+            "level_status",
+            {"pitch_deg": 0.6, "roll_deg": 0.2, "level": True, "threshold_deg": 1.5},
+            "watcher-sid",
+        )
+
+    def test_watch_level_adds_and_removes_the_client(self, monkeypatch):
+        monitor = LevelMonitor(1.5)
+        monitor.update(0.4, 0.1)
+        monkeypatch.setattr(server_module, "level_monitor", monitor)
+        monkeypatch.setattr(server_module, "_level_watchers", set())
+        monkeypatch.setattr(server_module, "get_session_logger", lambda: None)
+        client = server_module.socketio.test_client(server_module.app)
+        try:
+            client.get_received()
+            client.emit("watch_level", {"watching": True})
+            assert len(server_module._level_watchers) == 1
+            replies = [r["args"][0] for r in client.get_received() if r["name"] == "level_status"]
+            assert replies == [monitor.status]
+            client.emit("watch_level", {"watching": False})
+            assert server_module._level_watchers == set()
+            client.emit("watch_level", {"watching": True})
+        finally:
+            client.disconnect()
+        assert server_module._level_watchers == set()
+
     def test_moving_or_stale_readings_keep_the_last_state(self, monkeypatch, socket_events):
         sensor = FakeInclinometer(SnapshotSelection(snapshot=None, status="moving"))
         monkeypatch.setattr(server_module, "inclinometer_service", sensor)

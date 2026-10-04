@@ -135,10 +135,12 @@ describe('StatsDispersionView', () => {
     expect(html).toContain('class="chart-series-1" data-club="7-iron"');
     expect(html).toContain('class="chart-series-2" data-club="driver"');
     expect(count(html, 'class="dispersion-chart__ellipse"')).toBe(1);
-    expect(html).toMatch(/chart-legend__club">7-iron<\/span><span class="chart-legend__detail">\d+% inside</);
+    // The last shot gets the bold ring.
+    expect(count(html, 'class="dispersion-chart__latest"')).toBe(1);
+    expect(html).toMatch(/chart-legend__club">7-iron<\/span><span class="chart-legend__detail">\d+% in oval</);
     expect(html).toContain('chart-legend__detail">2 shots<');
     expect(count(html, 'aria-pressed="false"')).toBe(2);
-    expect(html).toContain('Ellipse: 1 SD, 3+ shots');
+    expect(html).toContain('Oval = typical spread (1 SD, 3+ shots)');
   });
 
   it('highlights one club and fades the rest', () => {

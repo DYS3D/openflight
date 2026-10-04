@@ -192,3 +192,16 @@ export function buildGapping(shots: readonly Shot[], options: GappingOptions = {
   }
   return rows;
 }
+
+/** The newest shot with a flight, as a dispersion point. */
+export function latestLanding(
+  shots: readonly { flight?: { carry_yards: number; lateral_yards: number } | null }[]
+): Point2D | null {
+  for (let index = shots.length - 1; index >= 0; index -= 1) {
+    const flight = shots[index].flight;
+    if (flight && Number.isFinite(flight.carry_yards) && Number.isFinite(flight.lateral_yards)) {
+      return { x: flight.carry_yards, y: flight.lateral_yards };
+    }
+  }
+  return null;
+}

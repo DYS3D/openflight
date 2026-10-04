@@ -17,6 +17,8 @@ interface DispersionChartProps {
   unitSystem: UnitSystem;
   caption: string;
   ariaLabel: string;
+  /** The last shot's landing, drawn bold on top of everything. */
+  latest?: Point2D | null;
 }
 
 /** Carry runs left to right, so a landing right of target sits below the line. */
@@ -27,6 +29,7 @@ export function DispersionChart({
   unitSystem,
   caption,
   ariaLabel,
+  latest = null,
 }: DispersionChartProps) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
@@ -126,6 +129,22 @@ export function DispersionChart({
             </g>
           );
         })}
+        {latest ? (
+          <g className="dispersion-chart__latest-shot" data-latest="true">
+            <circle
+              className="dispersion-chart__latest-ring"
+              cx={x(toUnit(latest.x))}
+              cy={y(toUnit(latest.y))}
+              r={markerSize * 2.1}
+            />
+            <circle
+              className="dispersion-chart__latest"
+              cx={x(toUnit(latest.x))}
+              cy={y(toUnit(latest.y))}
+              r={markerSize * 1.2}
+            />
+          </g>
+        ) : null}
       </svg>
     </div>
   );

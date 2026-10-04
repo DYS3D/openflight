@@ -11,6 +11,20 @@
   --chart-latest: var(--color-accent);
 }
 
+/* Copper had no chart palette, so the latest flight drew in no colour at all. */
+[data-theme='copper'] {
+  --chart-series-1: #5aa2f0;
+  --chart-series-2: #e8774a;
+  --chart-series-3: #3fbf8f;
+  --chart-series-4: #e0a93a;
+  --chart-series-5: #e37aa1;
+  --chart-series-6: #4fbf4f;
+  --chart-series-7: #a79ef2;
+  --chart-series-8: #f08a8a;
+  /* Bright copper-orange: the last shot has to jump off the navy. */
+  --chart-latest: #ffa94d;
+}
+
 [data-theme='light'] {
   --chart-series-1: #2a78d6;
   --chart-series-2: #d9622d;
@@ -106,7 +120,8 @@
 .flight-chart__latest {
   fill: none;
   stroke: var(--chart-latest);
-  stroke-width: 2.5;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 4px var(--chart-latest));
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -114,6 +129,20 @@
 .flight-chart__landing {
   fill: var(--chart-latest);
   stroke: var(--color-surface);
+  stroke-width: 2;
+}
+
+/* The last shot on the dispersion plot: a bold dot in a ring, drawn on top. */
+.dispersion-chart__latest {
+  fill: var(--chart-latest);
+  stroke: var(--color-surface);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px var(--chart-latest));
+}
+
+.dispersion-chart__latest-ring {
+  fill: none;
+  stroke: var(--chart-latest);
   stroke-width: 2;
 }
 

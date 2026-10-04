@@ -41,7 +41,7 @@ describe('MetricCard', () => {
       />
     );
     expect(html).toContain('metric-card__range--low');
-    expect(html).toContain('Low');
+    expect(html).toContain('Below ideal');
     expect(html).toContain('metric-card--with-aside');
     expect(html).toContain('data-fit-group="hero"');
   });

@@ -1,7 +1,15 @@
 import { useEffect, useMemo } from 'react';
 import type { Shot } from '../types/shot';
 import { filterShotsByProfile } from '../types/shot';
-import { ballShots, buildDispersion, carryYards, clubSeries, flightExtent, flightTraces } from '../utils/shotAnalysis';
+import {
+  ballShots,
+  buildDispersion,
+  carryYards,
+  clubSeries,
+  flightExtent,
+  flightTraces,
+  latestLanding,
+} from '../utils/shotAnalysis';
 import { formatDistance, formatSpeed, getDistanceUnit, getSpeedUnit, type UnitSystem } from '../utils/units';
 import { useUnitPreference } from '../state/useUnitPreference';
 import { useI18n } from '../i18n/useI18n';
@@ -84,8 +92,10 @@ export function TvDisplay({ connected, shots, profileId, profileName, unitSystem
               unitSystem={unitSystem}
               caption={t('dispersion.caption', { unit: distanceUnit })}
               ariaLabel={t('dispersion.aria')}
+              latest={latestLanding(profileShots)}
             />
             <DispersionLegend groups={groups} series={series} highlightedClub={null} />
+            <span className="tv-display__note">{t('dispersion.ellipseNote')}</span>
           </>
         ) : (
           <span className="tv-display__empty">{t('dispersion.noData')}</span>

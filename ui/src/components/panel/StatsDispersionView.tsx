@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Shot } from '../../types/shot';
-import { buildDispersion, clubSeries } from '../../utils/shotAnalysis';
+import { ballShots, buildDispersion, clubSeries, latestLanding } from '../../utils/shotAnalysis';
 import { getDistanceUnit, type UnitSystem } from '../../utils/units';
 import { useI18n } from '../../i18n/useI18n';
 import { DispersionChart, DispersionLegend } from '../charts/DispersionChart';
@@ -16,6 +16,7 @@ export function StatsDispersionView({ shots, unitSystem, initialHighlight = null
   const { t } = useI18n();
   const groups = useMemo(() => buildDispersion(shots), [shots]);
   const series = useMemo(() => clubSeries(shots), [shots]);
+  const latest = useMemo(() => latestLanding(ballShots(shots)), [shots]);
   const [highlighted, setHighlighted] = useState<string | null>(initialHighlight);
   const activeHighlight = groups.some((group) => group.club === highlighted) ? highlighted : null;
 
@@ -46,6 +47,7 @@ export function StatsDispersionView({ shots, unitSystem, initialHighlight = null
         unitSystem={unitSystem}
         caption={t('dispersion.caption', { unit: getDistanceUnit(unitSystem) })}
         ariaLabel={t('dispersion.aria')}
+        latest={latest}
       />
     </div>
   );

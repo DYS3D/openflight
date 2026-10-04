@@ -42,6 +42,13 @@ const RANGE_LABELS: Record<RangeStatus, MessageKey> = {
   high: 'metric.rangeHigh',
 };
 
+/** "High" alone read like the value was high; say it is the reading's confidence. */
+const CONFIDENCE_LABELS: Partial<Record<string, MessageKey>> = {
+  high: 'metric.confidenceHigh',
+  medium: 'metric.confidenceMedium',
+  low: 'metric.confidenceLow',
+};
+
 const CONSISTENCY_LABELS: Record<ConsistencyBand, MessageKey> = {
   good: 'metric.consistencyGood',
   fair: 'metric.consistencyFair',
@@ -118,7 +125,9 @@ export function MetricCard({
               <span className={`dot ${confidence === 'high' ? 'filled' : ''}`} />
             </span>
           ) : null}
-          <span className="metric-card__confidence-label">{confidenceLabel ?? confidence}</span>
+          <span className="metric-card__confidence-label">
+            {confidenceLabel ?? (CONFIDENCE_LABELS[confidence] ? t(CONFIDENCE_LABELS[confidence]) : confidence)}
+          </span>
         </div>
       ) : null}
       {range ? (

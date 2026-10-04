@@ -99,6 +99,11 @@
   text-overflow: ellipsis;
 }
 
+.tv-display__note {
+  font-size: clamp(0.65rem, 1.4vh, 1rem);
+  color: var(--color-text-muted);
+}
+
 .tv-display__empty {
   margin: auto;
   font-weight: 700;

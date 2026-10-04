@@ -30,6 +30,7 @@ SESSION_LOG_NAME = re.compile(r"^session_[A-Za-z0-9_-]+\.jsonl$")
 # Session entries that point at a capture written next to the log.
 CAPTURE_ENTRY_TYPES = ("camera_capture", "iwr6843_capture")
 SIDECAR_SUFFIXES = (".pushed", ".parked", ".state")
+CAMERA_SHOT_PREFIX = "camera_"
 
 
 def add_session_log_api_args(parser: argparse.ArgumentParser) -> None:
@@ -154,15 +155,16 @@ def delete_session(log_dir: Path, session_path: Path, sha256: str, sizes: dict) 
     for path in [*files.values(), *(p for p in sidecars if p.is_file()), session_path]:
         path.unlink(missing_ok=True)
         removed += 1
+    # Only per-shot camera folders go; the iwr6843/ and camera/ folders the
+    # running server writes into must stay.
     root = log_dir.resolve()
-    for directory in sorted(
-        {p.parent for p in files.values()}, key=lambda p: len(p.parts), reverse=True
-    ):
-        if directory != root and directory.is_relative_to(root):
-            try:
-                directory.rmdir()
-            except OSError:
-                pass  # still holds another session's files
+    for directory in {p.parent for p in files.values()}:
+        if directory.name.startswith(CAMERA_SHOT_PREFIX) and directory.parent.name == "camera":
+            if directory.is_relative_to(root):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass  # holds files this session does not reference
     return removed
 
 

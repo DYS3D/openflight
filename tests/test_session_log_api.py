@@ -207,6 +207,8 @@ def test_delete_needs_an_identical_copy_and_spares_the_active_session(tmp_path):
     assert response.status_code == 200
     assert not session.exists() and not dump.exists() and not shot_dir.exists()
     assert outside.exists()
+    # The folders the running server writes into stay.
+    assert dump.parent.is_dir() and shot_dir.parent.is_dir()
 
 
 def test_active_session_name_comes_from_the_session_logger(tmp_path, monkeypatch):

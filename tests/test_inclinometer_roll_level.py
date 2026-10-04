@@ -58,6 +58,21 @@ class TestRollMeasurement:
         assert snapshot.calibrated_pitch_deg == pytest.approx(4.0)
         assert snapshot.to_dict()["roll_deg"] == pytest.approx(2.0, abs=1e-3)
 
+    def test_recent_orientation_is_the_median_of_the_window(self):
+        service = InclinometerService(sensor=None, zero_offset_deg=1.0, window_samples=2)
+        assert service.recent_orientation(3.0) is None
+        readings = ((0.0, 8.0, 9.0), (4.0, 3.0, 2.0), (5.0, 3.4, 2.4), (6.0, 2.6, 1.6))
+        for timestamp, pitch, roll in readings:
+            for offset in (0.0, 0.1):
+                service.add_sample(
+                    _tilted_sample(pitch_deg=pitch, roll_deg=roll, timestamp=timestamp + offset)
+                )
+
+        pitch_deg, roll_deg = service.recent_orientation(5.0)
+
+        assert pitch_deg == pytest.approx(4.0, abs=1e-6)
+        assert roll_deg == pytest.approx(2.0, abs=1e-6)
+
 
 class TestLevelFrameAngles:
     def test_zero_roll_is_identity(self):
@@ -137,6 +152,9 @@ class FakeInclinometer:
 
     def snapshot_for_impact(self, _impact_timestamp):
         return self.selection
+
+    def recent_orientation(self, _window_s):
+        return None
 
 
 def _selection(*, pitch_deg=0.0, roll_deg=0.0) -> SnapshotSelection:
@@ -242,6 +260,19 @@ class TestLevelStatusEvents:
         finally:
             client.disconnect()
         assert server_module._level_watchers == set()
+
+    def test_level_readout_uses_the_smoothed_orientation(self, monkeypatch, socket_events):
+        sensor = FakeInclinometer(_selection(pitch_deg=0.9, roll_deg=-0.7))
+        sensor.recent_orientation = lambda window_s: (0.2, -0.1)
+        monkeypatch.setattr(server_module, "inclinometer_service", sensor)
+        monkeypatch.setattr(server_module, "level_monitor", LevelMonitor(0.5))
+
+        server_module._poll_level_status()
+
+        level_events = [payload for name, payload in socket_events if name == "level_status"]
+        assert level_events == [
+            {"pitch_deg": 0.2, "roll_deg": -0.1, "level": True, "threshold_deg": 0.5}
+        ]
 
     def test_moving_or_stale_readings_keep_the_last_state(self, monkeypatch, socket_events):
         sensor = FakeInclinometer(SnapshotSelection(snapshot=None, status="moving"))

@@ -353,6 +353,9 @@ _level_status_stop = threading.Event()
 LEVEL_STATUS_POLL_S = 0.5
 # Faster while a client has the Level screen open, so the readout follows the feet.
 LEVEL_WATCH_POLL_S = 0.2
+# The level readout is the median of this many seconds of readings, so sensor
+# noise (~0.2 deg) does not make it jitter.
+LEVEL_SMOOTHING_S = 3.0
 # Socket ids with the Level screen open; they get every reading, not just changes.
 _level_watchers: set[str] = set()
 _level_watchers_lock = threading.Lock()
@@ -1660,7 +1663,9 @@ def _poll_level_status() -> None:
     snapshot = inclinometer_service.snapshot_for_impact(time.time()).snapshot
     if snapshot is None:
         return
-    changed = level_monitor.update(snapshot.calibrated_pitch_deg, snapshot.roll_deg)
+    smoothed = inclinometer_service.recent_orientation(LEVEL_SMOOTHING_S)
+    pitch_deg, roll_deg = smoothed or (snapshot.calibrated_pitch_deg, snapshot.roll_deg)
+    changed = level_monitor.update(pitch_deg, roll_deg)
     status = level_monitor.status
     if not changed:
         with _level_watchers_lock:

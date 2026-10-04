@@ -176,6 +176,22 @@ class InclinometerService:
             return SnapshotSelection(snapshot=None, status="stale", age_s=age_s)
         return SnapshotSelection(snapshot=snapshot, status="stable", age_s=age_s)
 
+    def recent_orientation(self, window_s: float) -> tuple[float, float] | None:
+        """Median calibrated pitch and roll of the stable snapshots in the last ``window_s``.
+
+        Smooths the readout people level the unit by; shots keep using the
+        single snapshot before impact.
+        """
+        with self._lock:
+            if not self._history:
+                return None
+            newest = self._history[-1].timestamp
+            recent = [item for item in self._history if item.timestamp >= newest - window_s]
+        return (
+            statistics.median(item.calibrated_pitch_deg for item in recent),
+            statistics.median(item.roll_deg for item in recent),
+        )
+
     def wait_for_stable(self, timeout_s: float = 2.0) -> SnapshotSelection:
         """Wait briefly for a startup orientation diagnostic."""
         deadline = time.monotonic() + timeout_s

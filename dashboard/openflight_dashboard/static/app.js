@@ -703,6 +703,7 @@ async function refreshSummary() {
     syncStatus.dataset.state = 'error';
   } else {
     syncStatus.textContent = summary.last_sync ? `Synced ${fmtDate(summary.last_sync, true)}` : 'Waiting for first sync';
+    if (summary.offload) syncStatus.textContent += ` · ${summary.archived_sessions} sessions moved off the Pi`;
     syncStatus.removeAttribute('title');
     syncStatus.dataset.state = 'ok';
   }

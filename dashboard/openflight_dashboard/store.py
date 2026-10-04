@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS shots (
     spin_axis REAL,
     PRIMARY KEY (session_id, timestamp)
 );
+CREATE TABLE IF NOT EXISTS archived_sessions (
+    name TEXT PRIMARY KEY,
+    folder TEXT NOT NULL,
+    archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS sync_state (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -85,6 +90,16 @@ class Store:
                 (name, size, mtime),
             )
         return len(session.shots)
+
+    def mark_archived(self, name: str, folder: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO archived_sessions (name, folder) VALUES (?, ?)",
+                (name, folder),
+            )
+
+    def archived_count(self) -> int:
+        return self.query("SELECT COUNT(*) AS n FROM archived_sessions")[0]["n"]
 
     def get_state(self, key: str) -> str | None:
         rows = self.query("SELECT value FROM sync_state WHERE key = ?", (key,))

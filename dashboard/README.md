@@ -44,6 +44,23 @@ uv run openflight-dashboard --pi http://<pi-ip>:8080
 Open `http://localhost:8090`. Leave it running (or start it at login) to keep
 copying new sessions.
 
+## Move every session off the Pi (optional)
+
+With this on, the dashboard copies each finished session to this computer, the
+log with its raw radar data plus every camera clip and TI radar capture. It
+checks the copy (log checksum and every file's size) and only then has the Pi
+delete it. The session being recorded is never touched. A session finishes when
+the unit is powered off or restarted, so after each practice the Pi holds
+nothing but the session in progress.
+
+1. On the Pi, add `--session-log-offload` next to `--session-log-api` and
+   restart OpenFlight.
+2. Start the dashboard with `--offload` (or `OPENFLIGHT_OFFLOAD=1`).
+
+Each session lands in its own folder under `data/raw/` (change it with
+`--raw-dir`): the `.jsonl` log, a `captures/` folder and the Pi's
+`manifest.json`. The summaries still go into the database as usual.
+
 ## Options
 
 | Flag | Environment variable | Default |
@@ -54,6 +71,8 @@ copying new sessions.
 | `--port PORT` | `OPENFLIGHT_DASHBOARD_PORT` | `8090` |
 | `--host HOST` | `OPENFLIGHT_DASHBOARD_HOST` | `0.0.0.0` (reachable from your network) |
 | `--sync-minutes N` | `OPENFLIGHT_SYNC_MINUTES` | `5` |
+| `--offload` | `OPENFLIGHT_OFFLOAD=1` | off |
+| `--raw-dir DIR` | `OPENFLIGHT_RAW_DIR` | `<data-dir>/raw` |
 
 Logs copied off the Pi by hand (USB stick, `scp`) can be loaded with:
 

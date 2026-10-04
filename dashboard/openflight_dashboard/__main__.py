@@ -40,6 +40,21 @@ def _parser() -> argparse.ArgumentParser:
         help="How often to copy new shots from the Pi (default: 5)",
     )
 
+    parser.add_argument(
+        "--offload",
+        action="store_true",
+        default=os.environ.get("OPENFLIGHT_OFFLOAD", "") not in ("", "0", "false"),
+        help=(
+            "Move each finished session off the Pi: copy its log, raw radar data and "
+            "captures here, verify them, then delete them from the Pi. Needs the Pi "
+            "to run with --session-log-offload."
+        ),
+    )
+    parser.add_argument(
+        "--raw-dir",
+        default=os.environ.get("OPENFLIGHT_RAW_DIR"),
+        help="Where offloaded sessions are kept (default: <data-dir>/raw); may be a NAS share",
+    )
     commands = parser.add_subparsers(dest="command")
     importer = commands.add_parser("import", help="Load session_*.jsonl files copied by hand")
     importer.add_argument("files", nargs="+", type=Path)
@@ -62,7 +77,12 @@ def main(argv: list[str] | None = None) -> None:
 
     sync = None
     if args.pi:
-        sync = SyncLoop(store, PiSource(args.pi, args.token), args.sync_minutes * 60)
+        raw_dir = None
+        if args.offload:
+            raw_dir = Path(args.raw_dir) if args.raw_dir else Path(args.data_dir) / "raw"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Moving finished sessions off the Pi into {raw_dir}")
+        sync = SyncLoop(store, PiSource(args.pi, args.token), args.sync_minutes * 60, raw_dir)
         sync.start()
     app = create_app(store, sync, args.pi)
     print(f"OpenFlight dashboard on http://{args.host}:{args.port}")

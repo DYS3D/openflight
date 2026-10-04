@@ -87,8 +87,11 @@ class FakeSource:
         self.logs = logs
         self.reads = []
 
-    def list_logs(self):
-        return [{"name": name, "size": len(text), "mtime": 1.0} for name, text in self.logs.items()]
+    def listing(self):
+        sessions = [
+            {"name": name, "size": len(text), "mtime": 1.0} for name, text in self.logs.items()
+        ]
+        return {"sessions": sessions}
 
     def read_log(self, name):
         self.reads.append(name)
@@ -98,7 +101,7 @@ class FakeSource:
 def test_sync_fetches_only_new_or_changed_logs(store):
     source = FakeSource({NAME: log_text(shot("t1"))})
 
-    assert sync_once(store, source) == {"ok": True, "updated": 1, "available": 1}
+    assert sync_once(store, source) == {"ok": True, "updated": 1, "available": 1, "archived": 0}
     assert sync_once(store, source)["updated"] == 0
     source.logs[NAME] = log_text(shot("t1"), shot("t2"))
     assert sync_once(store, source)["updated"] == 1
@@ -112,7 +115,7 @@ def test_sync_failure_is_recorded_and_keeps_existing_data(store):
     class Offline:
         base_url = "http://pi"
 
-        def list_logs(self):
+        def listing(self):
             raise OSError("no route to host")
 
     assert sync_once(store, Offline())["ok"] is False
@@ -235,3 +238,118 @@ def test_home_api_and_page_assets(store):
     assert client.get("/api/home?days=90").get_json()["lifetime"]["shots"] == 1
     assert "/static/home.js" in client.get("/").get_data(as_text=True)
     assert client.get("/static/home.js").status_code == 200
+
+
+class FakeOffloadPi:
+    """Speaks the Pi's offload API from memory."""
+
+    base_url = "http://pi"
+
+    def __init__(self, logs, captures, active=None, offload=True):
+        self.logs = dict(logs)
+        self.captures = captures
+        self.active = active
+        self.offload = offload
+        self.deleted = []
+        self.truncate = None
+
+    def listing(self):
+        sessions = [
+            {"name": n, "size": len(t), "mtime": 1.0, "active": n == self.active}
+            for n, t in self.logs.items()
+        ]
+        return {"sessions": sessions, "offload": self.offload}
+
+    def list_logs(self):
+        return self.listing()["sessions"]
+
+    def read_log(self, name):
+        return self.logs[name]
+
+    def manifest(self, name):
+        import hashlib
+
+        return {
+            "name": name,
+            "sha256": hashlib.sha256(self.logs[name].encode()).hexdigest(),
+            "files": [{"path": p, "size": len(b)} for p, b in sorted(self.captures[name].items())],
+        }
+
+    def download_log(self, name, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(self.logs[name], encoding="utf-8")
+
+    def download_capture(self, name, relative, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        data = self.captures[name][relative]
+        dest.write_bytes(data[:-1] if relative == self.truncate else data)
+
+    def delete(self, name, sha256, sizes):
+        assert sha256 == self.manifest(name)["sha256"]
+        self.deleted.append(name)
+        del self.logs[name]
+
+
+ACTIVE = "session_20261004_090000_range.jsonl"
+
+
+def offload_pi(**kwargs):
+    return FakeOffloadPi(
+        {NAME: log_text(shot("t1")), ACTIVE: log_text(shot("t9"))},
+        {
+            NAME: {
+                "iwr6843/iwr6843_0001.l3dump": b"iq" * 8,
+                "range/camera/camera_0001/frames.npz": b"f" * 30,
+            }
+        },
+        active=ACTIVE,
+        **kwargs,
+    )
+
+
+def test_offload_copies_verifies_then_deletes_finished_sessions_only(store, tmp_path):
+    pi = offload_pi()
+    raw = tmp_path / "raw"
+
+    result = sync_once(store, pi, raw)
+
+    folder = raw / "session_20261003_190737_range"
+    assert result["ok"] and result["archived"] == 1
+    assert pi.deleted == [NAME]
+    assert (folder / NAME).read_text(encoding="utf-8") == log_text(shot("t1"))
+    assert (folder / "captures/iwr6843/iwr6843_0001.l3dump").read_bytes() == b"iq" * 8
+    assert (folder / "captures/range/camera/camera_0001/frames.npz").stat().st_size == 30
+    assert json.loads((folder / "manifest.json").read_text())["name"] == NAME
+    assert ACTIVE in pi.logs
+    assert store.archived_count() == 1
+    assert stats.summary(store)["shots"] == 2
+
+
+def test_offload_keeps_the_pi_copy_when_a_capture_is_cut_short(store, tmp_path):
+    pi = offload_pi()
+    pi.truncate = "range/camera/camera_0001/frames.npz"
+
+    result = sync_once(store, pi, tmp_path / "raw")
+
+    assert result["ok"] is False
+    assert pi.deleted == []
+    assert not (tmp_path / "raw" / "session_20261003_190737_range").exists()
+
+
+def test_offload_needs_the_pi_flag(store, tmp_path):
+    pi = offload_pi(offload=False)
+
+    result = sync_once(store, pi, tmp_path / "raw")
+
+    assert result["ok"] is False and "--session-log-offload" in result["error"]
+    assert pi.deleted == []
+    assert stats.summary(store)["shots"] == 2
+
+
+def test_capture_paths_cannot_escape_the_session_folder():
+    from openflight_dashboard.archive import _safe_relative
+
+    assert _safe_relative("iwr6843/a.l3dump").as_posix() == "iwr6843/a.l3dump"
+    for bad in ("../x", "/etc/passwd", "a/../../b", ""):
+        with pytest.raises(ValueError):
+            _safe_relative(bad)

@@ -31,7 +31,15 @@ def create_app(store: Store, sync: SyncLoop | None, pi_url: str | None) -> Flask
 
     @app.get("/api/summary")
     def summary():
-        return jsonify(stats.summary(store) | {"pi_url": pi_url, "sync_enabled": sync is not None})
+        return jsonify(
+            stats.summary(store)
+            | {
+                "pi_url": pi_url,
+                "sync_enabled": sync is not None,
+                "offload": bool(sync and sync.offloading),
+                "archived_sessions": store.archived_count(),
+            }
+        )
 
     @app.post("/api/sync")
     def sync_now():

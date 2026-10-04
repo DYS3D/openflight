@@ -192,3 +192,35 @@ def records(store: Store, profile: str | None) -> list[dict]:
             }
         )
     return result
+
+
+WEDGES = ("pw", "gw", "sw", "lw")
+
+
+def wedge_matrix(store: Store, profile: str | None) -> list[dict]:
+    """Median carry per wedge and swing length, from shots tagged on the kiosk."""
+    clause, params = profile_clause(profile)
+    rows = store.query(
+        f"SELECT sh.club, sh.swing, sh.carry FROM shots sh WHERE sh.swing IS NOT NULL "
+        f"AND sh.carry IS NOT NULL {clause}",
+        params,
+    )
+    carries: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for row in rows:
+        carries[(row["club"], row["swing"])].append(row["carry"])
+    if not carries:
+        return []
+    return [
+        {
+            "club": club,
+            "club_name": club_name(club),
+            "cells": {
+                swing: {
+                    "median": _round(_median(carries[(club, swing)]), 0),
+                    "shots": len(carries[(club, swing)]),
+                }
+                for swing in ("full", "3/4", "1/2")
+            },
+        }
+        for club in WEDGES
+    ]

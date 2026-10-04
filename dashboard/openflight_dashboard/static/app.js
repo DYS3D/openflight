@@ -633,7 +633,7 @@ async function gappingPage() {
     start.setDate(start.getDate() - Number(viewState.gappingRange));
     since = start.toISOString().slice(0, 19);
   }
-  const rows = await api('/api/gapping', { since });
+  const [rows, wedges] = await Promise.all([api('/api/gapping', { since }), api('/api/wedges')]);
   const rangeSelect = el(
     'select',
     { onchange: (event) => { viewState.gappingRange = event.target.value; render(); } },
@@ -680,7 +680,32 @@ async function gappingPage() {
           }),
         )
       : null,
+    wedgeMatrix(wedges),
   ];
+}
+
+const SWING_LABELS = { full: 'Full', '3/4': '¾', '1/2': '½' };
+
+/* Wedge × swing-length carries, from shots tagged on the kiosk (Practice → Wedges). */
+function wedgeMatrix(rows) {
+  return el(
+    'section',
+    { class: 'wedges' },
+    el('h2', {}, 'Wedge matrix'),
+    el('p', { class: 'lede' }, 'Median carry for each wedge at each swing length. Tag swings on the unit with Practice → Wedges.'),
+    rows.length
+      ? table(
+          [{ label: 'Wedge', left: true }, ...Object.values(SWING_LABELS).map((label) => ({ label }))],
+          rows.map((row) => [
+            row.club_name,
+            ...Object.keys(SWING_LABELS).map((swing) => {
+              const cell = row.cells[swing];
+              return cell.median === null ? '—' : `${fmt(cell.median)} yd (${cell.shots})`;
+            }),
+          ]),
+        )
+      : empty('No tagged wedge shots yet.'),
+  );
 }
 
 function recordRow(label, record, metric) {

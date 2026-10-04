@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS shots (
     launch_h REAL,
     spin REAL,
     spin_axis REAL,
+    swing TEXT,
     PRIMARY KEY (session_id, timestamp)
 );
 CREATE TABLE IF NOT EXISTS archived_sessions (
@@ -64,6 +65,9 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.executescript(_SCHEMA)
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(shots)")}
+        if "swing" not in columns:  # databases made before the wedge matrix
+            self._conn.execute("ALTER TABLE shots ADD COLUMN swing TEXT")
         self._lock = threading.Lock()
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:

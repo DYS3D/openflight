@@ -503,3 +503,53 @@ def test_skytrak_upload_endpoint_and_cli(tmp_path):
     (folder / "one.csv").write_text(SKYTRAK_CSV.replace("4:00 PM", "5:00 PM"), encoding="utf-8")
     main(["--data-dir", str(tmp_path), "import-skytrak", str(folder), "--golfer", "Justin"])
     assert "session_20261004_170000_skytrak" in Store(tmp_path / "openflight.sqlite3").session_ids()
+
+
+def test_wedge_matrix_from_tagged_shots(store):
+    store.ingest(
+        NAME,
+        log_text(
+            shot("2026-10-03T19:10:00", club="gw", carry=80, swing_length="full"),
+            shot("2026-10-03T19:11:00", club="gw", carry=90, swing_length="full"),
+            shot("2026-10-03T19:12:00", club="gw", carry=60, swing_length="3/4"),
+            shot("2026-10-03T19:13:00", club="gw", carry=99, swing_length="bogus"),
+            shot("2026-10-03T19:14:00", club="7-iron", carry=150),
+        ),
+        1,
+        1,
+    )
+
+    rows = stats.wedge_matrix(store, None)
+
+    assert [row["club"] for row in rows] == ["pw", "gw", "sw", "lw"]
+    assert rows[1]["cells"] == {
+        "full": {"median": 85, "shots": 2},
+        "3/4": {"median": 60, "shots": 1},
+        "1/2": {"median": None, "shots": 0},
+    }
+    client = create_app(store, None, None).test_client()
+    assert client.get("/api/wedges").get_json() == rows
+
+
+def test_wedge_matrix_is_empty_without_tags(store):
+    store.ingest(NAME, log_text(shot("2026-10-03T19:10:00", club="gw")), 1, 1)
+    assert stats.wedge_matrix(store, None) == []
+
+
+def test_old_database_gains_the_swing_column(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE shots (session_id TEXT NOT NULL, timestamp TEXT NOT NULL, shot_number INTEGER, "
+        "club TEXT NOT NULL, profile_id TEXT, profile_name TEXT, ball_speed REAL NOT NULL, club_speed REAL, "
+        "smash REAL, carry REAL, launch_v REAL, launch_h REAL, spin REAL, spin_axis REAL, "
+        "PRIMARY KEY (session_id, timestamp))"
+    )
+    conn.commit()
+    conn.close()
+
+    store = Store(path)
+
+    assert "swing" in {row["name"] for row in store.query("PRAGMA table_info(shots)")}

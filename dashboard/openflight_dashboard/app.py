@@ -55,6 +55,10 @@ def create_app(store: Store, sync: SyncLoop | None, pi_url: str | None) -> Flask
         today = datetime.now()  # noqa: DTZ005
         return jsonify(home_page.home(store, profile(), days or None, today))
 
+    @app.get("/api/wedges")
+    def wedges():
+        return jsonify(stats.wedge_matrix(store, profile()))
+
     @app.post("/api/import/skytrak")
     def import_skytrak():
         golfer = request.form.get("golfer", "")

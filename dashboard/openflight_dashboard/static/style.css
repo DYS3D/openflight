@@ -988,3 +988,8 @@ a.record__date:hover {
   margin-top: 12px;
   color: var(--text-muted);
 }
+
+/* Wedge matrix (Gapping page). */
+.wedges {
+  margin-top: 40px;
+}

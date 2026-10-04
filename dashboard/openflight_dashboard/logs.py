@@ -9,6 +9,7 @@ from datetime import datetime
 
 # Mock shots are simulated; swing-speed reps have no ball flight.
 _SKIPPED_MODES = {"mock", "swing-speed"}
+SWING_LENGTHS = ("full", "3/4", "1/2")
 _NAME_STAMP = re.compile(r"^session_(\d{8})_(\d{6})")
 
 
@@ -27,6 +28,8 @@ class Shot:
     launch_h: float | None
     spin: float | None
     spin_axis: float | None
+    # Wedge matrix tag from the kiosk: "full", "3/4" or "1/2".
+    swing: str | None = None
 
 
 @dataclass
@@ -78,6 +81,7 @@ def _shot(entry: dict) -> Shot | None:
         launch_h=_number(entry.get("launch_angle_horizontal")),
         spin=_number(entry.get("spin_rpm")),
         spin_axis=_number(entry.get("spin_axis_deg")),
+        swing=entry.get("swing_length") if entry.get("swing_length") in SWING_LENGTHS else None,
     )
 
 

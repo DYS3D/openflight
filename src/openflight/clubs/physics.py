@@ -85,6 +85,8 @@ CLUB_PHYSICS: Mapping[ClubType, ClubPhysics] = MappingProxyType(
         # Extrapolated along the 3W-5W-7W trend; no published TrackMan 9-wood average.
         ClubType.WOOD_9: ClubPhysics(24.0, 17.0, 116, 0.22, 5300, 1.41, 1.40, 1.40),
         ClubType.HYBRID_3: ClubPhysics(19.0, 13.5, 123, 0.22, 4400, 1.39, 1.45, 1.39),
+        # Interpolated between the 3 and 5 hybrids; no published TrackMan 4-hybrid average.
+        ClubType.HYBRID_4: ClubPhysics(20.5, 14.2, 120, 0.22, 4650, 1.38, 1.50, 1.38),
         ClubType.HYBRID_5: ClubPhysics(22.0, 15.0, 118, 0.22, 4900, 1.38, 1.55, 1.37),
         ClubType.HYBRID_7: ClubPhysics(25.0, 16.5, 112, 0.25, 5300, 1.37, 1.65, 1.35),
         ClubType.HYBRID_9: ClubPhysics(28.0, 18.0, 106, 0.25, 5800, 1.36, 1.75, 1.33),
@@ -112,6 +114,7 @@ CLUB_SIMULATION_PROFILES: Mapping[ClubType, ClubSimulationProfile] = MappingProx
         ClubType.WOOD_7: ClubSimulationProfile(9, 1.40, 4200, 500, 2.0),
         ClubType.WOOD_9: ClubSimulationProfile(9, 1.39, 4600, 500, 2.0),
         ClubType.HYBRID_3: ClubSimulationProfile(9, 1.39, 3800, 400, 2.0),
+        ClubType.HYBRID_4: ClubSimulationProfile(9, 1.38, 4000, 450, 2.0),
         ClubType.HYBRID_5: ClubSimulationProfile(9, 1.37, 4200, 500, 2.0),
         ClubType.HYBRID_7: ClubSimulationProfile(8, 1.35, 4600, 500, 2.0),
         ClubType.HYBRID_9: ClubSimulationProfile(8, 1.33, 5000, 500, 2.5),
@@ -143,6 +146,7 @@ CLUB_PLAUSIBLE_SPIN_RPM: Mapping[ClubType, tuple[float, float]] = MappingProxyTy
         ClubType.WOOD_7: (3000, 7000),
         ClubType.WOOD_9: (3000, 7500),
         ClubType.HYBRID_3: (2500, 6500),
+        ClubType.HYBRID_4: (2750, 6750),
         ClubType.HYBRID_5: (3000, 7000),
         ClubType.HYBRID_7: (3500, 7500),
         ClubType.HYBRID_9: (3500, 8000),

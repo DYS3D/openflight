@@ -98,3 +98,14 @@ def test_nine_wood_sits_between_the_seven_wood_and_the_long_irons():
     low, high = get_plausible_spin_rpm(ClubType.WOOD_9)
     assert low <= nine.typical_spin_rpm <= high
     assert gspro_code_to_club("W9") is ClubType.WOOD_9
+
+
+def test_four_hybrid_sits_between_the_three_and_five_hybrids():
+    three, four, five = (
+        CLUB_PHYSICS[ClubType.HYBRID_3],
+        CLUB_PHYSICS[ClubType.HYBRID_4],
+        CLUB_PHYSICS[ClubType.HYBRID_5],
+    )
+    for field in ("nominal_loft_deg", "optimal_launch_deg", "typical_spin_rpm"):
+        assert getattr(three, field) < getattr(four, field) < getattr(five, field), field
+    assert three.average_ball_speed_mph > four.average_ball_speed_mph > five.average_ball_speed_mph

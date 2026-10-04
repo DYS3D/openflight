@@ -870,7 +870,13 @@ def _vertical_soft_launch_lane_deg(club: ClubType) -> tuple[float, float]:
         return (4.0, 22.0)
     if club in {ClubType.WOOD_3, ClubType.WOOD_5, ClubType.WOOD_7, ClubType.WOOD_9}:
         return (5.0, 24.0)
-    if club in {ClubType.HYBRID_3, ClubType.HYBRID_5, ClubType.HYBRID_7, ClubType.HYBRID_9}:
+    if club in {
+        ClubType.HYBRID_3,
+        ClubType.HYBRID_4,
+        ClubType.HYBRID_5,
+        ClubType.HYBRID_7,
+        ClubType.HYBRID_9,
+    }:
         return (6.0, 26.0)
     if club in {ClubType.IRON_2, ClubType.IRON_3, ClubType.IRON_4, ClubType.IRON_5}:
         return (5.0, 25.0)

@@ -25,6 +25,7 @@ export const CLUBS_BY_TYPE: Record<string, Club[]> = {
   ],
   Hybrids: [
     { id: '3-hybrid', label: '3H', name: '3 Hybrid' },
+    { id: '4-hybrid', label: '4H', name: '4 Hybrid' },
     { id: '5-hybrid', label: '5H', name: '5 Hybrid' },
     { id: '7-hybrid', label: '7H', name: '7 Hybrid' },
     { id: '9-hybrid', label: '9H', name: '9 Hybrid' },

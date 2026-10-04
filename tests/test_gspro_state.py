@@ -28,7 +28,7 @@ def test_all_openconnect_codes_from_ogs_clubsync_map_to_real_clubs():
     here, or club sync would silently produce UNKNOWN.
     """
     codes = [
-        "DR", "W3", "W5", "W7", "H3", "H5", "H7", "H9",
+        "DR", "W3", "W5", "W7", "H3", "H4", "H5", "H7", "H9",
         "I2", "I3", "I4", "I5", "I6", "I7", "I8", "I9",
         "PW", "GW", "SW", "LW",
     ]

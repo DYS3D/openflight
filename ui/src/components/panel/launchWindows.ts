@@ -26,6 +26,7 @@ const CENTRES: Record<string, readonly [number, number]> = {
   '7-wood': [11, 4800],
   '9-wood': [12, 5200],
   '3-hybrid': [10.2, 4437],
+  '4-hybrid': [10.6, 4620],
   '5-hybrid': [11, 4800],
   '7-hybrid': [13, 5500],
   '9-hybrid': [15, 6200],

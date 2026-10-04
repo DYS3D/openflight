@@ -12,6 +12,7 @@ class ClubType(Enum):
     WOOD_7 = "7-wood"
     WOOD_9 = "9-wood"
     HYBRID_3 = "3-hybrid"
+    HYBRID_4 = "4-hybrid"
     HYBRID_5 = "5-hybrid"
     HYBRID_7 = "7-hybrid"
     HYBRID_9 = "9-hybrid"

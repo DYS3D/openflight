@@ -43,6 +43,8 @@ def parse_club(value: str | None) -> ClubType:
         "9-wood": ClubType.WOOD_9,
         "3h": ClubType.HYBRID_3,
         "3-hybrid": ClubType.HYBRID_3,
+        "4h": ClubType.HYBRID_4,
+        "4-hybrid": ClubType.HYBRID_4,
         "5h": ClubType.HYBRID_5,
         "5-hybrid": ClubType.HYBRID_5,
         "7h": ClubType.HYBRID_7,

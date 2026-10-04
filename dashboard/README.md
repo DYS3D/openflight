@@ -61,6 +61,19 @@ Each session lands in its own folder under `data/raw/` (change it with
 `--raw-dir`): the `.jsonl` log, a `captures/` folder and the Pi's
 `manifest.json`. The summaries still go into the database as usual.
 
+## Updating
+
+On Windows, run `update.ps1`. It pulls the latest code, stops whatever is
+serving the dashboard port (and nothing else), then starts the
+`OpenFlight Dashboard` scheduled task once:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\path\to\openflight\dashboard\update.ps1
+```
+
+The dashboard refuses to start when its port is already in use, so a second
+copy can never sit beside an old one.
+
 ## Options
 
 | Flag | Environment variable | Default |

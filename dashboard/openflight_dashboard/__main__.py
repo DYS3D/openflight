@@ -5,11 +5,25 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import socket
+import sys
 from pathlib import Path
 
 from .app import create_app
 from .store import Store
 from .sync import PiSource, SyncLoop
+
+
+def port_in_use(port: int) -> bool:
+    """Whether something already accepts connections on this port.
+
+    Flask's server sets SO_REUSEADDR, which on Windows lets a second copy bind
+    the same port; the browser then keeps reaching the old copy. Checking for a
+    listener first makes a second start fail loudly instead.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -99,6 +113,12 @@ def main(argv: list[str] | None = None) -> None:
             )
             print(f"{path.name}: {shots} shots")
         return
+
+    if port_in_use(args.port):
+        sys.exit(
+            f"Port {args.port} is already in use: the dashboard is probably already "
+            "running. Stop it first (see README: Updating)."
+        )
 
     sync = None
     if args.pi:

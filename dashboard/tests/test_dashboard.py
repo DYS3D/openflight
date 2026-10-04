@@ -389,3 +389,18 @@ def test_hide_api_removes_a_session(store):
     assert client.post("/api/sessions/session_20261003_190737_range/hide").status_code == 200
     assert client.get("/api/sessions").get_json() == []
     assert client.post("/api/sessions/session_20261003_190737_range/hide").status_code == 404
+
+
+def test_second_dashboard_refuses_a_port_already_in_use(tmp_path):
+    import socket
+
+    from openflight_dashboard.__main__ import main, port_in_use
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        assert port_in_use(port)
+        with pytest.raises(SystemExit, match="already in use"):
+            main(["--data-dir", str(tmp_path), "--port", str(port)])
+    assert not port_in_use(port)

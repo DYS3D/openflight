@@ -54,6 +54,12 @@ from .ballistics import (
     simulate,
 )
 from .clubs import ClubType
+from .clubs.personal import (
+    add_personal_calibration_args,
+    load_spin_profile,
+    set_spin_profile,
+    validate_club_speed_scale,
+)
 from .clubs.physics import (
     SHOT_SIMULATION_DEFAULTS,
     get_club_physics,
@@ -1201,6 +1207,8 @@ def _session_start_config() -> dict:
 
 
 ball_speed_correction_enabled = False
+# --club-speed-scale: radar club speed multiplier (1.0 = off).
+club_speed_scale = 1.0
 ball_speed_correction_distance_ft = 5.5
 ball_speed_correction_ball_above_radar_ft = -4.0 / 12.0
 calculated_spin_enabled = False
@@ -4591,6 +4599,20 @@ def _defer_shot_enrichment(
             raise
 
 
+def _apply_club_speed_scale(shot: Shot) -> None:
+    """Scale the OPS club speed before anything (smash, launch estimate) reads it."""
+    if club_speed_scale == 1.0 or not shot.club_speed_mph:
+        return
+    raw = shot.club_speed_mph
+    shot.club_speed_mph = raw * club_speed_scale
+    logger.info(
+        "[SERVER] Club speed scale: %.1f -> %.1f mph (x%.3f)",
+        raw,
+        shot.club_speed_mph,
+        club_speed_scale,
+    )
+
+
 def on_shot_detected(shot: Shot) -> None:
     """Serialize detection order before publishing or queueing a shot."""
     with _shot_callback_lock:
@@ -4606,6 +4628,7 @@ def _handle_shot_detected(shot: Shot) -> None:
     active_profile = get_profile_store().get_active()
     shot.profile_id = active_profile.id
     shot.profile_name = active_profile.name
+    _apply_club_speed_scale(shot)
     logger.info("[SERVER] Shot callback: %.1f mph", shot.ball_speed_mph)
 
     if not _has_slow_shot_enrichment(shot):
@@ -6204,6 +6227,7 @@ def main():
     add_access_args(parser)
     add_update_args(parser)
     add_session_log_api_args(parser)
+    add_personal_calibration_args(parser)
     server_group = parser.add_argument_group("Web server limits (off by default)")
     server_group.add_argument(
         "--request-rate-limit",
@@ -6322,6 +6346,16 @@ def main():
     _VERTICAL_RADAR_GATE_BYPASS = args.kld7_vertical_raw
     global calculated_spin_enabled
     calculated_spin_enabled = args.calculated_spin
+    global club_speed_scale
+    try:
+        club_speed_scale = validate_club_speed_scale(args.club_speed_scale)
+        set_spin_profile(load_spin_profile(args.spin_profile) if args.spin_profile else {})
+    except ValueError as exc:
+        parser.error(str(exc))
+    if club_speed_scale != 1.0:
+        logger.info("Club speed scale: x%.3f", club_speed_scale)
+    if args.spin_profile:
+        logger.info("Personal spin profile: %s", args.spin_profile)
     global camera_strobe_spin_enabled
     camera_strobe_spin_enabled = args.camera_strobe_spin
     global spin_axis_model

@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 from .clubs import ClubType
+from .clubs.personal import fallback_spin_rpm
 from .clubs.physics import CLUB_PHYSICS
 from .launch_monitor import Shot, spin_is_trusted
 
@@ -153,7 +154,7 @@ def resolve_launch(shot: Shot) -> Optional[LaunchConditions]:
             "calculated" if shot.spin_source == "calculated" else "measured"
         )
     else:
-        spin_rpm = CLUB_TYPICAL_SPIN_RPM.get(shot.club, CLUB_TYPICAL_SPIN_RPM[ClubType.UNKNOWN])
+        spin_rpm = fallback_spin_rpm(shot.club)
         source = "club_typical"
 
     return LaunchConditions(

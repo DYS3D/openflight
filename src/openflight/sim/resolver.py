@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Dict, Mapping, Optional, Tuple
 
 from openflight.clubs import ClubType
+from openflight.clubs.personal import fallback_spin_rpm
 from openflight.clubs.physics import CLUB_PHYSICS, get_club_physics
 from openflight.launch_monitor import MODELLED_SPIN_SOURCES, Shot, spin_is_trusted
 from openflight.sim.types import IncompleteShotError, PlayerState, ResolvedShot
@@ -34,7 +35,7 @@ def _resolve_total_spin(shot: Shot) -> Tuple[float, str]:
     if spin_is_trusted(shot):
         provenance = "estimated" if shot.spin_source in MODELLED_SPIN_SOURCES else "measured"
         return float(shot.spin_rpm), provenance
-    return get_club_physics(shot.club).typical_spin_rpm, "estimated"
+    return fallback_spin_rpm(shot.club), "estimated"
 
 
 def _angle_provenance(source: Optional[str]) -> str:

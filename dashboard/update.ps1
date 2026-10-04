@@ -1,6 +1,6 @@
 # Update the dashboard: pull the latest code, stop every copy serving the
 # dashboard port, then start the scheduled task once.
-# Run from anywhere:  powershell -ExecutionPolicy Bypass -File C:\Users\Jcros\openflight\dashboard\update.ps1
+# Run from anywhere:  powershell -ExecutionPolicy Bypass -File <repo>\dashboard\update.ps1
 param([int]$Port = 8090, [string]$Task = "OpenFlight Dashboard")
 
 $repo = Split-Path -Parent $PSScriptRoot

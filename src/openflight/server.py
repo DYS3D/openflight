@@ -5005,6 +5005,15 @@ def _cloud_raw_uploads_enabled() -> bool:
         return False
 
 
+def _iwr6843_save_dumps(args) -> bool:
+    """Keep each shot's raw IWR6843 dump on disk for offline analysis.
+
+    Raw cloud uploads need the dumps on disk to send them; --debug and
+    --iwr6843-save-dumps keep them for local replay.
+    """
+    return bool(args.debug or args.iwr6843_save_dumps or _cloud_raw_uploads_enabled())
+
+
 def _active_session_log_name() -> Optional[str]:
     """File name of the session log currently being written, if any."""
     session_logger = get_session_logger()
@@ -5951,6 +5960,14 @@ def main():
         help="Ball-center height above the floor/mat (default: 0.040)",
     )
     parser.add_argument(
+        "--iwr6843-save-dumps",
+        action="store_true",
+        help=(
+            "Keep each shot's raw IWR6843 dump (~0.7 MB) under the session log "
+            "directory so launch angles can be replayed offline. Off by default"
+        ),
+    )
+    parser.add_argument(
         "--iwr6843-tx-order",
         choices=("auto", "normal", "reversed"),
         default="auto",
@@ -6526,8 +6543,7 @@ def main():
             ball_height_m=args.iwr6843_ball_height_m,
             azimuth_offset_deg=args.iwr6843_azimuth_offset_deg,
             horizontal_phase_reference_rad=args.iwr6843_horizontal_phase_reference_rad,
-            # Raw cloud uploads need the dumps on disk to send them.
-            save_dumps=args.debug or _cloud_raw_uploads_enabled(),
+            save_dumps=_iwr6843_save_dumps(args),
             radar_auto_reconnect=args.radar_auto_reconnect,
             estimator_process=args.iwr6843_estimator_process,
             fast_angle_search=args.iwr6843_fast_angle_search,

@@ -219,3 +219,15 @@ def test_active_session_name_comes_from_the_session_logger(tmp_path, monkeypatch
     assert server_module._active_session_log_name() == logger.session_path.name
     monkeypatch.setattr(server_module, "get_session_logger", lambda: None)
     assert server_module._active_session_log_name() is None
+
+
+def test_iwr6843_dumps_are_kept_only_when_asked(monkeypatch):
+    monkeypatch.setattr(server_module, "_cloud_raw_uploads_enabled", lambda: False)
+    off = argparse.Namespace(debug=False, iwr6843_save_dumps=False)
+    assert server_module._iwr6843_save_dumps(off) is False
+    assert server_module._iwr6843_save_dumps(
+        argparse.Namespace(debug=False, iwr6843_save_dumps=True)
+    )
+    assert server_module._iwr6843_save_dumps(
+        argparse.Namespace(debug=True, iwr6843_save_dumps=False)
+    )

@@ -399,6 +399,7 @@ class TestRadarProfileWiring:
             "scale_speed_band": False,
             "fast_dsp": False,
             "runtime_rolling_buffer": False,
+            "club_plateau_quantile": None,
             "pre_trigger_segments": 16,
             "radar_timing": None,
         }

@@ -195,6 +195,7 @@ class RollingBufferProcessor:
         spin_octave_prior: str = "optimal",
         cap_spin_prior: bool = False,
         ball_speed_magnitude_gate: bool = False,
+        club_plateau_quantile: Optional[float] = None,
     ):
         """Initialize processor with pre-computed window function.
 
@@ -231,6 +232,10 @@ class RollingBufferProcessor:
             ball_speed_magnitude_gate: Ignore ball-speed bins whose strongest
                 reading is below BALL_SPEED_MIN_RELATIVE_MAGNITUDE of the
                 strongest outbound reading. Off by default.
+            club_plateau_quantile: Which quantile of the club's pre-impact
+                plateau is reported as club speed (default
+                CLUB_PLATEAU_QUANTILE, 0.70). Higher reads closer to the
+                club head's peak; see --club-speed-quantile.
         """
         if ball_marker not in BALL_MARKERS:
             raise ValueError(f"ball_marker must be one of {BALL_MARKERS}, got {ball_marker!r}")
@@ -245,6 +250,9 @@ class RollingBufferProcessor:
         self.spin_octave_prior = spin_octave_prior
         self.cap_spin_prior = cap_spin_prior
         self.ball_speed_magnitude_gate = ball_speed_magnitude_gate
+        self.club_plateau_quantile = (
+            self.CLUB_PLATEAU_QUANTILE if club_plateau_quantile is None else club_plateau_quantile
+        )
         # Called with every successfully parsed capture (--interference-check).
         self.capture_observer: Optional[Callable[[IQCapture], None]] = None
         if scale_speed_band:
@@ -2064,7 +2072,7 @@ class RollingBufferProcessor:
             for reading in upper_branch
             if plateau_start_ms <= reading.timestamp_ms <= plateau_end_ms
         ]
-        plateau_pick = self._quantile_reading(plateau, self.CLUB_PLATEAU_QUANTILE)
+        plateau_pick = self._quantile_reading(plateau, self.club_plateau_quantile)
         if plateau_pick is None:
             return legacy_speed, legacy_timestamp
 

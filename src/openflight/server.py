@@ -4776,6 +4776,7 @@ def start_monitor(
     interference_check: bool = False,
     radar_profile: str = DEFAULT_RADAR_PROFILE,
     fast_dsp: bool = False,
+    club_speed_quantile: Optional[float] = None,
 ):
     """
     Start the monitor in launch monitor or swing speed mode.
@@ -4796,6 +4797,7 @@ def start_monitor(
         radar_profile: OPS243 rolling-buffer profile (standard or low-latency);
             low-latency overrides sample_rate_ksps and the pre-trigger split
         fast_dsp: Pre-planned multi-threaded FFT path in the processor
+        club_speed_quantile: Club-speed plateau quantile (None keeps the default)
     """
     global monitor, mock_mode, mock_swing_speed_mode, debug_mode, radar_config
 
@@ -4845,6 +4847,7 @@ def start_monitor(
             scale_speed_band=profile.scale_speed_band,
             fast_dsp=fast_dsp,
             runtime_rolling_buffer=ops_software_trigger_enabled,
+            club_plateau_quantile=club_speed_quantile,
             **trigger_kwargs,
         )
         logger.info(
@@ -6087,6 +6090,16 @@ def main():
         ),
     )
     parser.add_argument(
+        "--club-speed-quantile",
+        type=float,
+        default=None,
+        help=(
+            "Report club speed at this quantile (0-1) of the club's pre-impact "
+            "plateau. Default keeps 0.70; 0.85 matched TrackMan within ~1 mph "
+            "(median) on the 2026-05-06 comparison, where 0.70 read ~3 mph low"
+        ),
+    )
+    parser.add_argument(
         "--ball-speed-magnitude-gate",
         action="store_true",
         help=(
@@ -6193,6 +6206,8 @@ def main():
     # launch angle), so require it whenever the K-LD7 radars are enabled.
     if args.kld7 and args.kld7_mount_tilt is None:
         parser.error("--kld7-mount-tilt is required when --kld7 is passed")
+    if args.club_speed_quantile is not None and not 0.0 <= args.club_speed_quantile <= 1.0:
+        parser.error("--club-speed-quantile must be between 0 and 1")
     if args.mock_swing_speed:
         args.mock = True
         args.swing_speed = True
@@ -6629,6 +6644,7 @@ def main():
             interference_check=args.interference_check,
             radar_profile=args.radar_profile,
             fast_dsp=args.fast_dsp,
+            club_speed_quantile=args.club_speed_quantile,
         )
     except Exception:
         monitor_recovery = (

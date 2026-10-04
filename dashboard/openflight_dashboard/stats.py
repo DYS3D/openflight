@@ -15,7 +15,7 @@ MAX_PLAUSIBLE_SMASH = 1.6
 TREND_METRICS = ("carry", "ball_speed", "club_speed", "smash", "launch_v", "spin")
 
 
-def _profile_clause(profile: str | None) -> tuple[str, tuple]:
+def profile_clause(profile: str | None) -> tuple[str, tuple]:
     return ("AND sh.profile_id = ?", (profile,)) if profile else ("", ())
 
 
@@ -49,7 +49,7 @@ def summary(store: Store) -> dict:
 
 
 def sessions(store: Store, profile: str | None) -> list[dict]:
-    clause, params = _profile_clause(profile)
+    clause, params = profile_clause(profile)
     rows = store.query(
         "SELECT s.id, s.started_at, sh.club, sh.ball_speed, sh.carry FROM sessions s "
         f"JOIN shots sh ON sh.session_id = s.id WHERE 1 = 1 {clause}",
@@ -89,7 +89,7 @@ def session_shots(store: Store, session_id: str, profile: str | None) -> dict | 
     meta = store.query("SELECT id, started_at FROM sessions WHERE id = ?", (session_id,))
     if not meta:
         return None
-    clause, params = _profile_clause(profile)
+    clause, params = profile_clause(profile)
     rows = store.query(
         f"SELECT sh.* FROM shots sh WHERE sh.session_id = ? {clause} ORDER BY sh.timestamp",
         (session_id, *params),
@@ -99,7 +99,7 @@ def session_shots(store: Store, session_id: str, profile: str | None) -> dict | 
 
 
 def _shots_by_club(store: Store, profile: str | None, since: str | None = None) -> dict:
-    clause, params = _profile_clause(profile)
+    clause, params = profile_clause(profile)
     since_clause = "AND sh.timestamp >= ?" if since else ""
     rows = store.query(
         "SELECT sh.*, s.started_at FROM shots sh JOIN sessions s ON s.id = sh.session_id "

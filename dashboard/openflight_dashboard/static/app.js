@@ -662,8 +662,8 @@ function route() {
   const hash = window.location.hash.replace(/^#\/?/, '');
   const [page, ...rest] = hash.split('/');
   if (page === 'sessions' && rest.length) return { page: 'sessions', render: () => sessionPage(decodeURIComponent(rest.join('/'))) };
-  const pages = { trends: trendsPage, gapping: gappingPage, records: recordsPage };
-  return pages[page] ? { page, render: pages[page] } : { page: 'sessions', render: sessionsPage };
+  const pages = { sessions: sessionsPage, trends: trendsPage, gapping: gappingPage, records: recordsPage };
+  return pages[page] ? { page, render: pages[page] } : { page: 'home', render: homePage };
 }
 
 let renderToken = 0;
@@ -681,6 +681,8 @@ async function render() {
     const content = await build();
     if (token !== renderToken) return;
     pageEl.replaceChildren(...content.filter(Boolean));
+    // Calendars start scrolled to the most recent weeks on narrow screens.
+    for (const wrap of pageEl.querySelectorAll('.calendar-wrap')) wrap.scrollLeft = wrap.scrollWidth;
   } catch (error) {
     if (token !== renderToken) return;
     pageEl.replaceChildren(el('h1', {}, 'Something went wrong'), empty(String(error.message || error)));

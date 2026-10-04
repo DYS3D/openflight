@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, request, send_from_directory
 
+from . import home as home_page
 from . import stats
 from .store import Store
 from .sync import SyncLoop
@@ -36,6 +38,13 @@ def create_app(store: Store, sync: SyncLoop | None, pi_url: str | None) -> Flask
         if sync is None:
             abort(409, "No Pi configured")
         return jsonify(sync.trigger())
+
+    @app.get("/api/home")
+    def home():
+        days = request.args.get("days", type=int)
+        # Shot timestamps are the Pi's local time, so "now" is local too.
+        today = datetime.now()  # noqa: DTZ005
+        return jsonify(home_page.home(store, profile(), days or None, today))
 
     @app.get("/api/profiles")
     def profiles():

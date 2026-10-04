@@ -3,6 +3,10 @@
 Session history, trends, club gapping and personal records for your OpenFlight,
 running on your own PC or NAS. Nothing leaves your home network.
 
+The home page is a top-down "range view" of every recent shot where it
+landed, with your bag's distances, what is trending, your latest personal
+bests, a practice calendar and lifetime totals.
+
 The dashboard copies session logs from the Pi every few minutes into its own
 database (`data/openflight.sqlite3`), so your history survives even after the
 Pi prunes old logs. Shots you delete on the unit are left out.

@@ -190,3 +190,48 @@ def test_api_serves_pages_and_reports_missing_sessions(store):
     )
     assert client.get("/api/sessions/missing").status_code == 404
     assert client.post("/api/sync").status_code == 409
+
+
+def test_home_summarises_range_bag_calendar_and_trends(store):
+    from datetime import datetime, timedelta
+
+    from openflight_dashboard.home import CALENDAR_DAYS, home, side_yards
+
+    today = datetime(2026, 10, 4, 12, 0)  # noqa: DTZ001 - the Pi logs local time
+
+    def at(days_ago, index):
+        return (today - timedelta(days=days_ago, minutes=index)).isoformat(timespec="seconds")
+
+    old = [shot(at(60, i), ball=100.0, carry=140, launch_angle_horizontal=-2.0) for i in range(6)]
+    new = [shot(at(5, i), ball=104.0, carry=150, launch_angle_horizontal=3.0) for i in range(6)]
+    store.ingest(NAME, log_text(*old, *new), 1, 1.0)
+
+    data = home(store, None, 30, today)
+
+    assert data["lifetime"]["shots"] == 12
+    assert data["lifetime"]["carry_miles"] == round((6 * 140 + 6 * 150) / 1760, 1)
+    assert len(data["range"]["shots"]) == 6
+    assert data["range"]["shots"][0]["side"] == round(side_yards(150, 3.0), 1)
+    assert data["bag"][0]["median"] == 145
+    assert len(data["calendar"]) == CALENDAR_DAYS
+    assert data["calendar"][-1]["date"] == "2026-10-04"
+    assert sum(day["shots"] for day in data["calendar"]) == 12
+    # One trend per club: ball speed (+4 mph) beats carry (+10 yd) on its threshold.
+    assert [(t["metric"], t["delta"]) for t in data["trends"]] == [("ball_speed", 4.0)]
+    assert data["recent_bests"][0]["value"] in (104.0, 150)
+
+
+def test_side_yards_is_left_negative_and_needs_a_direction():
+    from openflight_dashboard.home import side_yards
+
+    assert side_yards(100, -5.0) < 0 < side_yards(100, 5.0)
+    assert side_yards(100, None) is None
+
+
+def test_home_api_and_page_assets(store):
+    store.ingest(NAME, log_text(shot("2026-10-03T19:10:00", launch_angle_horizontal=1.0)), 1, 1.0)
+    client = create_app(store, None, None).test_client()
+
+    assert client.get("/api/home?days=90").get_json()["lifetime"]["shots"] == 1
+    assert "/static/home.js" in client.get("/").get_data(as_text=True)
+    assert client.get("/static/home.js").status_code == 200

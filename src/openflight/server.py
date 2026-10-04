@@ -4974,6 +4974,13 @@ def _cloud_raw_uploads_enabled() -> bool:
         return False
 
 
+def _active_session_log_name() -> Optional[str]:
+    """File name of the session log currently being written, if any."""
+    session_logger = get_session_logger()
+    path = session_logger.session_path if session_logger else None
+    return path.name if path else None
+
+
 def _prune_session_logs(log_dir: Path, *, max_age_days: float, max_total_mb: float) -> None:
     """Apply log retention at startup, keeping sessions still queued for cloud upload."""
     from .cloud import spool
@@ -6343,8 +6350,20 @@ def main():
         session_log_dir = (
             Path(args.log_dir).expanduser() if args.log_dir else SessionLogger.DEFAULT_LOG_DIR
         )
-        app.register_blueprint(create_session_log_blueprint(lambda: session_log_dir))
-        logger.info("Session log API enabled at /api/session-logs (%s)", session_log_dir)
+        app.register_blueprint(
+            create_session_log_blueprint(
+                lambda: session_log_dir,
+                get_active_name=_active_session_log_name,
+                allow_offload=args.session_log_offload,
+            )
+        )
+        logger.info(
+            "Session log API enabled at /api/session-logs (%s)%s",
+            session_log_dir,
+            ", offload on" if args.session_log_offload else "",
+        )
+    elif args.session_log_offload:
+        parser.error("--session-log-offload needs --session-log-api")
 
     if ballistics_enabled:
         logger.info("Ballistic carry model: ENABLED (simulator + drag/Magnus)")

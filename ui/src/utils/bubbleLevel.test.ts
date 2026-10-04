@@ -6,9 +6,10 @@ describe('bubblePosition', () => {
     expect(bubblePosition(0, 0, 1)).toEqual({ x: 0, y: 0, level: true });
   });
 
-  it('moves the bubble right for positive roll and up for positive pitch', () => {
+  it('moves the bubble to the high side: left for positive roll, up for positive pitch', () => {
+    // Positive roll is the right side down, so the bubble floats left.
     const position = bubblePosition(2, 1, 1);
-    expect(position.x).toBeCloseTo(25);
+    expect(position.x).toBeCloseTo(-25);
     expect(position.y).toBeCloseTo(-50);
     expect(position.level).toBe(false);
   });
@@ -22,9 +23,9 @@ describe('bubblePosition', () => {
   it('clamps wild readings to the rim without changing their direction', () => {
     const position = bubblePosition(-30, 40, 1);
     expect(Math.hypot(position.x, position.y)).toBeCloseTo(100);
-    expect(position.x).toBeGreaterThan(0);
+    expect(position.x).toBeLessThan(0);
     expect(position.y).toBeGreaterThan(0);
-    expect(position.x / position.y).toBeCloseTo(40 / 30);
+    expect(position.x / position.y).toBeCloseTo(-40 / 30);
   });
 
   it('scales the vial to the threshold but never tighter than two degrees', () => {

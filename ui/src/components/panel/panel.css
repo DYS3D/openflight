@@ -1497,6 +1497,20 @@
   color: var(--color-text);
 }
 
+.level-panel__hint {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-text);
+}
+
+.level-panel__frame {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
 /* ------------------------------------------------------------ menu sheet -- */
 
 .panel-scrim {

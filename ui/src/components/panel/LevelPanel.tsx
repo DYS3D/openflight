@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { useI18n } from '../../i18n/useI18n';
+import { socketService } from '../../services/socketService';
 import { useBannerStore } from '../../stores/useBannerStore';
 import type { LevelStatus } from '../../types/socket';
-import { bubblePosition, bubbleRangeDeg, formatLevelDegrees } from '../../utils/bubbleLevel';
+import { bubblePosition, bubbleRangeDeg, formatLevelDegrees, levelHint } from '../../utils/bubbleLevel';
 import { PanelHeader } from './PanelHeader';
 
 interface LevelPanelProps {
@@ -10,6 +12,10 @@ interface LevelPanelProps {
 }
 
 const VIAL_RADIUS = 90;
+
+function levelHintText(hint: ReturnType<typeof levelHint>, t: ReturnType<typeof useI18n>['t']): string {
+  return hint ? t(hint) : t('level.instructions');
+}
 const BUBBLE_RADIUS = 14;
 
 function BubbleLevel({ status }: { status: LevelStatus }) {
@@ -47,6 +53,12 @@ export function LevelPanel({ status: statusProp }: LevelPanelProps) {
   const { t } = useI18n();
   const storeStatus = useBannerStore((state) => state.levelStatus);
   const status = statusProp === undefined ? storeStatus : statusProp;
+
+  // Live readings only flow while this screen is open.
+  useEffect(() => {
+    socketService.watchLevel(true);
+    return () => socketService.watchLevel(false);
+  }, []);
   const level = status?.level ?? false;
   const subtitle = status ? (level ? t('level.ok') : t('level.notLevel')) : undefined;
   const header = <PanelHeader title={t('level.title')} subtitle={subtitle} />;
@@ -87,7 +99,12 @@ export function LevelPanel({ status: statusProp }: LevelPanelProps) {
           <span className="level-panel__threshold">
             {t('level.threshold', { deg: formatLevelDegrees(status.threshold_deg) })}
           </span>
-          <p className="level-panel__instructions">{t('level.instructions')}</p>
+          {level ? (
+            <p className="level-panel__instructions">{t('level.instructions')}</p>
+          ) : (
+            <p className="level-panel__hint">{levelHintText(levelHint(status), t)}</p>
+          )}
+          <p className="level-panel__frame">{t('level.feetFrame')}</p>
         </div>
       </div>
     </div>

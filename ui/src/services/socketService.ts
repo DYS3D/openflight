@@ -288,6 +288,11 @@ class SocketService {
     this.socket?.emit('remove_profile', { profile_id: profileId });
   }
 
+  /** Ask for every level reading (not just level/not-level changes) while the Level screen is open. */
+  watchLevel(watching: boolean) {
+    this.socket?.emit('watch_level', { watching });
+  }
+
   uploadCloud() {
     useSystemStore.getState().setCloudUploadStatus('running', 'Uploading...');
     this.socket?.emit('upload_cloud');

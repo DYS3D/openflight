@@ -54,8 +54,35 @@ describe('LevelPanel', () => {
     expect(bubble).not.toBeNull();
     const cx = Number(bubble?.[1]);
     const cy = Number(bubble?.[2]);
-    expect(cx).toBeLessThan(100);
+    // Front high and left side low: the bubble floats forward (up) and right.
+    expect(cx).toBeGreaterThan(100);
     expect(cy).toBeLessThan(100);
     expect(Math.hypot(cx - 100, cy - 100)).toBeLessThanOrEqual(90 - 14 + 0.01);
+  });
+});
+
+describe('levelHint', () => {
+  it('names the lowest corner foot when both axes are off', async () => {
+    const { levelHint } = await import('../../utils/bubbleLevel');
+
+    // Front high, left low: the back-left corner is lowest.
+    expect(levelHint(tilted)).toBe('level.raiseBackLeft');
+    expect(levelHint({ ...tilted, pitch_deg: -2, roll_deg: 1.2 })).toBe('level.raiseFrontRight');
+  });
+
+  it('names both feet on the low side when one axis is off', async () => {
+    const { levelHint } = await import('../../utils/bubbleLevel');
+
+    expect(levelHint({ ...tilted, roll_deg: 0.1 })).toBe('level.raiseBack');
+    expect(levelHint({ ...tilted, pitch_deg: 0, roll_deg: 1.5 })).toBe('level.raiseRight');
+    expect(levelHint(level)).toBeNull();
+  });
+
+  it('tells you which foot to raise when not level', () => {
+    const html = text(renderToString(<LevelPanel status={tilted} />));
+
+    expect(html).toContain('Raise the back-left foot');
+    expect(html).toContain('Front faces the target');
+    expect(text(renderToString(<LevelPanel status={level} />))).not.toContain('level-panel__hint"');
   });
 });

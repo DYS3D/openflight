@@ -186,6 +186,10 @@
   list-style: none;
 }
 
+.practice__strip--combine {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+}
+
 .practice__cell {
   display: flex;
   align-items: center;

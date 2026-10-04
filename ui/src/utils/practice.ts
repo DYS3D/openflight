@@ -1,8 +1,11 @@
 import { convertDistanceFromYards, convertDistanceToYards, type UnitSystem } from './units';
 
-export type PracticeMode = 'target' | 'ladder';
+export type PracticeMode = 'target' | 'ladder' | 'combine';
 
 export const ROUND_SHOTS = 10;
+/** Combine: this many distances spread from min to max target, each hit COMBINE_REPEATS times. */
+export const COMBINE_TARGETS = 9;
+export const COMBINE_REPEATS = 3;
 export const MAX_POINTS = 5;
 export const LADDER_STEP = 10;
 /** A hit (carry within 10% of the target) moves the ladder up. */
@@ -57,10 +60,34 @@ export function randomTarget(seed: number, index: number, min: number, max: numb
   return min + Math.floor(seededUnit(seed, index) * (max - min + 1));
 }
 
+/** Shots in one round: ten, or every combine distance COMBINE_REPEATS times. */
+export function roundShots(config: PracticeConfig): number {
+  return config.mode === 'combine' ? COMBINE_TARGETS * COMBINE_REPEATS : ROUND_SHOTS;
+}
+
+/** The combine's distances: evenly spaced whole numbers from min to max target. */
+export function combineTargets(config: PracticeConfig): number[] {
+  const span = config.maxTarget - config.minTarget;
+  return Array.from({ length: COMBINE_TARGETS }, (_, index) =>
+    Math.round(config.minTarget + (span * index) / (COMBINE_TARGETS - 1))
+  );
+}
+
+/** Each pass plays every combine distance once, shuffled from the round's seed. */
+function combineTarget(config: PracticeConfig, index: number): number {
+  const pass = Math.floor(index / COMBINE_TARGETS);
+  const order = combineTargets(config);
+  for (let i = order.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(seededUnit(config.seed, pass * COMBINE_TARGETS + i) * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order[index % COMBINE_TARGETS];
+}
+
 function targetFor(config: PracticeConfig, index: number, hits: number): number {
-  return config.mode === 'ladder'
-    ? config.ladderStart + LADDER_STEP * hits
-    : randomTarget(config.seed, index, config.minTarget, config.maxTarget);
+  if (config.mode === 'ladder') return config.ladderStart + LADDER_STEP * hits;
+  if (config.mode === 'combine') return combineTarget(config, index);
+  return randomTarget(config.seed, index, config.minTarget, config.maxTarget);
 }
 
 export interface PracticeAttempt {
@@ -79,12 +106,17 @@ export interface PracticeRound {
   averagePoints: number | null;
   hits: number;
   complete: boolean;
+  /** Shots this round takes. */
+  shots: number;
+  /** Points as a share of the maximum, 0-100 (the combine's headline score). */
+  score: number;
 }
 
 export function playRound(config: PracticeConfig, carriesYards: readonly number[]): PracticeRound {
   const attempts: PracticeAttempt[] = [];
+  const shots = roundShots(config);
   let hits = 0;
-  for (const [index, carry] of carriesYards.slice(0, ROUND_SHOTS).entries()) {
+  for (const [index, carry] of carriesYards.slice(0, shots).entries()) {
     const target = targetFor(config, index, hits);
     const targetYards = convertDistanceToYards(target, config.unitSystem);
     const points = scoreShot(carry, targetYards);
@@ -100,7 +132,7 @@ export function playRound(config: PracticeConfig, carriesYards: readonly number[
     });
   }
   const totalPoints = attempts.reduce((sum, attempt) => sum + attempt.points, 0);
-  const complete = attempts.length >= ROUND_SHOTS;
+  const complete = attempts.length >= shots;
   return {
     attempts,
     nextTarget: complete ? null : targetFor(config, attempts.length, hits),
@@ -108,6 +140,8 @@ export function playRound(config: PracticeConfig, carriesYards: readonly number[
     averagePoints: attempts.length > 0 ? totalPoints / attempts.length : null,
     hits,
     complete,
+    shots,
+    score: Math.round((totalPoints / (shots * MAX_POINTS)) * 100),
   };
 }
 

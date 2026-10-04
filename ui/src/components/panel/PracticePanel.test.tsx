@@ -93,6 +93,28 @@ describe('PracticeBoard', () => {
     expect(html).not.toContain('aria-label="Min"');
   });
 
+  it('plays the combine: min/max controls, 27 cells and a score out of 100 at the end', () => {
+    const live = renderBoard([], { mode: 'combine', minTarget: 60, maxTarget: 180 });
+    expect(live).toContain('aria-pressed="true">Combine<');
+    expect(live).toContain('aria-label="Min"');
+    expect(live).toContain('9 distances from Min to Max, 3 shots each, random order');
+    expect(live.match(/class="practice__cell/g)).toHaveLength(9);
+    expect(live).toContain('1 / 3');
+
+    const secondPass = renderBoard(
+      Array.from({ length: 10 }, () => 100),
+      { mode: 'combine', minTarget: 60, maxTarget: 180 }
+    );
+    expect(secondPass).toContain('2 / 3');
+
+    const done = renderBoard(
+      Array.from({ length: 27 }, () => 1),
+      { mode: 'combine', minTarget: 60, maxTarget: 180 }
+    );
+    expect(done).toContain('Combine score');
+    expect(done).toContain('practice__big">0<span class="practice__unit">/ 100</span>');
+  });
+
   it('follows the metric unit preference', () => {
     const html = renderBoard([], { unitSystem: 'metric', mode: 'ladder', ladderStart: 60 });
 

@@ -6,6 +6,7 @@ import {
   playRound,
   randomTarget,
   ROUND_SHOTS,
+  combineTargets,
   scoreShot,
   stepSetting,
   type PracticeConfig,
@@ -145,5 +146,48 @@ describe('practice settings', () => {
       minTarget: 290,
       maxTarget: 300,
     });
+  });
+});
+
+describe('combine', () => {
+  const combine: PracticeConfig = {
+    ...defaultPracticeConfig('imperial', 11),
+    mode: 'combine',
+    minTarget: 60,
+    maxTarget: 180,
+  };
+
+  it('spreads nine distances evenly from min to max', () => {
+    expect(combineTargets(combine)).toEqual([60, 75, 90, 105, 120, 135, 150, 165, 180]);
+  });
+
+  it('plays every distance once per pass, three passes, in a seeded random order', () => {
+    const carries = Array.from({ length: 40 }, () => 100);
+    const round = playRound(combine, carries);
+    expect(round.shots).toBe(27);
+    expect(round.attempts).toHaveLength(27);
+    expect(round.complete).toBe(true);
+    for (let pass = 0; pass < 3; pass += 1) {
+      const targets = round.attempts.slice(pass * 9, pass * 9 + 9).map((attempt) => attempt.target);
+      expect([...targets].sort((a, b) => a - b)).toEqual(combineTargets(combine));
+    }
+    expect(playRound(combine, carries).attempts.map((a) => a.target)).toEqual(round.attempts.map((a) => a.target));
+  });
+
+  it('scores out of 100', () => {
+    const perfect = playRound(combine, []);
+    const targets: number[] = [];
+    let round = perfect;
+    while (!round.complete) {
+      targets.push(round.nextTarget!);
+      round = playRound(combine, targets);
+    }
+    expect(round.score).toBe(100);
+    expect(
+      playRound(
+        combine,
+        Array.from({ length: 27 }, () => 1)
+      ).score
+    ).toBe(0);
   });
 });

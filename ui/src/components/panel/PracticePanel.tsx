@@ -3,12 +3,13 @@ import type { Shot } from '../../types/shot';
 import { filterShotsByProfile } from '../../types/shot';
 import { ballShots, carryYards } from '../../utils/shotAnalysis';
 import {
+  COMBINE_REPEATS,
+  COMBINE_TARGETS,
   convertPracticeConfig,
   defaultPracticeConfig,
   LADDER_STEP,
   MAX_POINTS,
   playRound,
-  ROUND_SHOTS,
   stepSetting,
   type PracticeConfig,
   type PracticeMode,
@@ -146,9 +147,15 @@ export function PracticeBoard({
       <span className="practice__stat-value">{value}</span>
     </div>
   );
+  // The combine strip shows one pass (every distance once) at a time.
+  const stripSize = config.mode === 'combine' ? COMBINE_TARGETS : round.shots;
+  const pass = Math.min(Math.floor(round.attempts.length / stripSize), round.shots / stripSize - 1);
+  const stripStart = pass * stripSize;
   const totals = [
     stat('total', t('practice.total'), `${round.totalPoints}`),
-    stat('shots', t('practice.shots'), `${round.attempts.length} / ${ROUND_SHOTS}`),
+    config.mode === 'combine'
+      ? stat('pass', t('practice.pass'), `${pass + 1} / ${COMBINE_REPEATS}`)
+      : stat('shots', t('practice.shots'), `${round.attempts.length} / ${round.shots}`),
     stat('average', t('metric.average'), round.averagePoints === null ? '—' : round.averagePoints.toFixed(1)),
   ];
 
@@ -168,11 +175,12 @@ export function PracticeBoard({
               options={[
                 { id: 'target', label: t('practice.modeTarget') },
                 { id: 'ladder', label: t('practice.modeLadder') },
+                { id: 'combine', label: t('practice.modeCombine') },
               ]}
               onChange={(mode) => onChangeConfig({ ...config, mode })}
             />
           </div>
-          {config.mode === 'target' ? (
+          {config.mode !== 'ladder' ? (
             <>
               {stepper('minTarget', t('practice.shortest'))}
               {stepper('maxTarget', t('practice.longest'))}
@@ -183,23 +191,27 @@ export function PracticeBoard({
           <span className="practice__hint">
             {config.mode === 'target'
               ? t('practice.targetHint')
-              : t('practice.ladderHint', { step: LADDER_STEP, unit })}
+              : config.mode === 'combine'
+                ? t('practice.combineHint', { targets: COMBINE_TARGETS, repeats: COMBINE_REPEATS })
+                : t('practice.ladderHint', { step: LADDER_STEP, unit })}
           </span>
         </div>
 
         {round.complete ? (
           <div className="practice__play practice__play--summary" aria-live="polite">
             <div className="practice__card">
-              <span className="practice__label">{t('practice.roundComplete')}</span>
+              <span className="practice__label">
+                {config.mode === 'combine' ? t('practice.combineScore') : t('practice.roundComplete')}
+              </span>
               <span className="practice__big">
-                {round.totalPoints}
-                <span className="practice__unit">/ {ROUND_SHOTS * MAX_POINTS}</span>
+                {config.mode === 'combine' ? round.score : round.totalPoints}
+                <span className="practice__unit">/ {config.mode === 'combine' ? 100 : round.shots * MAX_POINTS}</span>
               </span>
               <PanelAction onClick={onNewRound}>{t('practice.playAgain')}</PanelAction>
             </div>
             <div className="practice__totals">
               {stat('average', t('metric.average'), (round.averagePoints ?? 0).toFixed(1))}
-              {stat('hits', t('practice.hits'), `${round.hits} / ${ROUND_SHOTS}`)}
+              {stat('hits', t('practice.hits'), `${round.hits} / ${round.shots}`)}
               {stat(
                 'best',
                 t('practice.closest'),
@@ -237,8 +249,12 @@ export function PracticeBoard({
           </div>
         )}
 
-        <ol className="practice__strip" aria-label={t('practice.historyAria')}>
-          {Array.from({ length: ROUND_SHOTS }, (_, index) => {
+        <ol
+          className={`practice__strip${config.mode === 'combine' ? ' practice__strip--combine' : ''}`}
+          aria-label={t('practice.historyAria')}
+        >
+          {Array.from({ length: stripSize }, (_, offset) => {
+            const index = stripStart + offset;
             const attempt = round.attempts[index];
             const current = !round.complete && index === round.attempts.length;
             return (

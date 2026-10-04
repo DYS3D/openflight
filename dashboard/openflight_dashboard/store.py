@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS archived_sessions (
     folder TEXT NOT NULL,
     archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS hidden_sessions (
+    id TEXT PRIMARY KEY,
+    hidden_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS sync_state (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -73,6 +77,15 @@ class Store:
     def ingest(self, name: str, text: str, size: int, mtime: float) -> int:
         """Replace one session with the log's current contents; returns its shot count."""
         session = parse_session_log(name, text)
+        if self.query("SELECT 1 FROM hidden_sessions WHERE id = ?", (session.session_id,)):
+            # Hidden sessions stay out of the dashboard; remember the file so
+            # it is not fetched again.
+            with self._lock, self._conn:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO log_files (name, size, mtime) VALUES (?, ?, ?)",
+                    (name, size, mtime),
+                )
+            return 0
         placeholders = ", ".join("?" for _ in SHOT_COLUMNS)
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM sessions WHERE id = ?", (session.session_id,))
@@ -90,6 +103,21 @@ class Store:
                 (name, size, mtime),
             )
         return len(session.shots)
+
+    def session_ids(self) -> list[str]:
+        """Visible sessions, newest first."""
+        rows = self.query("SELECT id FROM sessions ORDER BY started_at DESC, id DESC")
+        return [row["id"] for row in rows]
+
+    def hide(self, session_ids: list[str]) -> int:
+        """Take sessions off the dashboard for good. Raw files on disk are kept."""
+        with self._lock, self._conn:
+            for session_id in session_ids:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO hidden_sessions (id) VALUES (?)", (session_id,)
+                )
+                self._conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        return len(session_ids)
 
     def mark_archived(self, name: str, folder: str) -> None:
         with self._lock, self._conn:

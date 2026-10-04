@@ -945,3 +945,16 @@ a.record__date:hover {
   font-size: 12px;
   color: var(--text-faint);
 }
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.button--quiet {
+  border-color: var(--hairline-strong);
+  color: var(--text-muted);
+}

@@ -69,6 +69,13 @@ def create_app(store: Store, sync: SyncLoop | None, pi_url: str | None) -> Flask
             abort(404)
         return jsonify(result)
 
+    @app.post("/api/sessions/<session_id>/hide")
+    def hide_session(session_id: str):
+        if session_id not in store.session_ids():
+            abort(404)
+        store.hide([session_id])
+        return jsonify({"hidden": session_id})
+
     @app.get("/api/trends")
     def trends():
         return jsonify(stats.trends(store, profile()))

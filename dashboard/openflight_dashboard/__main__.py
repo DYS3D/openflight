@@ -56,6 +56,17 @@ def _parser() -> argparse.ArgumentParser:
         help="Where offloaded sessions are kept (default: <data-dir>/raw); may be a NAS share",
     )
     commands = parser.add_subparsers(dest="command")
+    hider = commands.add_parser(
+        "hide",
+        help="Take sessions off the dashboard (their raw files stay in the raw folder)",
+    )
+    hider.add_argument(
+        "sessions", nargs="*", help="Session ids, e.g. session_20261004_085833_range"
+    )
+    hider.add_argument("--all", action="store_true", help="Hide every session")
+    hider.add_argument(
+        "--keep-latest", action="store_true", help="Hide every session except the newest"
+    )
     importer = commands.add_parser("import", help="Load session_*.jsonl files copied by hand")
     importer.add_argument("files", nargs="+", type=Path)
     return parser
@@ -65,6 +76,20 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = _parser().parse_args(argv)
     store = Store(Path(args.data_dir) / "openflight.sqlite3")
+
+    if args.command == "hide":
+        visible = store.session_ids()
+        if args.all:
+            chosen = visible
+        elif args.keep_latest:
+            chosen = visible[1:]
+        else:
+            chosen = args.sessions
+        store.hide(chosen)
+        print(
+            f"Hid {len(chosen)} session(s); {len(visible) - len(set(chosen) & set(visible))} left"
+        )
+        return
 
     if args.command == "import":
         for path in args.files:

@@ -353,3 +353,39 @@ def test_capture_paths_cannot_escape_the_session_folder():
     for bad in ("../x", "/etc/passwd", "a/../../b", ""):
         with pytest.raises(ValueError):
             _safe_relative(bad)
+
+
+def test_hidden_sessions_leave_the_dashboard_and_stay_out(store):
+    other = "session_20261004_101500_range.jsonl"
+    store.ingest(NAME, log_text(shot("t1")), 1, 1.0)
+    store.ingest(other, log_text(shot("t2")), 1, 1.0)
+
+    store.hide(["session_20261003_190737_range"])
+    # A later sync or the archive copy must not bring it back.
+    assert store.ingest(NAME, log_text(shot("t1"), shot("t3")), 2, 2.0) == 0
+
+    assert store.session_ids() == ["session_20261004_101500_range"]
+    assert stats.summary(store)["shots"] == 1
+    assert store.known_file(NAME) == (2, 2.0)
+
+
+def test_hide_cli_keeps_only_the_newest_session(tmp_path):
+    from openflight_dashboard.__main__ import main
+
+    data = tmp_path / "data"
+    store = Store(data / "openflight.sqlite3")
+    store.ingest(NAME, log_text(shot("t1")), 1, 1.0)
+    store.ingest("session_20261004_101500_range.jsonl", log_text(shot("t2")), 1, 1.0)
+
+    main(["--data-dir", str(data), "hide", "--keep-latest"])
+
+    assert Store(data / "openflight.sqlite3").session_ids() == ["session_20261004_101500_range"]
+
+
+def test_hide_api_removes_a_session(store):
+    store.ingest(NAME, log_text(shot("t1")), 1, 1.0)
+    client = create_app(store, None, None).test_client()
+
+    assert client.post("/api/sessions/session_20261003_190737_range/hide").status_code == 200
+    assert client.get("/api/sessions").get_json() == []
+    assert client.post("/api/sessions/session_20261003_190737_range/hide").status_code == 404

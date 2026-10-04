@@ -466,7 +466,24 @@ async function sessionPage(sessionId) {
   return [
     el('a', { class: 'back', href: '#/sessions' }, '← All sessions'),
     el('h1', {}, fmtDate(session.started_at, true)),
-    el('p', { class: 'lede' }, `${shots.length} shots`),
+    el(
+      'div',
+      { class: 'session-actions' },
+      el('p', { class: 'lede' }, `${shots.length} shots`),
+      el(
+        'button',
+        {
+          type: 'button',
+          class: 'button button--quiet',
+          onclick: async () => {
+            if (!window.confirm('Remove this session from the dashboard? Its raw files stay archived.')) return;
+            const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/hide`, { method: 'POST' });
+            if (response.ok) window.location.hash = '#/sessions';
+          },
+        },
+        'Remove from dashboard',
+      ),
+    ),
     el(
       'div',
       { class: 'tiles' },

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Starting OpenFlight</title>
+    <title>Starting Copperline</title>
     <style>
       :root {
         color-scheme: dark;
@@ -305,8 +305,8 @@
   </head>
   <body>
     <main aria-live="polite">
-      <img class="logo" src="openflightlogo.svg" alt="OpenFlight" />
-      <h1 id="heading">Starting OpenFlight</h1>
+      <img class="logo" src="openflightlogo.svg" alt="Copperline" />
+      <h1 id="heading">Starting Copperline</h1>
       <p class="message" id="message">Preparing software and connecting hardware…</p>
       <ul class="components" id="components" aria-label="Startup progress"></ul>
       <section class="error-details" id="error-details" hidden>
@@ -371,7 +371,7 @@
         if (status.overall === 'error') {
           startupFailed = true;
           document.body.classList.add('failed');
-          heading.textContent = 'OpenFlight couldn’t start';
+          heading.textContent = 'Copperline couldn’t start';
           recovery.textContent = status.error?.recovery || 'Check the connected hardware.';
           logPath.textContent = status.error?.log_path || 'Terminal logs';
           errorDetails.hidden = false;

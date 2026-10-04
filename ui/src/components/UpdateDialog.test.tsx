@@ -51,7 +51,7 @@ describe('UpdateDialog', () => {
 
   it('shows progress with the translated step and no buttons', () => {
     const html = render({ ...available, state: 'updating', step: 'Building the interface' });
-    expect(html).toContain('Updating OpenFlight…');
+    expect(html).toContain('Updating Copperline…');
     expect(html).toContain('Building the interface');
     expect(html).not.toContain('<button');
   });
@@ -59,7 +59,7 @@ describe('UpdateDialog', () => {
   it('explains the restart for systemd and manual launches', () => {
     expect(render({ ...available, state: 'restarting' })).toContain('comes back by itself');
     expect(render({ ...available, state: 'restarting', restart: 'manual' })).toContain(
-      'Relaunch OpenFlight from the desktop'
+      'Relaunch Copperline from the desktop'
     );
   });
 
@@ -73,6 +73,6 @@ describe('UpdateDialog', () => {
   });
 
   it('says up to date when there is nothing to install', () => {
-    expect(render({ ...available, state: 'up_to_date' })).toContain('OpenFlight is up to date.');
+    expect(render({ ...available, state: 'up_to_date' })).toContain('Copperline is up to date.');
   });
 });

@@ -159,14 +159,14 @@ def test_startup_splash_status_and_failure_contract():
     assert '--startup-status-file "$STARTUP_STATUS_FILE"' in script
     assert 'startup_status ready "$STARTUP_STATUS_FILE"' in script
     assert 'while [ ! -f "$STARTUP_DISMISS_FILE" ]' in script
-    assert '"OpenFlight preparation failed"' in script
+    assert '"Copperline preparation failed"' in script
 
 
 def test_startup_splash_asset_has_branding_redirect_and_failure_ui():
     splash = (REPO_ROOT / "ui/public/startup-splash.html").read_text(encoding="utf-8")
 
     assert "openflightlogo.svg" in splash
-    assert "Starting OpenFlight" in splash
+    assert "Starting Copperline" in splash
     assert "window.location.replace(targetUrl)" in splash
     assert "fetch('status.json'" in splash
     assert "status.version !== 1" in splash
@@ -297,7 +297,7 @@ def test_launcher_reports_distinct_failures_and_waits_for_dismissal():
     ensure_ui = (REPO_ROOT / "scripts/ensure-kiosk-ui.sh").read_text(encoding="utf-8")
 
     assert "show_startup_failure()" in script
-    assert '"OpenFlight preparation failed"' in script
+    assert '"Copperline preparation failed"' in script
     assert '"server"' in script
     assert 'while [ ! -f "$STARTUP_DISMISS_FILE" ]' in script
     assert 'uv sync "${UV_SYNC_ARGS[@]}"' in script
@@ -1055,5 +1055,5 @@ def test_kiosk_relaunches_stop_at_the_cap(tmp_path):
 
 def test_launcher_supervises_the_kiosk_before_waiting_on_the_server():
     script = _script()
-    tail = script[script.index('log "OpenFlight is running. Press Ctrl+C to stop."') :]
+    tail = script[script.index('log "Copperline is running. Press Ctrl+C to stop."') :]
     assert tail.index("supervise_kiosk") < tail.index('wait "$SERVER_PID"')

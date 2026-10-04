@@ -43,7 +43,7 @@ describe('DisplayMode', () => {
       <DisplayMode connected captureSettings={captureSettings} latestShot={shot} shots={[shot]} />
     );
 
-    expect(html).toContain('OpenFlight Display');
+    expect(html).toContain('Copperline Display');
     expect(html).toContain('151.2');
     expect(html).toContain('261');
     expect(html).toContain('Socket connected');

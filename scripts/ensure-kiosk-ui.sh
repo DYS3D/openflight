@@ -14,8 +14,8 @@ _ensure_kiosk_ui_build() {
     if ! (cd "$PROJECT_DIR/ui" && npm install && npm run build); then
         show_startup_failure \
             "server" \
-            "OpenFlight interface build failed" \
-            "Check the terminal log or network connection, then relaunch OpenFlight."
+            "Copperline interface build failed" \
+            "Check the terminal log or network connection, then relaunch Copperline."
     fi
 }
 

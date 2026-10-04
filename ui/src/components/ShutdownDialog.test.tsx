@@ -8,11 +8,11 @@ describe('ShutdownDialog', () => {
   it('replaces the confirmation controls with persistent shutdown feedback', () => {
     const html = renderToString(<ShutdownDialog state="pending" onConfirm={noop} onCancel={noop} />);
 
-    expect(html).toContain('Shutting down OpenFlight…');
+    expect(html).toContain('Shutting down Copperline…');
     expect(html).toContain('Safely stopping radar services');
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
-    expect(html).toContain('aria-label="Shutting down OpenFlight"');
+    expect(html).toContain('aria-label="Shutting down Copperline"');
     expect(html).not.toContain('>Shut Down</button>');
     expect(html).not.toContain('>Cancel</button>');
   });

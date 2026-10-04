@@ -6352,10 +6352,6 @@ def main():
         set_spin_profile(load_spin_profile(args.spin_profile) if args.spin_profile else {})
     except ValueError as exc:
         parser.error(str(exc))
-    if club_speed_scale != 1.0:
-        logger.info("Club speed scale: x%.3f", club_speed_scale)
-    if args.spin_profile:
-        logger.info("Personal spin profile: %s", args.spin_profile)
     global camera_strobe_spin_enabled
     camera_strobe_spin_enabled = args.camera_strobe_spin
     global spin_axis_model
@@ -6422,6 +6418,10 @@ def main():
     logging.getLogger("openflight.rolling_buffer").setLevel(logging.INFO)
     logging.getLogger("openflight.rolling_buffer.trigger").setLevel(logging.INFO)
     logging.getLogger("openflight.rolling_buffer.monitor").setLevel(logging.INFO)
+    if club_speed_scale != 1.0:
+        logger.info("Club speed scale: x%.3f", club_speed_scale)
+    if args.spin_profile:
+        logger.info("Personal spin profile: %s", args.spin_profile)
 
     logger.info("OpenFlight UI Server %s", __version__)
 

@@ -56,6 +56,33 @@ def test_compact_capture_ignores_saturated_clutter_above_hitting_zone():
     assert 10.0 <= ball.diameter_px <= 18.0
 
 
+def _indoor_capture_with_struck_ball(impact_frame: int = 43) -> np.ndarray:
+    """Dim 640x400 mat scene: bright teed ball that leaves, static clutter that stays."""
+    frames = np.full((60, 400, 640), 55, dtype=np.uint8)
+    yy, xx = np.indices(frames.shape[1:])
+    frames[:, 205:228, 290:345] = 30  # Dark gap behind the mat, just above the ball.
+    frames[:, 120:200, 420:480] = 25  # Ball rack: a dark shelf holding a spare ball.
+    frames[:, (xx - 447) ** 2 + (yy - 161) ** 2 <= 6**2] = 190
+    frames[: impact_frame + 1, (xx - 316) ** 2 + (yy - 231) ** 2 <= 7**2] = 235
+    return frames
+
+
+def test_detect_reference_ball_picks_the_bright_ball_that_was_struck():
+    ball = detect_reference_ball(_indoor_capture_with_struck_ball())
+
+    assert ball.x == pytest.approx(316.0, abs=1.0)
+    assert ball.y == pytest.approx(231.0, abs=1.0)
+    assert ball.diameter_px == pytest.approx(14.0, abs=2.0)
+
+
+def test_detect_reference_ball_honours_roi_for_a_struck_ball():
+    frames = _indoor_capture_with_struck_ball()
+
+    ball = detect_reference_ball(frames, roi=(400, 100, 500, 220))
+
+    assert ball.x > 400.0
+
+
 def test_image_plane_motion_uses_terminal_interval_and_ball_scale():
     points = [
         ImagePoint(frame_index=4, x=10.0, y=20.0),

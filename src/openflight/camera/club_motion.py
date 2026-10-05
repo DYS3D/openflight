@@ -15,6 +15,8 @@ import numpy as np
 from scipy import ndimage
 
 BALL_DIAMETER_MM = 42.67
+STRUCK_BALL_MIN_FRAMES = 30
+STRUCK_BALL_MIN_DROP = 40.0
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,45 @@ class ShaftTrack:
     reason: str
 
 
+def _struck_bright_ball(
+    frames: np.ndarray,
+    background: np.ndarray,
+    bounds: tuple[int, int, int, int],
+) -> ReferenceBall | None:
+    """Find a bright, round blob that is gone by the end of the capture."""
+    if frames.shape[0] < STRUCK_BALL_MIN_FRAMES:
+        return None
+    x0, y0, x1, y1 = bounds
+    drop = np.zeros_like(background, dtype=float)
+    drop[y0:y1, x0:x1] = (background - np.median(frames[-5:], axis=0))[y0:y1, x0:x1]
+    labels, count = ndimage.label(drop >= STRUCK_BALL_MIN_DROP)
+    center = np.asarray((background.shape[1] / 2, background.shape[0] / 2))
+    found: list[tuple[float, ReferenceBall]] = []
+    for label in range(1, count + 1):
+        ys, xs = np.where(labels == label)
+        area = len(xs)
+        if not 20 <= area <= 600:
+            continue
+        blob_width = int(np.ptp(xs)) + 1
+        blob_height = int(np.ptp(ys)) + 1
+        if not 0.55 <= blob_width / blob_height <= 1.8:
+            continue
+        if area / (blob_width * blob_height) < 0.45:
+            continue
+        # A top-lit ball loses its shaded underside to the mat, so its widest
+        # extent is a truer diameter than its lit area.
+        ball = ReferenceBall(
+            x=float(xs.mean()),
+            y=float(ys.mean()),
+            diameter_px=float(max(blob_width, blob_height)),
+            area_px=area,
+        )
+        found.append((float(np.hypot(ball.x - center[0], ball.y - center[1])), ball))
+    if not found:
+        return None
+    return min(found, key=lambda item: item[0])[1]
+
+
 def detect_reference_ball(
     frames: np.ndarray,
     *,
@@ -72,6 +113,12 @@ def detect_reference_ball(
     x0, y0, x1, y1 = roi or (0, 0, width, height)
     if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
         raise ValueError("ball ROI is outside the image")
+
+    # A ball that left its spot is stronger evidence than any static blob:
+    # racks, mat edges and shadows look ball-like but never move.
+    struck = _struck_bright_ball(frames, background, (x0, y0, x1, y1))
+    if struck is not None:
+        return struck
 
     image_center = np.asarray((width / 2, height / 2))
 

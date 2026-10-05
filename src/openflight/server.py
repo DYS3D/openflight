@@ -4853,6 +4853,7 @@ def start_monitor(
     spin_octave_prior: str = "optimal",
     cap_spin_prior: bool = False,
     ball_speed_magnitude_gate: bool = False,
+    spin_harmonic_fit: bool = False,
     interference_check: bool = False,
     radar_profile: str = DEFAULT_RADAR_PROFILE,
     fast_dsp: bool = False,
@@ -4872,6 +4873,7 @@ def start_monitor(
         spin_octave_prior: Octave check prior ("optimal" or "range")
         cap_spin_prior: Clamp the spin prior to the club max and detector ceiling
         ball_speed_magnitude_gate: Skip weak ball-speed bins (clipping aliases)
+        spin_harmonic_fit: Harmonic-series spin estimator for marker-pattern balls
         interference_check: Track the OPS243 noise floor and emit radar_health
         radar_profile: OPS243 rolling-buffer profile (standard or low-latency);
             low-latency overrides sample_rate_ksps and the pre-trigger split
@@ -4921,6 +4923,7 @@ def start_monitor(
             spin_octave_prior=spin_octave_prior,
             cap_spin_prior=cap_spin_prior,
             ball_speed_magnitude_gate=ball_speed_magnitude_gate,
+            spin_harmonic_fit=spin_harmonic_fit,
             interference_check=interference_check,
             scale_speed_band=profile.scale_speed_band,
             fast_dsp=fast_dsp,
@@ -6193,6 +6196,15 @@ def main():
         ),
     )
     parser.add_argument(
+        "--spin-harmonic-fit",
+        action="store_true",
+        help=(
+            "Estimate radar spin by fitting a harmonic series to the ball envelope, for a "
+            "marker-pattern ball (Titleist RCT) whose strongest line is often 2x or 3x "
+            "spin. Off by default"
+        ),
+    )
+    parser.add_argument(
         "--spin-axis-model",
         choices=SPIN_AXIS_MODELS,
         default="legacy",
@@ -6412,6 +6424,7 @@ def main():
         "octave_prior": args.spin_octave_prior,
         "cap_prior": args.cap_spin_prior,
         "ball_speed_magnitude_gate": args.ball_speed_magnitude_gate,
+        "harmonic_fit": args.spin_harmonic_fit,
     }
     ballistics_enabled = args.ballistics
     battery_provider = args.battery
@@ -6733,6 +6746,7 @@ def main():
             spin_octave_prior=args.spin_octave_prior,
             cap_spin_prior=args.cap_spin_prior,
             ball_speed_magnitude_gate=args.ball_speed_magnitude_gate,
+            spin_harmonic_fit=args.spin_harmonic_fit,
             interference_check=args.interference_check,
             radar_profile=args.radar_profile,
             fast_dsp=args.fast_dsp,

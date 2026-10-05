@@ -645,6 +645,7 @@ class TestServerSpinOptions:
             "octave_prior": prior,
             "cap_prior": False,
             "ball_speed_magnitude_gate": False,
+            "harmonic_fit": False,
         }
 
     @pytest.mark.parametrize("flags_on", [False, True])
@@ -656,6 +657,12 @@ class TestServerSpinOptions:
         spin = server_module._session_start_config()["spin"]
         assert spin["cap_prior"] is flags_on
         assert spin["ball_speed_magnitude_gate"] is flags_on
+
+    @pytest.mark.parametrize("flag_on", [False, True])
+    def test_harmonic_fit_flag_reaches_the_monitor(self, monkeypatch, flag_on):
+        received = self._run_main(monkeypatch, ["--spin-harmonic-fit"] if flag_on else [])
+        assert received["spin_harmonic_fit"] is flag_on
+        assert server_module._session_start_config()["spin"]["harmonic_fit"] is flag_on
 
     def test_unknown_spin_octave_prior_is_a_usage_error(self, monkeypatch):
         with pytest.raises(SystemExit):

@@ -395,6 +395,7 @@ class TestRadarProfileWiring:
             "spin_octave_prior": "optimal",
             "cap_spin_prior": False,
             "ball_speed_magnitude_gate": False,
+            "spin_harmonic_fit": False,
             "interference_check": False,
             "scale_speed_band": False,
             "fast_dsp": False,

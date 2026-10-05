@@ -205,6 +205,7 @@ class RollingBufferMonitor:
         fast_dsp: bool = False,
         cap_spin_prior: bool = False,
         ball_speed_magnitude_gate: bool = False,
+        spin_harmonic_fit: bool = False,
         runtime_rolling_buffer: bool = False,
         **trigger_kwargs,
     ):
@@ -247,6 +248,8 @@ class RollingBufferMonitor:
                 and the detector ceiling; see RollingBufferProcessor.
             ball_speed_magnitude_gate: Skip weak ball-speed bins (e.g.
                 clipping aliases); see RollingBufferProcessor.
+            spin_harmonic_fit: Harmonic-series spin estimator for marker-pattern
+                (RCT) balls; see RollingBufferProcessor.
             runtime_rolling_buffer: Enter rolling-buffer mode at connect
                 (GC/S#/PA) instead of relying on the flash-persisted mode.
                 For --ops-software-trigger, where captures are started by
@@ -265,6 +268,7 @@ class RollingBufferMonitor:
             fast_dsp=fast_dsp,
             cap_spin_prior=cap_spin_prior,
             ball_speed_magnitude_gate=ball_speed_magnitude_gate,
+            spin_harmonic_fit=spin_harmonic_fit,
         )
         self.trigger_type = trigger_type
         self.sample_rate_ksps = sample_rate_ksps

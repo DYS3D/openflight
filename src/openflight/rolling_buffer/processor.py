@@ -16,6 +16,7 @@ from numpy.lib.stride_tricks import sliding_window_view
 from ..clubs import ClubType
 from ..clubs.physics import get_plausible_spin_rpm
 from ..launch_monitor import SPIN_CONFIDENCE_HIGH
+from .harmonic import estimate_harmonic_spin
 from .multitaper import MultitaperEstimate, estimate_multitaper_spin, repair_clipped_iq
 from .types import (
     BALL_MARKERS,
@@ -180,6 +181,11 @@ class RollingBufferProcessor:
     SPIN_OCTAVE_LOW_RATIO = (0.43, 0.6)  # Pick/prior ratio read as a 0.5x error
     SPIN_OCTAVE_RANGE_MIN_RELATIVE_MAG = 0.8  # Range prior: alternate vs pick magnitude
     SPIN_OCTAVE_CORRECTED_MAX_CONFIDENCE = 0.5  # Range prior: cap for a moved pick
+    # Harmonic fit (adjusted R^2) needed to report spin, and to call it high.
+    # On RCT captures scored against SkyTrak, picks within 15% fitted
+    # 0.54-0.93 and wrong picks from topped or twin-peak shots 0.15-0.41.
+    HARMONIC_FIT_MIN = 0.5
+    HARMONIC_FIT_HIGH = 0.75
 
     BALL_SPEED_MATCH_TOLERANCE_MPH = 3.0
     IMPACT_TRANSITION_MIN_DELTA_MPH = 15.0
@@ -195,6 +201,7 @@ class RollingBufferProcessor:
         spin_octave_prior: str = "optimal",
         cap_spin_prior: bool = False,
         ball_speed_magnitude_gate: bool = False,
+        spin_harmonic_fit: bool = False,
     ):
         """Initialize processor with pre-computed window function.
 
@@ -231,6 +238,9 @@ class RollingBufferProcessor:
             ball_speed_magnitude_gate: Ignore ball-speed bins whose strongest
                 reading is below BALL_SPEED_MIN_RELATIVE_MAGNITUDE of the
                 strongest outbound reading. Off by default.
+            spin_harmonic_fit: Estimate spin by fitting a harmonic series to
+                the ball envelope, for a marker pattern (RCT) whose strongest
+                line is often 2x or 3x spin. Off by default.
         """
         if ball_marker not in BALL_MARKERS:
             raise ValueError(f"ball_marker must be one of {BALL_MARKERS}, got {ball_marker!r}")
@@ -245,6 +255,7 @@ class RollingBufferProcessor:
         self.spin_octave_prior = spin_octave_prior
         self.cap_spin_prior = cap_spin_prior
         self.ball_speed_magnitude_gate = ball_speed_magnitude_gate
+        self.spin_harmonic_fit = spin_harmonic_fit
         # Called with every successfully parsed capture (--interference-check).
         self.capture_observer: Optional[Callable[[IQCapture], None]] = None
         if scale_speed_band:
@@ -1001,6 +1012,97 @@ class RollingBufferProcessor:
             at_lower_rail=at_lower_rail,
             at_upper_rail=at_upper_rail,
             candidates=[candidate],
+        )
+
+    def detect_spin_harmonic(  # pylint: disable=unused-argument
+        self,
+        capture: IQCapture,
+        ball_speed_mph: float,
+        ball_timestamp_ms: float,
+        expected_spin_rpm: Optional[float] = None,
+        plausible_spin_rpm: Optional[Tuple[float, float]] = None,
+    ) -> SpinResult:
+        """Spin from a harmonic-series fit of the ball envelope.
+
+        The fit quality is the only gate: the spin priors are unused, because
+        a golfer's real spin routinely sits far from the tour-optimal prior.
+        """
+        method = spin_method_name("harmonic_fit", self.ball_marker)
+        i_data = np.array(capture.i_samples, dtype=np.float64)
+        q_data = np.array(capture.q_samples, dtype=np.float64)
+        iq = (i_data - np.mean(i_data)) + 1j * (q_data - np.mean(q_data))
+
+        ball_doppler_hz = 2 * (ball_speed_mph / self.MPS_TO_MPH) / self.WAVELENGTH_M
+        nyquist = self.SAMPLE_RATE / 2
+        low = max((ball_doppler_hz - self.SPIN_BANDPASS_BW_HZ) / nyquist, 0.001)
+        high = min((ball_doppler_hz + self.SPIN_BANDPASS_BW_HZ) / nyquist, 0.999)
+        if low >= high:
+            return SpinResult.no_spin_detected("Ball Doppler outside filter range", method=method)
+
+        from scipy.signal import butter, sosfiltfilt  # pylint: disable=import-outside-toplevel
+
+        sos = butter(self.SPIN_BANDPASS_ORDER, [low, high], btype="band", output="sos")
+        envelope = np.abs(sosfiltfilt(sos, iq))
+
+        start_sample = max(0, int(ball_timestamp_ms * self.SAMPLE_RATE / 1000))
+        end_sample = self._ball_signal_end_sample(envelope, start_sample)
+        ball_envelope = envelope[start_sample:end_sample]
+        transient_samples = int(self.SAMPLE_RATE / self.SPIN_BANDPASS_BW_HZ)
+        if len(ball_envelope) > 2 * transient_samples + self.SPIN_MIN_SAMPLES:
+            ball_envelope = ball_envelope[transient_samples:-transient_samples]
+        if len(ball_envelope) < self.SPIN_MIN_SAMPLES:
+            return SpinResult.no_spin_detected(
+                f"Ball signal too short ({len(ball_envelope)} samples, "
+                f"need {self.SPIN_MIN_SAMPLES})",
+                method=method,
+            )
+
+        envelope_mean = float(np.mean(ball_envelope))
+        modulation_depth = (
+            float(np.std(ball_envelope) / envelope_mean) if envelope_mean > 0 else None
+        )
+        try:
+            estimate = estimate_harmonic_spin(
+                ball_envelope,
+                self.SAMPLE_RATE,
+                spin_rpm_band=(self.SPIN_MIN_SEAM_HZ * 60, self.SPIN_MAX_SEAM_HZ * 60),
+                max_harmonic_hz=self.SPIN_BANDPASS_BW_HZ - 50,
+                min_cycles=self.SPIN_MIN_CYCLES,
+            )
+        except ValueError as exc:
+            return SpinResult.no_spin_detected(
+                f"Harmonic fit failed: {exc}",
+                modulation_depth=modulation_depth,
+                method=method,
+            )
+
+        seam_cycles = estimate.spin_hz * len(ball_envelope) / self.SAMPLE_RATE
+        logger.info(
+            "[PROCESSOR] Harmonic spin: %.0f RPM, fit=%.2f (%d harmonics, %.1f cycles)",
+            estimate.spin_rpm,
+            estimate.fit,
+            estimate.harmonics,
+            seam_cycles,
+        )
+        if estimate.fit < self.HARMONIC_FIT_MIN:
+            return SpinResult.no_spin_detected(
+                f"Harmonic fit too weak ({estimate.fit:.2f}, need {self.HARMONIC_FIT_MIN:.2f})",
+                snr=estimate.fit,
+                modulation_depth=modulation_depth,
+                peak_freq_hz=estimate.spin_hz,
+                seam_cycles=seam_cycles,
+                method=method,
+            )
+        high_fit = estimate.fit >= self.HARMONIC_FIT_HIGH
+        return SpinResult(
+            spin_rpm=round(estimate.spin_rpm),
+            confidence=0.8 if high_fit else SPIN_CONFIDENCE_HIGH,
+            snr=round(estimate.fit, 2),
+            quality="high" if high_fit else "medium",
+            method=method,
+            modulation_depth=modulation_depth,
+            peak_freq_hz=estimate.spin_hz,
+            seam_cycles=seam_cycles,
         )
 
     def detect_spin(
@@ -2436,7 +2538,9 @@ class RollingBufferProcessor:
         # band the multitaper fade regression removes along with its second
         # harmonic, so marked balls use the gated envelope estimator.
         spin_detector = self.detect_spin_multitaper
-        if self.ball_marker != "none":
+        if self.spin_harmonic_fit:
+            spin_detector = self.detect_spin_harmonic
+        elif self.ball_marker != "none":
             spin_detector = self.detect_spin
         plausible_spin_rpm = None
         if self.spin_octave_prior == "range":

@@ -127,7 +127,7 @@ test('keeps a startup failure visible and stops polling or handoff retries', asy
 
   await gotoSplash(page);
 
-  await expect(page.getByRole('heading', { name: 'Copperline couldn’t start' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'CopperStrike couldn’t start' })).toBeVisible();
   await expect(page.getByText(failedStatus.error.recovery)).toBeVisible();
   await expect(page.getByText(failedStatus.error.log_path)).toBeVisible();
   const requestCounts = { statusRequests, targetRequests };
@@ -165,7 +165,7 @@ for (const viewport of KIOSK_VIEWPORTS) {
     await page.route(`**${targetPath}`, (route) => route.abort());
 
     await gotoSplash(page);
-    await expect(page.getByRole('heading', { name: 'Starting Copperline' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Starting CopperStrike' })).toBeVisible();
     await expectMainInsideViewport(page);
 
     status = failedStatus;

@@ -48,7 +48,7 @@ export function TvDisplay({ connected, shots, profileId, profileName, unitSystem
   const distanceUnit = getDistanceUnit(unitSystem);
   const speedUnit = getSpeedUnit(unitSystem);
 
-  // The TV always wears Copperline's copper look, whatever its browser last stored.
+  // The TV always wears CopperStrike's copper look, whatever its browser last stored.
   useEffect(() => applyTheme('copper'), []);
 
   return (

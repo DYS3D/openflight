@@ -14,8 +14,8 @@ _ensure_kiosk_ui_build() {
     if ! (cd "$PROJECT_DIR/ui" && npm install && npm run build); then
         show_startup_failure \
             "server" \
-            "Copperline interface build failed" \
-            "Check the terminal log or network connection, then relaunch Copperline."
+            "CopperStrike interface build failed" \
+            "Check the terminal log or network connection, then relaunch CopperStrike."
     fi
 }
 

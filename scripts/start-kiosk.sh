@@ -237,7 +237,7 @@ acquire_instance_lock() {
     local lock_file="${OPENFLIGHT_KIOSK_LOCK_FILE:-/tmp/openflight-kiosk-${WEB_PORT}.lock}"
 
     if ! command -v flock >/dev/null 2>&1; then
-        warn "flock unavailable; cannot guard against a second Copperline instance"
+        warn "flock unavailable; cannot guard against a second CopperStrike instance"
         return 0
     fi
     # Probe in a subshell: a failed redirection on `exec` would abort the script.
@@ -247,7 +247,7 @@ acquire_instance_lock() {
     fi
     exec {INSTANCE_LOCK_FD}>>"$lock_file"
     if ! flock -n "$INSTANCE_LOCK_FD"; then
-        error "Copperline is already running (lock held on $lock_file)."
+        error "CopperStrike is already running (lock held on $lock_file)."
         error "  Stop the other instance first. If it is the boot service: sudo systemctl stop openflight"
         # Exit 3 is listed in openflight.service's RestartPreventExitStatus so
         # systemd does not retry every 5 s while someone else owns the kiosk.
@@ -400,7 +400,7 @@ ensure_uv_on_path
 if ! command -v uv >/dev/null 2>&1; then
     show_startup_failure \
         "server" \
-        "Copperline preparation failed" \
+        "CopperStrike preparation failed" \
         "The uv command is unavailable (checked PATH, ~/.local/bin and ~/.cargo/bin). Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
 fi
 
@@ -410,8 +410,8 @@ if has_server_arg --camera-capture; then
     if [ ! -x .venv/bin/python ] || ! .venv/bin/python -c 'import picamera2' >/dev/null 2>&1; then
         uv venv --clear --system-site-packages --python /usr/bin/python3 || show_startup_failure \
             "server" \
-            "Copperline preparation failed" \
-            "Camera environment preparation failed. Check the terminal log, then relaunch Copperline."
+            "CopperStrike preparation failed" \
+            "Camera environment preparation failed. Check the terminal log, then relaunch CopperStrike."
     fi
     UV_SYNC_ARGS+=(--extra camera)
 fi
@@ -427,13 +427,13 @@ sync_python_env() {
 }
 sync_python_env || show_startup_failure \
     "server" \
-    "Copperline preparation failed" \
-    "Dependency preparation failed. Check the terminal log, then relaunch Copperline."
+    "CopperStrike preparation failed" \
+    "Dependency preparation failed. Check the terminal log, then relaunch CopperStrike."
 
 configure_kld7_latency
 
 start_alloy
-log "Starting Copperline server on port $WEB_PORT"
+log "Starting CopperStrike server on port $WEB_PORT"
 UV_RUN_ARGS=()
 if [ -n "${OPENFLIGHT_UV_RUN_ARGS:-}" ]; then
     read -r -a UV_RUN_ARGS <<< "$OPENFLIGHT_UV_RUN_ARGS"
@@ -456,8 +456,8 @@ if ! curl -fsS "http://$HOST:$WEB_PORT" >/dev/null 2>&1; then
     if kill -0 "$SERVER_PID" 2>/dev/null; then
         show_startup_failure \
             "server" \
-            "Copperline server timed out" \
-            "Wait a moment, then return to the desktop and relaunch Copperline." \
+            "CopperStrike server timed out" \
+            "Wait a moment, then return to the desktop and relaunch CopperStrike." \
             1 \
             true
     fi
@@ -465,23 +465,23 @@ if ! curl -fsS "http://$HOST:$WEB_PORT" >/dev/null 2>&1; then
     SERVER_PID=""
     show_startup_failure \
         "server" \
-        "Copperline server exited during startup" \
-        "Check the connected radar hardware and terminal log, then relaunch Copperline." \
+        "CopperStrike server exited during startup" \
+        "Check the connected radar hardware and terminal log, then relaunch CopperStrike." \
         1 \
         true
 fi
 
 if [ -n "$STARTUP_STATUS_FILE" ]; then
     uv run --no-sync python -m openflight.startup_status ready "$STARTUP_STATUS_FILE" || \
-        warn "Could not mark startup splash ready; continuing to Copperline"
+        warn "Could not mark startup splash ready; continuing to CopperStrike"
 fi
 
 if [ "$BROWSER_LAUNCHED" != true ]; then
     launch_kiosk_browser "http://$HOST:$WEB_PORT" || \
-        warn "Copperline is serving http://$HOST:$WEB_PORT without a kiosk window"
+        warn "CopperStrike is serving http://$HOST:$WEB_PORT without a kiosk window"
 else
-    log "Startup splash will continue to Copperline"
+    log "Startup splash will continue to CopperStrike"
 fi
-log "Copperline is running. Press Ctrl+C to stop."
+log "CopperStrike is running. Press Ctrl+C to stop."
 supervise_kiosk "http://$HOST:$WEB_PORT"
 wait "$SERVER_PID"

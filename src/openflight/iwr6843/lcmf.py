@@ -49,6 +49,9 @@ LATERAL_TEE_OFFSET_M = 0.064
 MPH_PER_MS = 2.23694
 HORIZONTAL_TAIL_FRAMES = 8
 HORIZONTAL_COHERENCE_MIN = 0.90
+# Past this the TX2 phase nears its +/-pi wrap, where a clean-looking phase
+# reads as a 60-90 deg side angle no ball in the bay can have.
+HORIZONTAL_MAX_ANGLE_DEG = 45.0
 
 # One collapsed channel must not drag the answer down. 8.0 sits in an observed
 # gap: agreeing channels spread 4.59 deg, collapsed ones 15.9-20.2 deg
@@ -824,6 +827,8 @@ def _tx2_horizontal_proxy(
     )
     if coherence < HORIZONTAL_COHERENCE_MIN:
         return None, coherence, "hlcmf_v1_low_coherence"
+    if abs(angle_deg) > HORIZONTAL_MAX_ANGLE_DEG:
+        return None, coherence, "hlcmf_v1_implausible_angle"
     return angle_deg, coherence, "hlcmf_v1_accepted"
 
 

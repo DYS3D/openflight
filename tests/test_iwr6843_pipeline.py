@@ -1145,3 +1145,42 @@ def test_horizontal_proxy_withholds_incoherent_frames(monkeypatch):
     assert angle_deg is None
     assert coherence is not None and coherence < HORIZONTAL_COHERENCE_MIN
     assert status == "hlcmf_v1_low_coherence"
+
+
+@pytest.mark.parametrize(
+    ("phase_rad", "accepted"),
+    [(0.6 * np.pi, True), (0.93 * np.pi, False), (-0.93 * np.pi, False)],
+)
+def test_horizontal_proxy_withholds_an_angle_near_the_phase_wrap(monkeypatch, phase_rad, accepted):
+    """A coherent phase near +/-pi read as 63-88 deg side angles on 2026-10-05."""
+    n_frames, n_loops, n_tx, n_rx, n_bins = 12, 10, 3, 4, 80
+    raw = pack_dump(
+        np.zeros((n_frames, n_loops * n_tx, n_rx, n_bins), dtype=complex),
+        n_tx=3,
+        version=3,
+        frame_period_us=6000,
+        sample_fmt=SAMPLE_RANGE_FFT_IQ16,
+        range_bin_start=20,
+    )
+    track = BallTrack(
+        speed_ms=45.0,
+        slope_bins=0.0,
+        intercept_bins=31.0,
+        rms_bins=0.2,
+        n_inliers=80,
+        t_first=0.0,
+        t_last=0.067,
+        low_confidence=False,
+    )
+    shot = ShotMeasurement(geometry=None, ball_found=True, track=track)
+    monkeypatch.setattr(lcmf.doa, "tx2_phase_at", lambda *_args, **_kwargs: (phase_rad, 1.0))
+
+    angle_deg, coherence, status = _tx2_horizontal_proxy(raw, shot, tdm_sign=1)
+
+    assert coherence == pytest.approx(1.0)
+    if accepted:
+        assert angle_deg == pytest.approx(-np.degrees(np.arcsin(0.6)), abs=0.01)
+        assert status == "hlcmf_v1_accepted"
+    else:
+        assert angle_deg is None
+        assert status == "hlcmf_v1_implausible_angle"

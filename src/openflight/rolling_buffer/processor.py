@@ -1024,8 +1024,11 @@ class RollingBufferProcessor:
     ) -> SpinResult:
         """Spin from a harmonic-series fit of the ball envelope.
 
-        The fit quality is the only gate: the spin priors are unused, because
-        a golfer's real spin routinely sits far from the tour-optimal prior.
+        The spin prior is unused: a golfer's real spin routinely sits far from
+        the tour-optimal value. A reading is trusted only when the fit is
+        strong and the window holds SPIN_MIN_CYCLES turns at the club's lowest
+        plausible spin; in a shorter window a lower spin (most drives in front
+        of an indoor net) hides behind its own harmonics and reads high.
         """
         method = spin_method_name("harmonic_fit", self.ball_marker)
         i_data = np.array(capture.i_samples, dtype=np.float64)
@@ -1094,11 +1097,25 @@ class RollingBufferProcessor:
                 method=method,
             )
         high_fit = estimate.fit >= self.HARMONIC_FIT_HIGH
+        confidence = 0.8 if high_fit else SPIN_CONFIDENCE_HIGH
+        quality = "high" if high_fit else "medium"
+        window_s = len(ball_envelope) / self.SAMPLE_RATE
+        if (
+            plausible_spin_rpm is not None
+            and plausible_spin_rpm[0] / 60 * window_s < self.SPIN_MIN_CYCLES
+        ):
+            logger.info(
+                "[PROCESSOR] Harmonic spin capped: %.0f ms window cannot resolve %.0f RPM",
+                window_s * 1000,
+                plausible_spin_rpm[0],
+            )
+            confidence = min(confidence, 0.5)
+            quality = "low"
         return SpinResult(
             spin_rpm=round(estimate.spin_rpm),
-            confidence=0.8 if high_fit else SPIN_CONFIDENCE_HIGH,
+            confidence=confidence,
             snr=round(estimate.fit, 2),
-            quality="high" if high_fit else "medium",
+            quality=quality,
             method=method,
             modulation_depth=modulation_depth,
             peak_freq_hz=estimate.spin_hz,
@@ -2543,7 +2560,7 @@ class RollingBufferProcessor:
         elif self.ball_marker != "none":
             spin_detector = self.detect_spin
         plausible_spin_rpm = None
-        if self.spin_octave_prior == "range":
+        if self.spin_octave_prior == "range" or self.spin_harmonic_fit:
             plausible_spin_rpm = get_plausible_spin_rpm(club_type)
         spin = spin_detector(
             capture,

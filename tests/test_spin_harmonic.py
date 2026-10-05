@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from openflight.clubs import ClubType
+from openflight.clubs.physics import get_plausible_spin_rpm
 from openflight.rolling_buffer import IQCapture, RollingBufferMonitor, RollingBufferProcessor
 from openflight.rolling_buffer.harmonic import estimate_harmonic_spin
 
@@ -101,6 +103,42 @@ def test_recorded_rct_shot_reads_the_fundamental_the_envelope_fft_doubles():
     assert spin.spin_rpm == pytest.approx(SHOT_14_SKYTRAK_SPIN_RPM, rel=0.05)
     assert spin.is_reliable
     assert spin.method == "harmonic_fit+marker_rct"
+
+
+@pytest.mark.parametrize(
+    ("club", "trusted"), [(ClubType.IRON_8, True), (ClubType.PW, True), (ClubType.DRIVER, False)]
+)
+def test_spin_is_trusted_only_when_the_window_resolves_the_clubs_lowest_spin(club, trusted):
+    """Shot 14's 34 ms window holds two turns at an 8-iron's 4000 rpm, not a driver's 1500."""
+    capture, ball_speed_mph, ball_timestamp_ms = _recorded_shot(14)
+
+    spin = RollingBufferProcessor(spin_harmonic_fit=True).detect_spin_harmonic(
+        capture,
+        ball_speed_mph,
+        ball_timestamp_ms,
+        plausible_spin_rpm=get_plausible_spin_rpm(club),
+    )
+
+    assert spin.spin_rpm == pytest.approx(SHOT_14_SKYTRAK_SPIN_RPM, rel=0.05)
+    assert spin.is_reliable is trusted
+    assert spin.quality == ("high" if trusted else "low")
+
+
+def test_process_capture_gives_the_harmonic_estimator_the_club_range(monkeypatch):
+    processor = RollingBufferProcessor(spin_harmonic_fit=True)
+    received = {}
+    real_detector = processor.detect_spin_harmonic
+
+    def spy(*args, **kwargs):
+        received.update(kwargs)
+        return real_detector(*args, **kwargs)
+
+    monkeypatch.setattr(processor, "detect_spin_harmonic", spy)
+    processor.process_capture(
+        _capture(_envelope({1: 0.1, 2: 0.3}, 4800.0, duration_ms=60.0)), club_type=ClubType.IRON_8
+    )
+
+    assert received["plausible_spin_rpm"] == get_plausible_spin_rpm(ClubType.IRON_8)
 
 
 def test_recorded_rct_shot_with_a_split_spectrum_is_rejected():

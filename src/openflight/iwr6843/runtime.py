@@ -19,6 +19,7 @@ from openflight.iwr6843.lcmf import (
     prepare_lcmf_capture,
 )
 from openflight.iwr6843.monitor import IWR6843Capture, IWR6843CaptureMonitor
+from openflight.iwr6843.readback import Readback
 from openflight.iwr6843.recovery import (
     RecoveryCandidate,
     RecoveryPrior,
@@ -53,6 +54,22 @@ def _estimate_lcmf_in_worker(raw: bytes, calibration: Calibration, **kwargs) -> 
     if _worker_prepared is None or _worker_prepared[0] != raw:
         _worker_prepared = (raw, prepare_lcmf_capture(raw))
     return estimate_lcmf_v1(raw, calibration, prepared=_worker_prepared[1], **kwargs)
+
+
+def _estimate_readback_in_worker(
+    readback: Readback | None,
+    calibration: Calibration,
+    *,
+    club: str | None,
+    net_range_m: float | None,
+    **kwargs,
+) -> LCMFResult | None:
+    """LCMF-v1 on a selective readback; None when its windows miss this club's track."""
+    if readback is None or not readback.covers(club=club, net_range_m=net_range_m):
+        return None
+    return estimate_lcmf_v1(
+        b"", calibration, club=club, net_range_m=net_range_m, prepared=readback.prepare(), **kwargs
+    )
 
 
 def _ops_candidate_rank(candidate: RecoveryCandidate) -> tuple[float, int, float]:
@@ -157,6 +174,7 @@ class IWR6843Runtime:
     # None selects the coarse-to-fine search (--iwr6843-fast-angle-search).
     angle_grid_step_deg: float | None = PRODUCTION_ANGLE_STEP_DEG
     _estimator_worker: EstimatorWorker | None = field(default=None, init=False, repr=False)
+    _readback_worker: EstimatorWorker | None = field(default=None, init=False, repr=False)
     _estimator_worker_lock: threading.Lock = field(
         default_factory=threading.Lock, init=False, repr=False
     )
@@ -165,6 +183,28 @@ class IWR6843Runtime:
         if getattr(self.capture_monitor, "selective_readback", False):
             # pylint: disable-next=protected-access  # the runtime owns this monitor
             self.capture_monitor._readback_context = self._readback_context
+            # The readback estimate runs while the full dump is still crossing
+            # the UART. Inline, its GIL-holding loops starved the serial reader
+            # and the dump lost bytes (7 of 12 shots, 2026-10-06), so it always
+            # runs in its own process, started now so the first shot does not wait.
+            self._readback_worker = EstimatorWorker()
+            threading.Thread(target=self._warm_readback_worker, daemon=True).start()
+
+    def _warm_readback_worker(self) -> None:
+        worker = self._readback_worker
+        if worker is None:
+            return
+        try:
+            worker.call(
+                _estimate_readback_in_worker,
+                None,
+                self.calibration,
+                club=None,
+                net_range_m=None,
+                timeout_s=60.0,
+            )
+        except EstimatorWorkerError as error:
+            logger.warning("[IWR6843] Readback estimator process did not start: %s", error)
 
     def _readback_context(self) -> dict:
         club = self.club_provider() if self.club_provider is not None else None
@@ -364,24 +404,27 @@ class IWR6843Runtime:
         track this club selects, the estimate was rejected, or its speed disagrees
         with OPS and the recovery search (which reads the whole ring) must run.
         """
-        readback = capture.readback
-        if readback is None or not readback.covers(club=club, net_range_m=self.net_range_m):
+        worker = self._readback_worker
+        if capture.readback is None or worker is None:
             return None
         try:
-            measurement = estimate_lcmf_v1(
-                b"",
+            measurement = worker.call(
+                _estimate_readback_in_worker,
+                capture.readback,
                 calibration,
+                timeout_s=self.estimator_timeout_s,
                 ball_speed_mph=ball_speed_mph,
                 club=club,
                 net_range_m=self.net_range_m,
                 tx_order=self.tx_order,
                 tdm_sign_policy=self.tdm_sign_policy,
                 horizontal_phase_reference_rad=self.horizontal_phase_reference_rad,
-                prepared=readback.prepare(),
                 grid_step_deg=self.angle_grid_step_deg,
             )
         except Exception as error:  # pylint: disable=broad-exception-caught
             logger.warning("[IWR6843] Readback estimate failed; using the full dump: %s", error)
+            return None
+        if measurement is None:
             return None
         speed = measurement.track_speed_mph
         if (
@@ -505,10 +548,12 @@ class IWR6843Runtime:
             self.capture_monitor.stop()
         finally:
             with self._estimator_worker_lock:
-                worker, self._estimator_worker = self._estimator_worker, None
+                workers = (self._estimator_worker, self._readback_worker)
+                self._estimator_worker = self._readback_worker = None
                 self.estimator_process = False
-            if worker is not None:
-                worker.close()
+            for worker in workers:
+                if worker is not None:
+                    worker.close()
 
 
 __all__ = ["IWR6843Runtime", "IWR6843ShotResult"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -142,14 +143,45 @@ def test_a_failed_readback_leaves_the_shot_to_the_full_dump(started):
     assert monitor.selective_readback, "one bad reply does not disable readback"
 
 
-def _runtime(monitor, cal) -> IWR6843Runtime:
-    return IWR6843Runtime(capture_monitor=monitor, calibration=cal, net_range_m=None)
+@pytest.fixture(name="make_runtime")
+def _make_runtime():
+    runtimes = []
+
+    def make(monitor, cal) -> IWR6843Runtime:
+        runtime = IWR6843Runtime(capture_monitor=monitor, calibration=cal, net_range_m=None)
+        runtimes.append(runtime)
+        return runtime
+
+    yield make
+    for runtime in runtimes:
+        runtime._readback_worker.close()  # pylint: disable=protected-access
 
 
-def test_runtime_reports_the_ball_measurement_before_the_dump_arrives(started, cal):
+def test_readback_estimate_runs_outside_the_process_reading_the_dump(started, cal, make_runtime):
+    radar = ReadbackRadar(_timed_capture("iron"))
+    radar.release_dump.set()
+    runtime = make_runtime(started(radar), cal)
+
+    worker = runtime._readback_worker  # pylint: disable=protected-access
+    with patch("openflight.iwr6843.runtime.estimate_lcmf_v1") as inline_estimate:
+        edge = time.time()
+        assert runtime.capture_monitor.notify_trigger(edge)
+        early = []
+        runtime.process_shot(
+            impact_timestamp=edge,
+            ball_speed_mph=IRON_MPH,
+            club="9i",
+            on_ball_measurement=early.append,
+        )
+
+    assert early and worker.pid is not None
+    inline_estimate.assert_not_called()
+
+
+def test_runtime_reports_the_ball_measurement_before_the_dump_arrives(started, cal, make_runtime):
     radar = ReadbackRadar(_timed_capture("iron"))
     monitor = started(radar)
-    runtime = _runtime(monitor, cal)
+    runtime = make_runtime(monitor, cal)
     expected = estimate_lcmf_v1(radar.raw, cal, ball_speed_mph=IRON_MPH, club="9i")
     early = []
 
@@ -169,11 +201,13 @@ def test_runtime_reports_the_ball_measurement_before_the_dump_arrives(started, c
     assert result.capture.raw == radar.raw
 
 
-def test_runtime_waits_for_the_full_dump_when_ops_disagrees_with_the_track(started, cal):
+def test_runtime_waits_for_the_full_dump_when_ops_disagrees_with_the_track(
+    started, cal, make_runtime
+):
     radar = ReadbackRadar(_timed_capture("iron"))
     radar.release_dump.set()
     monitor = started(radar)
-    runtime = _runtime(monitor, cal)
+    runtime = make_runtime(monitor, cal)
     early = []
 
     edge = time.time()
@@ -190,11 +224,11 @@ def test_runtime_waits_for_the_full_dump_when_ops_disagrees_with_the_track(start
     assert result.measurement is not None
 
 
-def test_runtime_keeps_the_readback_measurement_when_the_dump_fails(started, cal):
+def test_runtime_keeps_the_readback_measurement_when_the_dump_fails(started, cal, make_runtime):
     radar = ReadbackRadar(_timed_capture("iron"))
     radar.read_dump = lambda: b"short"
     monitor = started(radar)
-    runtime = _runtime(monitor, cal)
+    runtime = make_runtime(monitor, cal)
 
     edge = time.time()
     assert monitor.notify_trigger(edge)

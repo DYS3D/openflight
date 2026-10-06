@@ -240,6 +240,7 @@ class PreparedShotDump:
     range_domain: bool
     _mti_by_scope: dict[str, np.ndarray] = field(default_factory=dict)
     _noise_by_scope: dict[str, float] = field(default_factory=dict)
+    _power_by_scope: dict[str, np.ndarray] = field(default_factory=dict)
 
     def mti(self, scope: str = "burst") -> np.ndarray:
         """Return one static-removal view, computing each scope once."""
@@ -253,6 +254,12 @@ class PreparedShotDump:
                 geometry=self.geometry,
             )
         return self._mti_by_scope[scope]
+
+    def loop_power(self, scope: str = "burst") -> np.ndarray:
+        """Return the ball search's input table for one MTI scope."""
+        if scope not in self._power_by_scope:
+            self._power_by_scope[scope] = tracking.loop_power(self.mti(scope))
+        return self._power_by_scope[scope]
 
     def noise_power(self, scope: str = "burst") -> float:
         """Return the invariant median noise power for one MTI scope."""
@@ -319,6 +326,39 @@ def prepare_shot_dump(
     )
 
 
+def select_ball_track(
+    prepared: PreparedShotDump,
+    *,
+    club: str | None = None,
+    net_range_m: float | None = None,
+) -> tuple[tracking.BallTrack | None, bool]:
+    """Ball range walk from the loop-power tables, and whether window-scope MTI won."""
+    geo = prepared.geometry
+    # keep everything 25 cm short of the net: a ball riding up the net is
+    # an upward mover that tilts every angle fit high (user setup: net
+    # ~3 m past the tee)
+    max_r = (net_range_m - 0.25) if net_range_m else None
+    min_ms = CLUB_MIN_BALL_MS[club_class(club)]
+    track = tracking.find_ball_in_power(
+        prepared.loop_power(), geo, max_range_m=max_r, min_ball_ms=min_ms
+    )
+    if not (track_broken(track) or (track is not None and near_mti_notch(track.speed_ms))):
+        return track, False
+    # burst-MTI notches balls near n x 26.93 m/s and shatters their
+    # range walk; the window-scope filter keeps them (statics still
+    # cancel over the full window)
+    track_w = tracking.find_ball_in_power(
+        prepared.loop_power("window"), geo, max_range_m=max_r, min_ball_ms=min_ms
+    )
+    if not track_broken(track_w) and (
+        track_broken(track)
+        or track_w.rms_bins < track.rms_bins
+        or track_w.n_inliers >= track.n_inliers
+    ):
+        return track_w, True
+    return track, False
+
+
 def process_dump(
     raw: bytes,
     cal: Calibration,
@@ -352,28 +392,8 @@ def process_dump(
                 tdm_tau_s = TX2_VERTICAL_TDM_TAU_S
         prepared = prepare_shot_dump(raw, loop_period_s=loop_period_s)
     geo = prepared.geometry
-    mti = prepared.mti()
-    # keep everything 25 cm short of the net: a ball riding up the net is
-    # an upward mover that tilts every angle fit high (user setup: net
-    # ~3 m past the tee)
-    max_r = (net_range_m - 0.25) if net_range_m else None
-    klass = club_class(club)
-    min_ms = CLUB_MIN_BALL_MS[klass]
-    track = tracking.find_ball(mti, geo, max_range_m=max_r, min_ball_ms=min_ms)
-
-    notch_used = False
-    if track_broken(track) or (track is not None and near_mti_notch(track.speed_ms)):
-        # burst-MTI notches balls near n x 26.93 m/s and shatters their
-        # range walk; the window-scope filter keeps them (statics still
-        # cancel over the full window)
-        mti_w = prepared.mti("window")
-        track_w = tracking.find_ball(mti_w, geo, max_range_m=max_r, min_ball_ms=min_ms)
-        if not track_broken(track_w) and (
-            track_broken(track)
-            or track_w.rms_bins < track.rms_bins
-            or track_w.n_inliers >= track.n_inliers
-        ):
-            mti, track, notch_used = mti_w, track_w, True
+    track, notch_used = select_ball_track(prepared, club=club, net_range_m=net_range_m)
+    mti = prepared.mti("window" if notch_used else "burst")
     result = ShotMeasurement(
         geometry=geo,
         ball_found=track is not None,

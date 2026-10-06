@@ -160,6 +160,15 @@ def test_batched_ransac_matches_the_scalar_loop_for_every_search_option(kwargs):
     assert tracking.find_ball(mti, geo, **kwargs) == _reference_find_ball(mti, geo, **kwargs)
 
 
+@pytest.mark.parametrize("capture", sorted(CAPTURES))
+def test_search_needs_only_the_loop_power_table(capture):
+    mti, geo = _mti_and_geometry(CAPTURES[capture]())
+
+    from_table = tracking.find_ball_in_power(tracking.loop_power(mti), geo, seed=3)
+
+    assert from_table == tracking.find_ball(mti, geo, seed=3)
+
+
 def test_fixed_seed_is_deterministic_and_found_tracks_are_nontrivial():
     mti, geo = _mti_and_geometry(synth_shot(speed_ms=45.0, launch_deg=18.0, noise=4.0))
 

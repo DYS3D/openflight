@@ -276,8 +276,13 @@ def _detections(
     return np.asarray(loops_idx), np.asarray(bins)
 
 
-def find_ball(
-    mti: np.ndarray,
+def find_ball(mti: np.ndarray, geo: Geometry, **search) -> BallTrack | None:
+    """Ball range walk in an MTI cube; see :func:`find_ball_in_power`."""
+    return find_ball_in_power(loop_power(mti), geo, **search)
+
+
+def find_ball_in_power(
+    power: np.ndarray,
     geo: Geometry,
     *,
     iterations: int = 2500,
@@ -303,8 +308,10 @@ def find_ball(
     speed band overlaps the ball's, it must also pass ``time_window_s`` to
     restrict the search to pre-impact frames — otherwise this fitter will
     happily lock onto the ball instead of the club.
+
+    ``power`` is :func:`loop_power` of the MTI cube, the only thing the search
+    reads, so a radar that computes that table itself need not send the cube.
     """
-    power = loop_power(mti)
     loops_idx, bins = _detections(power, geo, max_range_m=max_range_m, gates_m=gates_m)
     if loops_idx.size < 8:
         return None

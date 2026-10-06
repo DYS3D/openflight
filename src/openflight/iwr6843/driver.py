@@ -18,10 +18,12 @@ import glob
 import logging
 import os
 import time
+from collections.abc import Callable
 
 import serial
 
 from openflight.iwr6843.dump import HEADER, MAGIC, parse_header, payload_nbytes
+from openflight.iwr6843.readback import SUMMARY_MAGIC, WINDOWS_MAGIC, summary_reply_nbytes
 
 BAUD = 1_041_667
 _PORT_GLOBS = ("/dev/ttyUSB*", "/dev/tty.SLAB_USBtoUART*")
@@ -235,6 +237,62 @@ class IWR6843Radar:
                     f"{trailer.decode(errors='replace').strip()}"
                 )
         return payload
+
+    def freeze(self) -> None:
+        """Stop capture at a frame boundary and hold the ring for readback."""
+        self._require_done("l3freeze", self.cmd("l3freeze", 3.0))
+
+    def resume(self) -> None:
+        """Restart capture after a selective readback."""
+        response = self.cmd("l3resume", 6.0)
+        if "Done" not in response or "Error" in response:
+            raise DumpRestartError(f"IWR6843 did not resume capture: {response.strip()}")
+
+    def read_summary(self, scope: int) -> bytes:
+        """Reply to `l3sum <scope>` on a frozen ring."""
+        return self._read_reply(f"l3sum {scope}", SUMMARY_MAGIC, summary_reply_nbytes)
+
+    def read_windows(self, request: str, nbytes: int) -> bytes:
+        """Reply to `l3bins <request>` on a frozen ring, `nbytes` long."""
+        return self._read_reply(f"l3bins {request}", WINDOWS_MAGIC, lambda _partial: nbytes)
+
+    def _read_reply(
+        self,
+        command: str,
+        magic: bytes,
+        reply_nbytes: Callable[[bytes], int | None],
+        timeout_s: float = 6.0,
+    ) -> bytes:
+        """Send a readback command and return its binary reply, past the CLI echo."""
+        self.ser.reset_input_buffer()
+        self.ser.write((command + "\n").encode())
+        buf = bytearray()
+        synced = False
+        expected: int | None = None
+        deadline = time.monotonic() + timeout_s
+        while expected is None or len(buf) < expected:
+            if time.monotonic() >= deadline:
+                self.drain_stale_output()
+                raise TimeoutError(
+                    f"IWR6843 {command.split()[0]} reply stalled at {len(buf)} bytes"
+                )
+            waiting = self.ser.in_waiting
+            buf.extend(self.ser.read(waiting if waiting else 1))
+            if not synced:
+                start = buf.find(magic)
+                if start < 0:
+                    if b"Error" in buf:
+                        raise RuntimeError(
+                            f"IWR6843 rejected {command.split()[0]}: "
+                            f"{buf.decode(errors='replace').strip()}"
+                        )
+                    continue
+                del buf[:start]
+                synced = True
+            if expected is None:
+                expected = reply_nbytes(bytes(buf[:256]))
+        self._wait_for_dump_cli_ready(buf[expected:], timeout_s=1.0)
+        return bytes(buf[:expected])
 
     def _wait_for_dump_cli_ready(self, initial: bytes, *, timeout_s: float) -> bytes:
         """Consume the dump handler's trailing response before reusing the CLI."""

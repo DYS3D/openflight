@@ -6,7 +6,12 @@ import numpy as np
 import pytest
 
 from openflight.iwr6843.driver import DumpRestartError, IWR6843Radar
-from openflight.iwr6843.dump import TEMP_REPORT_KEYS, pack_dump
+from openflight.iwr6843.dump import (
+    SAMPLE_RANGE_FFT_IQ16_VARIABLE_TIMED,
+    TEMP_REPORT_KEYS,
+    pack_dump,
+)
+from openflight.iwr6843.readback import encode_summary_reply, summarize_capture
 
 
 def test_send_config_rejects_missing_cli_acknowledgement(tmp_path, monkeypatch):
@@ -217,3 +222,94 @@ def test_read_dump_does_not_drain_after_complete_dump():
 
     assert radar.read_dump(timeout_s=0.1) == raw
     assert drains == []
+
+
+class ScriptedSerial:
+    """Serial double that answers each written command with a scripted reply."""
+
+    def __init__(self, replies: dict[bytes, bytes]):
+        self.replies = replies
+        self.pending = bytearray()
+        self.writes: list[bytes] = []
+
+    @property
+    def in_waiting(self):
+        return len(self.pending)
+
+    def reset_input_buffer(self):
+        self.pending.clear()
+
+    def write(self, data: bytes):
+        self.writes.append(data)
+        self.pending.extend(self.replies[data])
+
+    def read(self, nbytes: int):
+        chunk = bytes(self.pending[:nbytes])
+        del self.pending[:nbytes]
+        return chunk
+
+
+def _scripted_radar(replies: dict[bytes, bytes]) -> IWR6843Radar:
+    radar = IWR6843Radar.__new__(IWR6843Radar)
+    radar.ser = ScriptedSerial(replies)
+    return radar
+
+
+def _summary_reply(scope: int = 0) -> bytes:
+    cube = np.ones((3, 6, 4, 8), dtype=complex)
+    raw = pack_dump(
+        cube,
+        n_tx=3,
+        version=6,
+        frame_period_us=3000,
+        sample_fmt=SAMPLE_RANGE_FFT_IQ16_VARIABLE_TIMED,
+        range_bin_starts=(4, 4, 4),
+        range_bin_counts=(8, 8, 8),
+        frame_time_offsets_us=(0, 3000, 6000),
+    )
+    return encode_summary_reply(summarize_capture(raw), scope)
+
+
+def test_read_summary_returns_the_binary_reply_past_the_cli_echo():
+    reply = _summary_reply(1)
+    radar = _scripted_radar({b"l3sum 1\n": b"l3sum 1\r\n" + reply + b"Done\r\nl3dump:/>"})
+
+    assert radar.read_summary(1) == reply
+    assert not radar.ser.pending, "the trailing Done is consumed before the next command"
+
+
+def test_read_windows_reads_exactly_the_requested_length():
+    reply = b"ILB1" + bytes(range(40))
+    radar = _scripted_radar({b"l3bins 0102\n": b"l3bins 0102\r\n" + reply + b"Done\r\n"})
+
+    assert radar.read_windows("0102", len(reply)) == reply
+
+
+def test_readback_command_rejected_by_firmware_raises():
+    radar = _scripted_radar({b"l3sum 0\n": b"l3sum 0\r\nError: l3freeze first\r\nError -1\r\n"})
+
+    with pytest.raises(RuntimeError, match="l3freeze first"):
+        radar.read_summary(0)
+
+
+def test_stalled_readback_reply_times_out(monkeypatch):
+    radar = _scripted_radar({b"l3sum 0\n": b"l3sum 0\r\n" + _summary_reply()[:50]})
+    monkeypatch.setattr(radar, "drain_stale_output", lambda: 0)
+
+    with pytest.raises(TimeoutError, match="l3sum"):
+        radar._read_reply("l3sum 0", b"ILS1", lambda _partial: None, timeout_s=0.05)
+
+
+def test_resume_failure_is_a_restart_error():
+    radar = _scripted_radar({b"l3resume\n": b"l3resume\r\nError: restart failed\r\n"})
+
+    with pytest.raises(DumpRestartError):
+        radar.resume()
+
+
+def test_freeze_requires_acknowledgement():
+    radar = _scripted_radar({b"l3freeze\n": b"l3freeze\r\nDone\r\n"})
+
+    radar.freeze()
+
+    assert radar.ser.writes == [b"l3freeze\n"]

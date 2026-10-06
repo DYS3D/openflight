@@ -36,5 +36,6 @@ export function handleShotMessage(data: ShotMessage) {
 }
 
 export function handleShotUpdate(data: ShotUpdateMessage) {
-  useShotStore.getState().updateShot(data.shot);
+  const stillPending = Object.values(data.pending ?? {}).some(Boolean);
+  useShotStore.getState().updateShot(data.shot, stillPending);
 }

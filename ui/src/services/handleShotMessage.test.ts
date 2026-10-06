@@ -212,4 +212,29 @@ describe('handleShotMessage', () => {
     expect(state.shotProcessingShotTimestamp).toBeNull();
     expect(state.shots).toEqual([ballShot]);
   });
+
+  it('keeps the processing indicator when an early update still has hardware pending', async () => {
+    const { handleShotMessage, handleShotUpdate } = await import('./handleShotMessage');
+    const { useShotStore } = await import('../stores/useShotStore');
+    const stats = {
+      shot_count: 1,
+      avg_ball_speed: 145,
+      max_ball_speed: 145,
+      min_ball_speed: 145,
+      avg_club_speed: null,
+      avg_smash_factor: null,
+      avg_carry_est: 0,
+    };
+    const early = { ...ballShot, launch_angle_vertical: 17.4 } as Shot;
+
+    handleShotMessage({ shot: ballShot, stats, pending: { iwr6843: true, camera: true } });
+    handleShotUpdate({ shot: early, stats, pending: { iwr6843: true, camera: true } });
+
+    expect(useShotStore.getState().latestShot).toEqual(early);
+    expect(useShotStore.getState().shotProcessingPhase).toBe('hardware_enrichment');
+
+    handleShotUpdate({ shot: early, stats });
+
+    expect(useShotStore.getState().shotProcessingPhase).toBeNull();
+  });
 });

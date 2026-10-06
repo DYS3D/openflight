@@ -77,6 +77,22 @@ describe('useShotStore processing lifecycle', () => {
     expect(useShotStore.getState().shotVersion).toBe(1);
   });
 
+  it('keeps the processing indicator for an update that is still pending', () => {
+    const early = { ...shot, launch_angle_vertical: 17.4 } as Shot;
+    useShotStore.setState({
+      latestShot: shot,
+      shots: [shot],
+      shotProcessingPhase: 'hardware_enrichment',
+      shotProcessingShotTimestamp: shot.timestamp,
+    });
+
+    useShotStore.getState().updateShot(early, true);
+
+    expect(useShotStore.getState().latestShot).toBe(early);
+    expect(useShotStore.getState().shotProcessingPhase).toBe('hardware_enrichment');
+    expect(useShotStore.getState().shotProcessingShotTimestamp).toBe(shot.timestamp);
+  });
+
   it('does not clear a newer IWR dump indicator when an older shot update arrives', () => {
     const newerShot = { ...shot, timestamp: '2026-08-12T12:01:00Z' } as Shot;
     useShotStore.setState({

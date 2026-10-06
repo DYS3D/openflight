@@ -17,7 +17,7 @@ interface ShotState {
   startShotProcessing: (phase: ShotProcessingPhase, shotTimestamp?: string) => void;
   finishShotProcessing: () => void;
   addShot: (shot: Shot) => void;
-  updateShot: (shot: Shot) => void;
+  updateShot: (shot: Shot, stillPending?: boolean) => void;
   setShots: (shots: Shot[]) => void;
   clearShots: () => void;
 }
@@ -66,14 +66,16 @@ export const useShotStore = create<ShotState>((set) => {
         set({ isNewShot: false });
       }, NEW_SHOT_DURATION_MS);
     },
-    updateShot: (shot) =>
+    updateShot: (shot, stillPending = false) =>
       set((state) => {
         const index = state.shots.findIndex((existing) => existing.timestamp === shot.timestamp);
         if (index < 0) return state;
 
         const shots = [...state.shots];
         shots[index] = shot;
-        const completesPendingShot = state.shotProcessingShotTimestamp === shot.timestamp;
+        // An early update (radar launch ahead of the camera and club data) keeps the indicator.
+        const completesPendingShot =
+          !stillPending && state.shotProcessingShotTimestamp === shot.timestamp;
         if (completesPendingShot && processingTimerRef) {
           clearTimeout(processingTimerRef);
           processingTimerRef = null;

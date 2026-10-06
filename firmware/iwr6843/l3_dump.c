@@ -358,6 +358,9 @@ static uint32_t      gCpuClock = 200U * 1000000U;
 
 /* --- capture state / diagnostics ------------------------------------------- */
 static volatile uint8_t  gCaptureActive;
+/* Capture is halted at a completed frame boundary and the ring is intact:
+ * set by l3freeze, cleared when l3dump or l3resume restarts capture. */
+static volatile uint8_t  gReadoutFrozen;
 static uint16_t gFramePeriodUs;         /* from the accepted frameCfg -> header */
 static volatile uint32_t gNumFrame;     /* frame-start ISR count (liveness) */
 static volatile uint32_t gRingFrame;    /* completed snapshot frames since the
@@ -2417,6 +2420,57 @@ static uint8_t l3_dumpCancelRequested(void)
     return (value == L3_DUMP_CANCEL_BYTE) ? 1U : 0U;
 }
 
+/* Restart capture from slot zero after the frozen ring has been read out. */
+static int32_t l3_restartAfterReadout(void)
+{
+    gReadoutFrozen = 0U;
+#ifdef HWA_CHAINED_SNAPSHOT_RING
+    gRingFrame = 0U;
+    gHwaFreezeRequestFrame = 0U;
+    gHwaFreezeTargetFrame = 0U;
+#ifdef CONFIGURABLE_CAPTURE
+    gPreFramesCaptured = 0U;
+    gPostFramesCaptured = 0U;
+    gPostFramesObserved = 0U;
+    gPostCaptureStarted = 0U;
+    gActiveFrameIsPost = 0U;
+    gActiveFrameShouldKeep = 1U;
+#endif
+    if (l3_restartCompletedHwaFrame() < 0) {
+        CLI_write("Error: completed HWA frame restart failed\n");
+        gCaptureActive = 0U;
+        return -1;
+    }
+    gHwaFreezeRestarts++;
+#else
+    if (l3_armCapture() < 0) {
+        CLI_write("Error: EDMA re-arm failed\n");
+        gCaptureActive = 0U;
+        return -1;
+    }
+#endif
+#ifndef HWA_CHAINED_SNAPSHOT_RING
+    gRingFrame = 0U;
+#endif
+#ifdef LIVE_SNAPSHOT_RING
+    gRawFrameReadyMask = 0U;
+    gRawFrameDrops     = 0U;
+    gSnapshotFrames    = 0U;
+    gSnapshotErrors    = 0U;
+    gSnapshotBusy      = 0U;
+    gHwaFftConfigured  = 0U;
+#endif
+#ifdef HWA_CHAINED_SNAPSHOT_RING
+    gCaptureActive = 1U;
+#endif
+    if (l3_startFrontEnd() < 0) {
+        CLI_write("Error: RF restart failed\n");
+        gCaptureActive = 0U;
+        return -1;
+    }
+    return 0;
+}
+
 /* CLI "l3dump": record the current circular position, retain the configured
  * post-trigger frames, stop at that completed frame boundary, stream the ring,
  * then restart from slot zero. */
@@ -2432,13 +2486,15 @@ int32_t l3_cli_dump(int32_t argc, char *argv[])
 #endif
     (void)argc; (void)argv;
 
-    if (!gCaptureActive) {
-        return -1;
-    }
+    if (!gReadoutFrozen) {
+        if (!gCaptureActive) {
+            return -1;
+        }
 
-    /* Halt chirping only after HWA and both output EDMAs completed naturally. */
-    if (l3_stopCaptureAtBoundary() != 0) {
-        return -1;
+        /* Halt chirping only after HWA and both output EDMAs completed naturally. */
+        if (l3_stopCaptureAtBoundary() != 0) {
+            return -1;
+        }
     }
 
     /* Oldest slot = time-order start (best-effort: a frame-start ISR racing
@@ -2584,48 +2640,7 @@ int32_t l3_cli_dump(int32_t argc, char *argv[])
     }
 #endif
 
-#ifdef HWA_CHAINED_SNAPSHOT_RING
-    gRingFrame = 0U;
-    gHwaFreezeRequestFrame = 0U;
-    gHwaFreezeTargetFrame = 0U;
-#ifdef CONFIGURABLE_CAPTURE
-    gPreFramesCaptured = 0U;
-    gPostFramesCaptured = 0U;
-    gPostFramesObserved = 0U;
-    gPostCaptureStarted = 0U;
-    gActiveFrameIsPost = 0U;
-    gActiveFrameShouldKeep = 1U;
-#endif
-    if (l3_restartCompletedHwaFrame() < 0) {
-        CLI_write("Error: completed HWA frame restart failed\n");
-        gCaptureActive = 0U;
-        return -1;
-    }
-    gHwaFreezeRestarts++;
-#else
-    if (l3_armCapture() < 0) {
-        CLI_write("Error: EDMA re-arm failed\n");
-        gCaptureActive = 0U;
-        return -1;
-    }
-#endif
-#ifndef HWA_CHAINED_SNAPSHOT_RING
-    gRingFrame = 0U;
-#endif
-#ifdef LIVE_SNAPSHOT_RING
-    gRawFrameReadyMask = 0U;
-    gRawFrameDrops     = 0U;
-    gSnapshotFrames    = 0U;
-    gSnapshotErrors    = 0U;
-    gSnapshotBusy      = 0U;
-    gHwaFftConfigured  = 0U;
-#endif
-#ifdef HWA_CHAINED_SNAPSHOT_RING
-    gCaptureActive = 1U;
-#endif
-    if (l3_startFrontEnd() < 0) {
-        CLI_write("Error: RF restart failed\n");
-        gCaptureActive = 0U;
+    if (l3_restartAfterReadout() < 0) {
         return -1;
     }
     if (dumpCancelled) {
@@ -2633,6 +2648,532 @@ int32_t l3_cli_dump(int32_t argc, char *argv[])
     }
     return 0;
 }
+
+#ifdef CONFIGURABLE_CAPTURE
+/* ---- Selective readback ---------------------------------------------------
+ * The host estimator reads only the ball's range track, so the full ring need
+ * not cross the UART. l3freeze halts capture and keeps the ring; l3sum sends
+ * the tables the host's ball search reads; l3bins sends chosen range windows;
+ * l3resume (or l3dump, which still sends everything) restarts capture.
+ * src/openflight/iwr6843/readback.py is the reference for every number here.
+ * IQ16 rings only. */
+#define L3_SUMMARY_MAGIC        "ILS1"
+#define L3_BINS_MAGIC           "ILB1"
+#define L3_RB_TX                2U    /* vertical TX pair: first and last TX */
+#define L3_RB_ABS_BINS          128U  /* absolute range bins (HWA FFT size) */
+#define L3_RB_SCOPE_BURST       0U
+#define L3_RB_SCOPE_WINDOW      1U
+#define L3_RB_RADIX_BITS        12U
+#define L3_RB_RADIX_SIZE        (1U << L3_RB_RADIX_BITS)
+#define L3_RB_SORT_MAX          1024U
+
+static const uint8_t gRbTx[L3_RB_TX] = { 0U, (uint8_t)(N_TX - 1U) };
+/* Sums of the two stored words of every sample, per TX, RX and absolute bin. */
+static int32_t  gRbWindowSum[L3_RB_TX][N_RX][L3_RB_ABS_BINS][2];
+static uint16_t gRbWindowCount[L3_RB_ABS_BINS];
+static double   gRbMean[L3_RB_TX][N_RX][L3_RING_MAX_BINS][2];
+static double   gRbRow[L3_RING_MAX_BINS];
+static float    gRbRowOut[L3_RING_MAX_BINS];
+static uint32_t gRbHist[L3_RB_RADIX_SIZE];
+static double   gRbSort[L3_RB_SORT_MAX];
+static uint8_t  gRbChirp[N_RX * L3_RING_MAX_BINS * 2U * sizeof(int16_t)];
+
+typedef struct {
+    uint32_t frames;
+    uint32_t actualPre;
+    uint32_t oldestPre;
+} l3_readout_t;
+
+static void l3_rbReadout(l3_readout_t *r)
+{
+    uint32_t actualPost;
+
+    r->actualPre = (gPreFramesCaptured < gCapturePlan.preFrames)
+                       ? gPreFramesCaptured : gCapturePlan.preFrames;
+    actualPost = (gPostFramesCaptured < gCapturePlan.postFrames)
+                     ? gPostFramesCaptured : gCapturePlan.postFrames;
+    r->oldestPre = (gPreFramesCaptured >= gCapturePlan.preFrames)
+                       ? (gPreFramesCaptured % gCapturePlan.preFrames) : 0U;
+    r->frames = r->actualPre + actualPost;
+}
+
+/* Ring slot of the index-th frame in dump (chronological) order. */
+static uint32_t l3_rbSlot(const l3_readout_t *r, uint32_t index)
+{
+    if (index < r->actualPre) {
+        return (r->oldestPre + index) % gCapturePlan.preFrames;
+    }
+    return gCapturePlan.preFrames + (index - r->actualPre);
+}
+
+static const int16_t *l3_rbChirpRx(uint32_t slot, uint32_t chirp, uint32_t rx)
+{
+    const int16_t *frame = (const int16_t *)(void *)&g_ring[gFrameOffset[slot]];
+
+    return frame + ((chirp * N_RX + rx) * (uint32_t)gFrameBinCount[slot]) * 2U;
+}
+
+static int32_t l3_rbReady(void)
+{
+    if (!gReadoutFrozen) {
+        CLI_write("Error: l3freeze first\n");
+        return -1;
+    }
+    if (l3_captureUsesIq8()) {
+        CLI_write("Error: selective readback needs captureFormat iq16\n");
+        return -1;
+    }
+    return 0;
+}
+
+/* Per-bin sums over every stored loop of every frame: the window-scope mean. */
+static void l3_rbWindowSums(const l3_readout_t *r)
+{
+    uint32_t index, t, loop, rx, bin;
+
+    memset((void *)gRbWindowSum, 0, sizeof(gRbWindowSum));
+    memset((void *)gRbWindowCount, 0, sizeof(gRbWindowCount));
+    for (index = 0U; index < r->frames; index++) {
+        uint32_t slot = l3_rbSlot(r, index);
+        uint32_t start = gFrameBinStart[slot];
+        uint32_t count = gFrameBinCount[slot];
+
+        for (bin = 0U; bin < count; bin++) {
+            gRbWindowCount[start + bin] += gCapturePlan.loops;
+        }
+        for (t = 0U; t < L3_RB_TX; t++) {
+            for (loop = 0U; loop < gCapturePlan.loops; loop++) {
+                uint32_t chirp = loop * N_TX + gRbTx[t];
+                for (rx = 0U; rx < N_RX; rx++) {
+                    const int16_t *p = l3_rbChirpRx(slot, chirp, rx);
+                    for (bin = 0U; bin < count; bin++) {
+                        gRbWindowSum[t][rx][start + bin][0] += p[2U * bin];
+                        gRbWindowSum[t][rx][start + bin][1] += p[2U * bin + 1U];
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* Fill gRbMean with one frame's static estimate for the requested scope. */
+static void l3_rbFrameMeans(uint32_t slot, uint8_t scope)
+{
+    uint32_t start = gFrameBinStart[slot];
+    uint32_t count = gFrameBinCount[slot];
+    uint32_t t, loop, rx, bin;
+
+    if (scope == L3_RB_SCOPE_WINDOW) {
+        for (t = 0U; t < L3_RB_TX; t++) {
+            for (rx = 0U; rx < N_RX; rx++) {
+                for (bin = 0U; bin < count; bin++) {
+                    double n = (double)gRbWindowCount[start + bin];
+                    gRbMean[t][rx][bin][0] = (double)gRbWindowSum[t][rx][start + bin][0] / n;
+                    gRbMean[t][rx][bin][1] = (double)gRbWindowSum[t][rx][start + bin][1] / n;
+                }
+            }
+        }
+        return;
+    }
+    for (t = 0U; t < L3_RB_TX; t++) {
+        for (rx = 0U; rx < N_RX; rx++) {
+            for (bin = 0U; bin < count; bin++) {
+                int32_t sum0 = 0;
+                int32_t sum1 = 0;
+                for (loop = 0U; loop < gCapturePlan.loops; loop++) {
+                    const int16_t *p = l3_rbChirpRx(slot, loop * N_TX + gRbTx[t], rx);
+                    sum0 += p[2U * bin];
+                    sum1 += p[2U * bin + 1U];
+                }
+                gRbMean[t][rx][bin][0] = (double)sum0 / (double)gCapturePlan.loops;
+                gRbMean[t][rx][bin][1] = (double)sum1 / (double)gCapturePlan.loops;
+            }
+        }
+    }
+}
+
+static uint64_t l3_rbKey(double value)
+{
+    uint64_t key;
+
+    memcpy((void *)&key, (const void *)&value, sizeof(key));
+    return key;
+}
+
+/* One pass over every MTI power sample of a scope. With collect == 0 it
+ * histograms L3_RB_RADIX_BITS of the IEEE-754 pattern at `shift` for samples
+ * whose bits above `prefixShift` equal `prefix`; with collect != 0 it stores
+ * those samples. Non-negative doubles order the same as their bit patterns.
+ * Returns the number of matching samples. */
+static uint32_t l3_rbPowerPass(const l3_readout_t *r, uint8_t scope,
+                               uint8_t usePrefix, uint32_t prefixShift,
+                               uint64_t prefix, uint32_t shift, uint8_t collect)
+{
+    uint32_t index, t, loop, rx, bin;
+    uint32_t matched = 0U;
+
+    if (!collect) {
+        memset((void *)gRbHist, 0, sizeof(gRbHist));
+    }
+    for (index = 0U; index < r->frames; index++) {
+        uint32_t slot = l3_rbSlot(r, index);
+        uint32_t count = gFrameBinCount[slot];
+
+        l3_rbFrameMeans(slot, scope);
+        for (t = 0U; t < L3_RB_TX; t++) {
+            for (loop = 0U; loop < gCapturePlan.loops; loop++) {
+                uint32_t chirp = loop * N_TX + gRbTx[t];
+                for (rx = 0U; rx < N_RX; rx++) {
+                    const int16_t *p = l3_rbChirpRx(slot, chirp, rx);
+                    for (bin = 0U; bin < count; bin++) {
+                        double d0 = (double)p[2U * bin] - gRbMean[t][rx][bin][0];
+                        double d1 = (double)p[2U * bin + 1U] - gRbMean[t][rx][bin][1];
+                        double power = d0 * d0 + d1 * d1;
+                        uint64_t key = l3_rbKey(power);
+
+                        if (usePrefix && (key >> prefixShift) != prefix) {
+                            continue;
+                        }
+                        if (collect) {
+                            if (matched < L3_RB_SORT_MAX) {
+                                gRbSort[matched] = power;
+                            }
+                        } else {
+                            gRbHist[(uint32_t)(key >> shift) & (L3_RB_RADIX_SIZE - 1U)]++;
+                        }
+                        matched++;
+                    }
+                }
+            }
+        }
+    }
+    return matched;
+}
+
+/* rank-th smallest MTI power (0-based). *next receives the following value
+ * when it was found in the same pass. Returns 0, or -1 when too many samples
+ * share the leading bits to finish in the sort buffer. */
+static int32_t l3_rbSelect(const l3_readout_t *r, uint8_t scope, uint32_t rank,
+                           double *value, double *next, uint8_t *haveNext)
+{
+    uint64_t prefix = 0U;
+    uint32_t shift = 64U - L3_RB_RADIX_BITS;
+    uint32_t level, bucket, i, j, matched;
+    uint8_t usePrefix = 0U;
+
+    *haveNext = 0U;
+    for (level = 0U; level < 3U; level++) {
+        uint32_t below = 0U;
+
+        (void)l3_rbPowerPass(r, scope, usePrefix, shift + L3_RB_RADIX_BITS,
+                             prefix, shift, 0U);
+        for (bucket = 0U; bucket < L3_RB_RADIX_SIZE; bucket++) {
+            if (rank < below + gRbHist[bucket]) {
+                break;
+            }
+            below += gRbHist[bucket];
+        }
+        if (bucket == L3_RB_RADIX_SIZE) {
+            return -1;
+        }
+        rank -= below;
+        prefix = (prefix << L3_RB_RADIX_BITS) | (uint64_t)bucket;
+        usePrefix = 1U;
+        if (gRbHist[bucket] <= L3_RB_SORT_MAX) {
+            break;
+        }
+        shift -= L3_RB_RADIX_BITS;
+    }
+    if (level == 3U) {
+        return -1;
+    }
+    matched = l3_rbPowerPass(r, scope, 1U, shift, prefix, 0U, 1U);
+    if (matched > L3_RB_SORT_MAX || rank >= matched) {
+        return -1;
+    }
+    for (i = 1U; i < matched; i++) {
+        double held = gRbSort[i];
+        for (j = i; j > 0U && gRbSort[j - 1U] > held; j--) {
+            gRbSort[j] = gRbSort[j - 1U];
+        }
+        gRbSort[j] = held;
+    }
+    *value = gRbSort[rank];
+    if (rank + 1U < matched) {
+        *next = gRbSort[rank + 1U];
+        *haveNext = 1U;
+    }
+    return 0;
+}
+
+/* Median MTI power of a scope, as numpy.median gives it. */
+static int32_t l3_rbNoise(const l3_readout_t *r, uint8_t scope, uint32_t samples,
+                          double *noise)
+{
+    double low = 0.0;
+    double high = 0.0;
+    uint8_t haveHigh = 0U;
+
+    if (samples == 0U) {
+        return -1;
+    }
+    if (l3_rbSelect(r, scope, (samples - 1U) / 2U, &low, &high, &haveHigh) != 0) {
+        return -1;
+    }
+    if ((samples & 1U) != 0U) {
+        *noise = low;
+        return 0;
+    }
+    if (!haveHigh) {
+        double unused = 0.0;
+        if (l3_rbSelect(r, scope, samples / 2U, &high, &unused, &haveHigh) != 0) {
+            return -1;
+        }
+    }
+    *noise = (low + high) / 2.0;
+    return 0;
+}
+
+static void l3_rbWrite(const void *data, uint32_t bytes)
+{
+    UART_writePolling(gDataUart, (uint8_t *)data, bytes);
+}
+
+static void l3_rbWriteU16(uint16_t value)
+{
+    uint8_t out[2];
+
+    out[0] = (uint8_t)(value & 0xFFU);
+    out[1] = (uint8_t)(value >> 8U);
+    l3_rbWrite(out, sizeof(out));
+}
+
+/* CLI "l3freeze": halt capture at the post-trigger frame boundary, keep the ring. */
+static int32_t l3_cli_freeze(int32_t argc, char *argv[])
+{
+    (void)argc; (void)argv;
+
+    if (gReadoutFrozen) {
+        return 0;
+    }
+    if (!gCaptureActive) {
+        return -1;
+    }
+    if (l3_stopCaptureAtBoundary() != 0) {
+        return -1;
+    }
+    gReadoutFrozen = 1U;
+    return 0;
+}
+
+/* CLI "l3resume": restart capture without sending anything further. */
+static int32_t l3_cli_resume(int32_t argc, char *argv[])
+{
+    (void)argc; (void)argv;
+
+    if (!gReadoutFrozen) {
+        return 0;
+    }
+    return l3_restartAfterReadout();
+}
+
+/* CLI "l3sum <0|1>": the ball search's loop-power table and noise level for
+ * burst (0) or window (1) scope MTI. Stream layout, little-endian:
+ *   "ILS1", u8 scope, u8 n_tx, u8 n_rx, u8 0, u16 loops, u16 frames, u16 bins,
+ *   u16 frame_period_us,
+ *   frames x frame descriptor (as in a dump),
+ *   scope 1 only: u16 mean_bins, then f64[2 tx][n_rx][mean_bins][2 words],
+ *   f32[frames * loops][bins] power summed over the TX pair and RX,
+ *   f64 noise, u32 samples, u32 status (0 ok, 1 noise unavailable). */
+static int32_t l3_cli_summary(int32_t argc, char *argv[])
+{
+    l3_readout_t r;
+    uint8_t scope = 0U;
+    uint8_t fixed[4];
+    uint16_t bins;
+    uint32_t index, t, loop, rx, bin;
+    uint32_t samples = 0U;
+    uint32_t status = 0U;
+    double noise = 0.0;
+
+    if (argc != 2 || l3_parseU8(argv[1], &scope) != 0 || scope > L3_RB_SCOPE_WINDOW) {
+        CLI_write("Error: l3sum 0|1\n");
+        return -1;
+    }
+    if (l3_rbReady() != 0) {
+        return -1;
+    }
+    l3_rbReadout(&r);
+    bins = gCapturePlan.preBins;
+    if (gCapturePlan.impactBins > bins) {
+        bins = gCapturePlan.impactBins;
+    }
+    if (gCapturePlan.postBins > bins) {
+        bins = gCapturePlan.postBins;
+    }
+
+    l3_rbWrite(L3_SUMMARY_MAGIC, 4U);
+    fixed[0] = scope;
+    fixed[1] = N_TX;
+    fixed[2] = N_RX;
+    fixed[3] = 0U;
+    l3_rbWrite(fixed, sizeof(fixed));
+    l3_rbWriteU16(gCapturePlan.loops);
+    l3_rbWriteU16((uint16_t)r.frames);
+    l3_rbWriteU16(bins);
+    l3_rbWriteU16(gFramePeriodUs);
+    for (index = 0U; index < r.frames; index++) {
+        l3_writeFrameDescriptor(l3_rbSlot(&r, index), (index == 0U));
+    }
+
+    if (scope == L3_RB_SCOPE_WINDOW) {
+        uint16_t meanBins = 0U;
+
+        l3_rbWindowSums(&r);
+        for (bin = 0U; bin < L3_RB_ABS_BINS; bin++) {
+            if (gRbWindowCount[bin] != 0U) {
+                meanBins = (uint16_t)(bin + 1U);
+            }
+        }
+        l3_rbWriteU16(meanBins);
+        for (t = 0U; t < L3_RB_TX; t++) {
+            for (rx = 0U; rx < N_RX; rx++) {
+                for (bin = 0U; bin < meanBins; bin++) {
+                    double n = (gRbWindowCount[bin] != 0U)
+                                   ? (double)gRbWindowCount[bin] : 1.0;
+                    double mean[2];
+                    mean[0] = (double)gRbWindowSum[t][rx][bin][0] / n;
+                    mean[1] = (double)gRbWindowSum[t][rx][bin][1] / n;
+                    l3_rbWrite(mean, sizeof(mean));
+                }
+            }
+        }
+    }
+
+    for (index = 0U; index < r.frames; index++) {
+        uint32_t slot = l3_rbSlot(&r, index);
+        uint32_t count = gFrameBinCount[slot];
+
+        samples += L3_RB_TX * gCapturePlan.loops * N_RX * count;
+        l3_rbFrameMeans(slot, scope);
+        for (loop = 0U; loop < gCapturePlan.loops; loop++) {
+            for (bin = 0U; bin < bins; bin++) {
+                gRbRow[bin] = 0.0;
+            }
+            for (t = 0U; t < L3_RB_TX; t++) {
+                for (rx = 0U; rx < N_RX; rx++) {
+                    const int16_t *p = l3_rbChirpRx(slot, loop * N_TX + gRbTx[t], rx);
+                    for (bin = 0U; bin < count; bin++) {
+                        double d0 = (double)p[2U * bin] - gRbMean[t][rx][bin][0];
+                        double d1 = (double)p[2U * bin + 1U] - gRbMean[t][rx][bin][1];
+                        gRbRow[bin] += d0 * d0 + d1 * d1;
+                    }
+                }
+            }
+            for (bin = 0U; bin < bins; bin++) {
+                gRbRowOut[bin] = (float)gRbRow[bin];
+            }
+            l3_rbWrite(gRbRowOut, (uint32_t)bins * (uint32_t)sizeof(float));
+        }
+    }
+
+    if (l3_rbNoise(&r, scope, samples, &noise) != 0) {
+        noise = 0.0;
+        status = 1U;
+    }
+    l3_rbWrite(&noise, sizeof(noise));
+    l3_rbWrite(&samples, sizeof(samples));
+    l3_rbWrite(&status, sizeof(status));
+    return 0;
+}
+
+static int32_t l3_rbHexNibble(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return (int32_t)(c - '0');
+    }
+    if (c >= 'a' && c <= 'f') {
+        return (int32_t)(c - 'a') + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return (int32_t)(c - 'A') + 10;
+    }
+    return -1;
+}
+
+static int32_t l3_rbHexByte(const char *text, uint8_t *value)
+{
+    int32_t high = l3_rbHexNibble(text[0]);
+    int32_t low = (high < 0) ? -1 : l3_rbHexNibble(text[1]);
+
+    if (low < 0) {
+        return -1;
+    }
+    *value = (uint8_t)((high << 4) | low);
+    return 0;
+}
+
+/* CLI "l3bins <hex>": the stored samples inside one range window per frame.
+ * <hex> is four hex digits per frame in dump order: first local bin, bin
+ * count; a zero count skips the frame. Stream layout:
+ *   "ILB1", u16 frames, frames x (u8 first, u8 count),
+ *   per frame with a non-zero count: every chirp, every RX, count complex16. */
+static int32_t l3_cli_bins(int32_t argc, char *argv[])
+{
+    static uint8_t first[L3_MAX_CAPTURE_FRAMES];
+    static uint8_t counts[L3_MAX_CAPTURE_FRAMES];
+    l3_readout_t r;
+    uint32_t index, chirp, rx;
+
+    if (argc != 2) {
+        CLI_write("Error: l3bins <hex>\n");
+        return -1;
+    }
+    if (l3_rbReady() != 0) {
+        return -1;
+    }
+    l3_rbReadout(&r);
+    if (strlen(argv[1]) != 4U * r.frames) {
+        CLI_write("Error: l3bins needs 4 hex digits per frame (%d frames)\n", r.frames);
+        return -1;
+    }
+    for (index = 0U; index < r.frames; index++) {
+        uint32_t slot = l3_rbSlot(&r, index);
+
+        if (l3_rbHexByte(&argv[1][4U * index], &first[index]) != 0 ||
+            l3_rbHexByte(&argv[1][4U * index + 2U], &counts[index]) != 0 ||
+            (uint32_t)first[index] + (uint32_t)counts[index] > gFrameBinCount[slot]) {
+            CLI_write("Error: l3bins window %d invalid\n", index);
+            return -1;
+        }
+    }
+
+    l3_rbWrite(L3_BINS_MAGIC, 4U);
+    l3_rbWriteU16((uint16_t)r.frames);
+    for (index = 0U; index < r.frames; index++) {
+        uint8_t pair[2];
+        pair[0] = first[index];
+        pair[1] = counts[index];
+        l3_rbWrite(pair, sizeof(pair));
+    }
+    for (index = 0U; index < r.frames; index++) {
+        uint32_t slot = l3_rbSlot(&r, index);
+        uint32_t bytes = (uint32_t)counts[index] * 2U * (uint32_t)sizeof(int16_t);
+
+        if (counts[index] == 0U) {
+            continue;
+        }
+        for (chirp = 0U; chirp < gCapturePlan.chirpsPerFrame; chirp++) {
+            for (rx = 0U; rx < N_RX; rx++) {
+                const int16_t *p = l3_rbChirpRx(slot, chirp, rx) + 2U * first[index];
+                memcpy((void *)&gRbChirp[rx * bytes], (const void *)p, bytes);
+            }
+            l3_rbWrite(gRbChirp, N_RX * bytes);
+        }
+    }
+    return 0;
+}
+#endif /* CONFIGURABLE_CAPTURE */
 
 /* CLI "stats": report capture counters (diagnostic). */
 static int32_t l3_cli_stats(int32_t argc, char *argv[])
@@ -3489,6 +4030,18 @@ static void l3_initTask(UArg arg0, UArg arg1)
     cliCfg.tableEntry[10].cmdHandlerFxn = l3_cli_iq8Scale;
 #endif
 #endif
+    cliCfg.tableEntry[11].cmd           = "l3freeze";
+    cliCfg.tableEntry[11].helpString    = "Halt capture after the post-trigger frames and keep the ring";
+    cliCfg.tableEntry[11].cmdHandlerFxn = l3_cli_freeze;
+    cliCfg.tableEntry[12].cmd           = "l3sum";
+    cliCfg.tableEntry[12].helpString    = "l3sum 0|1: loop-power table and noise (burst|window MTI)";
+    cliCfg.tableEntry[12].cmdHandlerFxn = l3_cli_summary;
+    cliCfg.tableEntry[13].cmd           = "l3bins";
+    cliCfg.tableEntry[13].helpString    = "l3bins <hex>: samples in one range window per frame";
+    cliCfg.tableEntry[13].cmdHandlerFxn = l3_cli_bins;
+    cliCfg.tableEntry[14].cmd           = "l3resume";
+    cliCfg.tableEntry[14].helpString    = "Restart capture after l3freeze";
+    cliCfg.tableEntry[14].cmdHandlerFxn = l3_cli_resume;
 #endif
     CLI_open(&cliCfg);
 }

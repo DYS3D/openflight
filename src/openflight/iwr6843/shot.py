@@ -326,6 +326,31 @@ def prepare_shot_dump(
     )
 
 
+def burst_track_settled(track: tracking.BallTrack | None) -> bool:
+    """Whether the burst-scope track stands without consulting window-scope MTI."""
+    return not (track_broken(track) or near_mti_notch(track.speed_ms))
+
+
+def find_scope_track(
+    prepared: PreparedShotDump,
+    scope: str = "burst",
+    *,
+    club: str | None = None,
+    net_range_m: float | None = None,
+) -> tracking.BallTrack | None:
+    """Ball range walk from one MTI scope's loop-power table."""
+    # keep everything 25 cm short of the net: a ball riding up the net is
+    # an upward mover that tilts every angle fit high (user setup: net
+    # ~3 m past the tee)
+    max_r = (net_range_m - 0.25) if net_range_m else None
+    return tracking.find_ball_in_power(
+        prepared.loop_power(scope),
+        prepared.geometry,
+        max_range_m=max_r,
+        min_ball_ms=CLUB_MIN_BALL_MS[club_class(club)],
+    )
+
+
 def select_ball_track(
     prepared: PreparedShotDump,
     *,
@@ -333,23 +358,13 @@ def select_ball_track(
     net_range_m: float | None = None,
 ) -> tuple[tracking.BallTrack | None, bool]:
     """Ball range walk from the loop-power tables, and whether window-scope MTI won."""
-    geo = prepared.geometry
-    # keep everything 25 cm short of the net: a ball riding up the net is
-    # an upward mover that tilts every angle fit high (user setup: net
-    # ~3 m past the tee)
-    max_r = (net_range_m - 0.25) if net_range_m else None
-    min_ms = CLUB_MIN_BALL_MS[club_class(club)]
-    track = tracking.find_ball_in_power(
-        prepared.loop_power(), geo, max_range_m=max_r, min_ball_ms=min_ms
-    )
-    if not (track_broken(track) or (track is not None and near_mti_notch(track.speed_ms))):
+    track = find_scope_track(prepared, club=club, net_range_m=net_range_m)
+    if burst_track_settled(track):
         return track, False
     # burst-MTI notches balls near n x 26.93 m/s and shatters their
     # range walk; the window-scope filter keeps them (statics still
     # cancel over the full window)
-    track_w = tracking.find_ball_in_power(
-        prepared.loop_power("window"), geo, max_range_m=max_r, min_ball_ms=min_ms
-    )
+    track_w = find_scope_track(prepared, "window", club=club, net_range_m=net_range_m)
     if not track_broken(track_w) and (
         track_broken(track)
         or track_w.rms_bins < track.rms_bins

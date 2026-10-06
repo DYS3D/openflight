@@ -17,13 +17,21 @@ samples away from the ball's track, so those still need the full dump.
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 
-from openflight.iwr6843.dump import is_range_snapshot, pack_dump, parse_dump
+from openflight.iwr6843.dump import (
+    SAMPLE_RANGE_FFT_IQ16_VARIABLE_TIMED,
+    TIMED_FRAME_DESCRIPTOR,
+    is_range_snapshot,
+    pack_dump,
+    parse_dump,
+)
 from openflight.iwr6843.lcmf import PreparedLCMFCapture, prepare_lcmf_capture
-from openflight.iwr6843.shot import select_ball_track
+from openflight.iwr6843.shot import burst_track_settled, find_scope_track, select_ball_track
 from openflight.iwr6843.tracking import BallTrack
 
 MTI_SCOPES = ("burst", "window")
@@ -31,6 +39,15 @@ MTI_SCOPES = ("burst", "window")
 TRACK_TIME_PAD_S = 2e-3
 # Bins fetched beyond the track on each side; the estimator needs one.
 DEFAULT_MARGIN_BINS = 2
+
+# Firmware replies to `l3sum <scope>` and `l3bins <hex>` (firmware/iwr6843/l3_dump.c).
+SUMMARY_MAGIC = b"ILS1"
+WINDOWS_MAGIC = b"ILB1"
+_SUMMARY_HEADER = struct.Struct("<4sBBBBHHHH")
+_SUMMARY_TRAILER = struct.Struct("<dII")
+_WINDOWS_HEADER = struct.Struct("<4sH")
+# A summary carries no temperature report, so it maps to the timed schema without one.
+_READBACK_DUMP_VERSION = 6
 
 Window = tuple[int, int]
 
@@ -185,16 +202,233 @@ def prepare_readback(
     n_frames, chirps_per_frame, n_rx, n_samples = vertical.cube.shape
     range_movie = vertical.cube.reshape(n_frames, chirps_per_frame // 2, 2, n_rx, n_samples)
     range_movie = range_movie.transpose(0, 2, 1, 3, 4)
-    window_mti = np.zeros_like(range_movie)
-    frame_windows = _frame_windows(metadata)
-    for frame, (low, count) in enumerate(windows):
-        first = frame_windows[frame][0] + low
-        window_mti[frame, :, :, :, low : low + count] = (
-            range_movie[frame, :, :, :, low : low + count]
-            - summary.window_mean[:, None, :, first : first + count]
-        )
     # pylint: disable=protected-access  # seeding the capture's own lazy caches
-    vertical._mti_by_scope["window"] = window_mti
+    if "window" in summary.loop_power:
+        window_mti = np.zeros_like(range_movie)
+        frame_windows = _frame_windows(metadata)
+        for frame, (low, count) in enumerate(windows):
+            first = frame_windows[frame][0] + low
+            window_mti[frame, :, :, :, low : low + count] = (
+                range_movie[frame, :, :, :, low : low + count]
+                - summary.window_mean[:, None, :, first : first + count]
+            )
+        vertical._mti_by_scope["window"] = window_mti
     vertical._power_by_scope.update(summary.loop_power)
     vertical._noise_by_scope.update(summary.noise_power)
     return prepared
+
+
+def encode_summary_reply(summary: CaptureSummary, scope: int) -> bytes:
+    """Reference for the firmware's `l3sum <scope>` reply (0 burst, 1 window)."""
+    metadata = summary.metadata
+    name = MTI_SCOPES[scope]
+    offsets = metadata["frame_time_offsets_us"]
+    deltas = [0] + [int(b - a) for a, b in zip(offsets, offsets[1:])]
+    parts = [
+        _SUMMARY_HEADER.pack(
+            SUMMARY_MAGIC,
+            scope,
+            metadata["n_tx"],
+            metadata["n_rx"],
+            0,
+            metadata["chirps_per_frame"] // metadata["n_tx"],
+            metadata["n_frames"],
+            metadata["n_samples"],
+            metadata.get("frame_period_us", 0),
+        )
+    ]
+    for (start, count), delta in zip(_frame_windows(metadata), deltas):
+        parts.append(TIMED_FRAME_DESCRIPTOR.pack(start, count, delta))
+    if name == "window":
+        mean = summary.window_mean
+        parts.append(struct.pack("<H", mean.shape[-1]))
+        parts.append(np.stack([mean.imag, mean.real], axis=-1).astype("<f8").tobytes())
+    parts.append(np.asarray(summary.loop_power[name]).astype("<f4").tobytes())
+    samples = 2 * (metadata["chirps_per_frame"] // metadata["n_tx"]) * metadata["n_rx"]
+    samples *= sum(count for _start, count in _frame_windows(metadata))
+    parts.append(_SUMMARY_TRAILER.pack(summary.noise_power[name], samples, 0))
+    return b"".join(parts)
+
+
+def summary_reply_nbytes(partial: bytes) -> int | None:
+    """Full length of a summary reply, or None until enough of it has arrived."""
+    if len(partial) < _SUMMARY_HEADER.size:
+        return None
+    magic, scope, _n_tx, n_rx, _pad, loops, frames, bins, _period = _SUMMARY_HEADER.unpack_from(
+        partial
+    )
+    if magic != SUMMARY_MAGIC or scope >= len(MTI_SCOPES):
+        raise ValueError("not a readback summary")
+    size = _SUMMARY_HEADER.size + TIMED_FRAME_DESCRIPTOR.size * frames
+    if MTI_SCOPES[scope] == "window":
+        if len(partial) < size + 2:
+            return None
+        (mean_bins,) = struct.unpack_from("<H", partial, size)
+        size += 2 + 2 * n_rx * mean_bins * 16
+    return size + 4 * frames * loops * bins + _SUMMARY_TRAILER.size
+
+
+def _decode_summary_reply(reply: bytes) -> tuple[str, dict, np.ndarray, float, np.ndarray | None]:
+    if summary_reply_nbytes(reply) != len(reply):
+        raise ValueError("truncated readback summary")
+    _magic, scope, n_tx, n_rx, _pad, loops, frames, bins, period = _SUMMARY_HEADER.unpack_from(
+        reply
+    )
+    position = _SUMMARY_HEADER.size
+    descriptors = list(TIMED_FRAME_DESCRIPTOR.iter_unpack(reply[position : position + 4 * frames]))
+    position += TIMED_FRAME_DESCRIPTOR.size * frames
+    offsets = np.cumsum([delta for _start, _count, delta in descriptors])
+    metadata = {
+        "version": _READBACK_DUMP_VERSION,
+        "sample_fmt": SAMPLE_RANGE_FFT_IQ16_VARIABLE_TIMED,
+        "n_frames": frames,
+        "chirps_per_frame": loops * n_tx,
+        "n_tx": n_tx,
+        "n_rx": n_rx,
+        "n_samples": bins,
+        "trigger_frame": 0,
+        "frame_period_us": period,
+        "range_bin_starts": tuple(start for start, _count, _delta in descriptors),
+        "range_bin_counts": tuple(count for _start, count, _delta in descriptors),
+        "frame_time_offsets_us": tuple(int(offset) for offset in offsets),
+    }
+    mean = None
+    if MTI_SCOPES[scope] == "window":
+        (mean_bins,) = struct.unpack_from("<H", reply, position)
+        words = np.frombuffer(reply, "<f8", 2 * n_rx * mean_bins * 2, position + 2)
+        words = words.reshape(2, n_rx, mean_bins, 2)
+        mean = words[..., 1] + 1j * words[..., 0]
+        position += 2 + words.nbytes
+    power = np.frombuffer(reply, "<f4", frames * loops * bins, position).astype(float)
+    noise, _samples, status = _SUMMARY_TRAILER.unpack_from(reply, position + 4 * power.size)
+    if status != 0:
+        raise ValueError(f"radar could not summarize the capture (status {status})")
+    return MTI_SCOPES[scope], metadata, power.reshape(frames * loops, bins), noise, mean
+
+
+def decode_summary(*replies: bytes) -> CaptureSummary:
+    """Build a summary from the burst reply and, when fetched, the window reply."""
+    loop_power: dict[str, np.ndarray] = {}
+    noise_power: dict[str, float] = {}
+    metadata: dict = {}
+    window_mean = None
+    for reply in replies:
+        scope, reply_metadata, power, noise, mean = _decode_summary_reply(reply)
+        if metadata and reply_metadata != metadata:
+            raise ValueError("readback summaries describe different captures")
+        metadata = reply_metadata
+        loop_power[scope] = power
+        noise_power[scope] = noise
+        window_mean = mean if mean is not None else window_mean
+    if "burst" not in loop_power:
+        raise ValueError("readback needs the burst summary")
+    if window_mean is None:
+        window_mean = np.zeros((2, metadata["n_rx"], 0), dtype=complex)
+    return CaptureSummary(metadata, loop_power, noise_power, window_mean)
+
+
+def encode_windows_request(windows: tuple[Window, ...]) -> str:
+    """Argument of `l3bins`: four hex digits per frame (first local bin, count)."""
+    return "".join(f"{low:02x}{count:02x}" for low, count in windows)
+
+
+def windows_reply_nbytes(summary: CaptureSummary, windows: tuple[Window, ...]) -> int:
+    """Length of the `l3bins` reply for these windows."""
+    return _WINDOWS_HEADER.size + 2 * len(windows) + windows_nbytes(summary, windows)
+
+
+def encode_windows_reply(windows: tuple[Window, ...], samples: tuple[np.ndarray, ...]) -> bytes:
+    """Reference for the firmware's `l3bins` reply."""
+    parts = [_WINDOWS_HEADER.pack(WINDOWS_MAGIC, len(windows))]
+    parts.extend(bytes(window) for window in windows)
+    for (_low, count), frame_samples in zip(windows, samples):
+        if count:
+            words = np.stack([frame_samples.imag, frame_samples.real], axis=-1)
+            parts.append(np.rint(words).astype("<i2").tobytes())
+    return b"".join(parts)
+
+
+def decode_windows_reply(
+    reply: bytes, summary: CaptureSummary, windows: tuple[Window, ...]
+) -> tuple[np.ndarray, ...]:
+    """Each requested frame's [chirp, rx, bin] samples from an `l3bins` reply."""
+    if len(reply) != windows_reply_nbytes(summary, windows):
+        raise ValueError("truncated readback windows")
+    magic, frames = _WINDOWS_HEADER.unpack_from(reply)
+    position = _WINDOWS_HEADER.size + 2 * len(windows)
+    echoed = reply[_WINDOWS_HEADER.size : position]
+    if magic != WINDOWS_MAGIC or frames != len(windows) or echoed != bytes(sum(windows, ())):
+        raise ValueError("radar answered a different window request")
+    chirps, n_rx = summary.metadata["chirps_per_frame"], summary.metadata["n_rx"]
+    samples = []
+    for _low, count in windows:
+        words = np.frombuffer(reply, "<i2", chirps * n_rx * count * 2, position)
+        words = words.reshape(chirps, n_rx, count, 2).astype(float)
+        samples.append(words[..., 1] + 1j * words[..., 0])
+        position += 2 * words.size
+    return tuple(samples)
+
+
+@dataclass(frozen=True)
+class Readback:
+    """One capture's summary and the range windows fetched for its ball."""
+
+    summary: CaptureSummary
+    windows: tuple[Window, ...]
+    samples: tuple[np.ndarray, ...]
+
+    def prepare(self) -> PreparedLCMFCapture:
+        """Estimator-ready capture holding only what was fetched."""
+        return prepare_readback(self.summary, self.windows, self.samples)
+
+    def covers(self, *, club: str | None, net_range_m: float | None) -> bool:
+        """Whether the estimator, run for this club, stays inside what was fetched."""
+        vertical = prepare_readback(self.summary, (), ()).vertical
+        if "window" in self.summary.loop_power:
+            track, _notch_used = select_ball_track(vertical, club=club, net_range_m=net_range_m)
+        else:
+            track = find_scope_track(vertical, club=club, net_range_m=net_range_m)
+            if not burst_track_settled(track):
+                return False
+        if track is None:
+            return False
+        needed = track_windows(self.summary, track, margin_bins=1)
+        return all(
+            count == 0 or (have_low <= low and low + count <= have_low + have_count)
+            for (low, count), (have_low, have_count) in zip(needed, self.windows)
+        )
+
+
+class ReadbackLink(Protocol):
+    """The radar commands a selective readback uses on a frozen capture."""
+
+    def read_summary(self, scope: int) -> bytes:
+        """Reply to `l3sum <scope>`."""
+
+    def read_windows(self, request: str, nbytes: int) -> bytes:
+        """Reply to `l3bins <request>`, which is `nbytes` long."""
+
+
+def read_selective(
+    link: ReadbackLink,
+    *,
+    club: str | None = None,
+    net_range_m: float | None = None,
+    margin_bins: int = DEFAULT_MARGIN_BINS,
+) -> Readback | None:
+    """Fetch the ball's samples from a frozen capture; None when no ball shows."""
+    burst_reply = link.read_summary(0)
+    summary = decode_summary(burst_reply)
+    vertical = prepare_readback(summary, (), ()).vertical
+    track = find_scope_track(vertical, club=club, net_range_m=net_range_m)
+    if not burst_track_settled(track):
+        summary = decode_summary(burst_reply, link.read_summary(1))
+        vertical = prepare_readback(summary, (), ()).vertical
+        track, _notch_used = select_ball_track(vertical, club=club, net_range_m=net_range_m)
+    if track is None:
+        return None
+    windows = track_windows(summary, track, margin_bins=margin_bins)
+    reply = link.read_windows(
+        encode_windows_request(windows), windows_reply_nbytes(summary, windows)
+    )
+    return Readback(summary, windows, decode_windows_reply(reply, summary, windows))

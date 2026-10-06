@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from openflight.iwr6843.driver import DumpRestartError, IWR6843Radar
+from openflight.iwr6843.driver import DumpRestartError, IWR6843Radar, ReadbackError
 from openflight.iwr6843.dump import (
     SAMPLE_RANGE_FFT_IQ16_VARIABLE_TIMED,
     TEMP_REPORT_KEYS,
@@ -288,7 +288,7 @@ def test_read_windows_reads_exactly_the_requested_length():
 def test_readback_command_rejected_by_firmware_raises():
     radar = _scripted_radar({b"l3sum 0\n": b"l3sum 0\r\nError: l3freeze first\r\nError -1\r\n"})
 
-    with pytest.raises(RuntimeError, match="l3freeze first"):
+    with pytest.raises(ReadbackError, match="l3freeze first"):
         radar.read_summary(0)
 
 
@@ -296,7 +296,7 @@ def test_stalled_readback_reply_times_out(monkeypatch):
     radar = _scripted_radar({b"l3sum 0\n": b"l3sum 0\r\n" + _summary_reply()[:50]})
     monkeypatch.setattr(radar, "drain_stale_output", lambda: 0)
 
-    with pytest.raises(TimeoutError, match="l3sum"):
+    with pytest.raises(ReadbackError, match="l3sum"):
         radar._read_reply("l3sum 0", b"ILS1", lambda _partial: None, timeout_s=0.05)
 
 

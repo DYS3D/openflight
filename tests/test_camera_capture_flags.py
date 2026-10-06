@@ -200,7 +200,6 @@ class TestInitCameraCapture:
         assert server_module.camera_capture_config["archive_frames"] is archive_frames
         assert server_module.camera_capture_config["frames_in_memory"] is frames_in_memory
 
-
     def test_failure_after_start_releases_the_camera(self, monkeypatch, tmp_path):
         from openflight.camera import capture_runtime, replay
 
@@ -494,9 +493,10 @@ class TestIwr6843EstimatorFlags:
     @pytest.mark.parametrize(
         ("argv", "expected"),
         [
-            ([], (False, False)),
-            (["--iwr6843-estimator-process"], (True, False)),
-            (["--iwr6843-fast-angle-search"], (False, True)),
+            ([], (False, False, False)),
+            (["--iwr6843-estimator-process"], (True, False, False)),
+            (["--iwr6843-fast-angle-search"], (False, True, False)),
+            (["--iwr6843-selective-readback"], (False, False, True)),
         ],
     )
     def test_cli_flags_reach_init_iwr6843(self, monkeypatch, tmp_path, argv, expected):
@@ -520,4 +520,5 @@ class TestIwr6843EstimatorFlags:
         monkeypatch.setattr(server_module, "air_density", server_module.air_density)
         with pytest.raises(SystemExit):
             server_module.main()
-        assert (seen["estimator_process"], seen["fast_angle_search"]) == expected
+        flags = ("estimator_process", "fast_angle_search", "selective_readback")
+        assert tuple(seen[flag] for flag in flags) == expected

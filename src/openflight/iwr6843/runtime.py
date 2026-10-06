@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from openflight.iwr6843.calibration import Calibration
@@ -130,6 +131,8 @@ class IWR6843Runtime:
     net_range_m: float | None
     tx_order: str = "normal"
     capture_timeout_s: float = 12.0
+    # The currently selected club, for the capture monitor's early ball search.
+    club_provider: Callable[[], str | None] | None = None
     azimuth_offset_deg: float = 0.0
     horizontal_phase_reference_rad: float | None = None
     tdm_sign_policy: str = "positive"
@@ -157,6 +160,15 @@ class IWR6843Runtime:
     _estimator_worker_lock: threading.Lock = field(
         default_factory=threading.Lock, init=False, repr=False
     )
+
+    def __post_init__(self) -> None:
+        if getattr(self.capture_monitor, "selective_readback", False):
+            # pylint: disable-next=protected-access  # the runtime owns this monitor
+            self.capture_monitor._readback_context = self._readback_context
+
+    def _readback_context(self) -> dict:
+        club = self.club_provider() if self.club_provider is not None else None
+        return {"club": club, "net_range_m": self.net_range_m}
 
     def _worker(self) -> EstimatorWorker | None:
         with self._estimator_worker_lock:
@@ -328,6 +340,59 @@ class IWR6843Runtime:
             return replace(baseline, status="accepted_track_speed_warning")
         return baseline
 
+    def _with_azimuth_offset(self, measurement):
+        horizontal_deg = getattr(measurement, "horizontal_deg", None)
+        if horizontal_deg is None:
+            return measurement
+        return replace(
+            measurement,
+            horizontal_deg=horizontal_deg + self.azimuth_offset_deg,
+            horizontal_raw_deg=horizontal_deg,
+        )
+
+    def _readback_measurement(
+        self,
+        capture: IWR6843Capture,
+        calibration: Calibration,
+        *,
+        ball_speed_mph: float,
+        club: str | None,
+    ) -> LCMFResult | None:
+        """The ball measurement from a selective readback, when it is already final.
+
+        None sends the shot to the full dump: the fetched windows do not hold the
+        track this club selects, the estimate was rejected, or its speed disagrees
+        with OPS and the recovery search (which reads the whole ring) must run.
+        """
+        readback = capture.readback
+        if readback is None or not readback.covers(club=club, net_range_m=self.net_range_m):
+            return None
+        try:
+            measurement = estimate_lcmf_v1(
+                b"",
+                calibration,
+                ball_speed_mph=ball_speed_mph,
+                club=club,
+                net_range_m=self.net_range_m,
+                tx_order=self.tx_order,
+                tdm_sign_policy=self.tdm_sign_policy,
+                horizontal_phase_reference_rad=self.horizontal_phase_reference_rad,
+                prepared=readback.prepare(),
+                grid_step_deg=self.angle_grid_step_deg,
+            )
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            logger.warning("[IWR6843] Readback estimate failed; using the full dump: %s", error)
+            return None
+        speed = measurement.track_speed_mph
+        if (
+            not measurement.accepted
+            or speed is None
+            or ball_speed_mph <= 0.0
+            or abs(speed / ball_speed_mph - 1.0) > OPS_TRACK_SPEED_TOLERANCE_FRAC
+        ):
+            return None
+        return self._with_azimuth_offset(measurement)
+
     def process_shot(  # pylint: disable=too-many-arguments
         self,
         *,
@@ -336,46 +401,60 @@ class IWR6843Runtime:
         club: str | None,
         club_speed_mph: float | None = None,
         tilt_deg: float | None = None,
+        on_ball_measurement: Callable[[IWR6843ShotResult], None] | None = None,
     ) -> IWR6843ShotResult:
-        """Match one OPS shot to TI data and run LCMF-v1."""
+        """Match one OPS shot to TI data and run LCMF-v1.
+
+        With selective readback the ball measurement can be ready seconds before
+        the full dump; ``on_ball_measurement`` receives it then, and the returned
+        result repeats it alongside the club path once the dump has arrived.
+        """
         capture = self.capture_monitor.capture_for_shot(
             impact_timestamp,
             timeout_s=self.capture_timeout_s,
         )
-        if capture is None or not capture.valid or capture.raw is None:
+        if capture is None or not capture.valid:
             return IWR6843ShotResult(capture=capture, measurement=None)
         shot_calibration = self.calibration
         if tilt_deg is not None:
             shot_calibration = replace(self.calibration, tilt_rad=math.radians(tilt_deg))
-        prepared = prepare_lcmf_capture(capture.raw)
-        measurement = self._estimate_lcmf(
-            capture.raw,
-            shot_calibration,
-            ball_speed_mph=ball_speed_mph,
-            club=club,
-            net_range_m=self.net_range_m,
-            tx_order=self.tx_order,
-            tdm_sign_policy=self.tdm_sign_policy,
-            horizontal_phase_reference_rad=self.horizontal_phase_reference_rad,
-            prepared=prepared,
-            grid_step_deg=self.angle_grid_step_deg,
-        )
-        if isinstance(measurement, LCMFResult):
-            measurement = self._ops_guided_measurement(
+        measurement = None
+        if capture.raw is None:
+            measurement = self._readback_measurement(
+                capture, shot_calibration, ball_speed_mph=ball_speed_mph, club=club
+            )
+            if measurement is not None and on_ball_measurement is not None:
+                on_ball_measurement(IWR6843ShotResult(capture=capture, measurement=measurement))
+            full = capture.full(self.capture_timeout_s)
+            if full is None or full.raw is None or not full.valid:
+                if measurement is not None:
+                    return IWR6843ShotResult(capture=capture, measurement=measurement)
+                return IWR6843ShotResult(capture=full, measurement=None)
+            capture = full
+        if measurement is None:
+            prepared = prepare_lcmf_capture(capture.raw)
+            measurement = self._estimate_lcmf(
                 capture.raw,
                 shot_calibration,
                 ball_speed_mph=ball_speed_mph,
                 club=club,
-                baseline=measurement,
+                net_range_m=self.net_range_m,
+                tx_order=self.tx_order,
+                tdm_sign_policy=self.tdm_sign_policy,
+                horizontal_phase_reference_rad=self.horizontal_phase_reference_rad,
                 prepared=prepared,
+                grid_step_deg=self.angle_grid_step_deg,
             )
-        horizontal_deg = getattr(measurement, "horizontal_deg", None)
-        if horizontal_deg is not None:
-            measurement = replace(
-                measurement,
-                horizontal_deg=horizontal_deg + self.azimuth_offset_deg,
-                horizontal_raw_deg=horizontal_deg,
-            )
+            if isinstance(measurement, LCMFResult):
+                measurement = self._ops_guided_measurement(
+                    capture.raw,
+                    shot_calibration,
+                    ball_speed_mph=ball_speed_mph,
+                    club=club,
+                    baseline=measurement,
+                    prepared=prepared,
+                )
+            measurement = self._with_azimuth_offset(measurement)
         self._remember_recovery_observation(measurement, ball_speed_mph)
         club_path = None
         # No OPS club speed means no identity gate to distinguish the club

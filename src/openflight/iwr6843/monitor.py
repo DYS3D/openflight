@@ -7,7 +7,7 @@ import queue
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -17,6 +17,7 @@ import serial
 from openflight.gpio_factory import ensure_lgpio_pin_factory
 from openflight.iwr6843.driver import DumpRestartError, IWR6843Radar
 from openflight.iwr6843.dump import HEADER, parse_header, payload_nbytes
+from openflight.iwr6843.readback import Readback, read_selective
 from openflight.radar_reconnect import (
     RADAR_STATE_CONNECTED,
     RADAR_STATE_RECONNECTING,
@@ -52,9 +53,31 @@ def tx_order_from_config(config_path: str | Path) -> str:
     raise ValueError(f"IWR6843 config must contain chirp TX masks 1/4, 4/1, or 1/2/4, got {masks}")
 
 
+class _PendingDump:
+    """The full dump still crossing the UART behind an early selective readback."""
+
+    def __init__(self) -> None:
+        self._done = threading.Event()
+        self._capture: IWR6843Capture | None = None
+
+    def complete(self, capture: IWR6843Capture) -> None:
+        """Hand over the finished (or failed) full-dump capture."""
+        self._capture = capture
+        self._done.set()
+
+    def wait(self, timeout_s: float) -> IWR6843Capture | None:
+        """The full-dump capture, or None if it has not finished in time."""
+        self._done.wait(timeout_s)
+        return self._capture
+
+
 @dataclass(frozen=True)
 class IWR6843Capture:
-    """One GPIO edge and its completed L3 dump."""
+    """One GPIO edge and its completed L3 dump.
+
+    With selective readback the capture is first published holding only
+    ``readback`` (the ball's samples); ``full()`` then yields the complete dump.
+    """
 
     sequence: int
     trigger_timestamp: float
@@ -64,11 +87,20 @@ class IWR6843Capture:
     path: Path | None
     error: str | None = None
     temperature_report: dict[str, int] | None = None
+    readback: Readback | None = None
+    readback_duration_s: float | None = None
+    pending_dump: _PendingDump | None = field(default=None, repr=False, compare=False)
 
     @property
     def valid(self) -> bool:
-        """Whether a complete dump was captured."""
-        return self.raw is not None and self.error is None
+        """Whether a complete dump, or the ball's part of one, was captured."""
+        return (self.raw is not None or self.readback is not None) and self.error is None
+
+    def full(self, timeout_s: float) -> IWR6843Capture | None:
+        """The capture with its complete dump, waiting for the transfer if needed."""
+        if self.pending_dump is None:
+            return self
+        return self.pending_dump.wait(timeout_s)
 
 
 class IWR6843CaptureMonitor:
@@ -94,6 +126,8 @@ class IWR6843CaptureMonitor:
         radar_auto_reconnect: bool = False,
         radar_status_callback: Callable[[str], None] | None = None,
         radar_factory: Callable[[str | None], IWR6843Radar] = IWR6843Radar,
+        selective_readback: bool = False,
+        readback_context: Callable[[], dict] | None = None,
     ):
         self.config_path = Path(config_path)
         self.output_dir = Path(output_dir).expanduser()
@@ -119,6 +153,11 @@ class IWR6843CaptureMonitor:
         self._stop_event = threading.Event()
         self._worker: threading.Thread | None = None
         self._trigger_observers = list(trigger_observers or [])
+        # Fetch the ball's samples ahead of the full dump so launch numbers do
+        # not wait for the whole ring. ``readback_context`` supplies the club and
+        # net range the ball search uses. Needs firmware with l3freeze/l3sum/l3bins.
+        self.selective_readback = selective_readback
+        self._readback_context = readback_context or dict
 
     @property
     def port(self) -> str:
@@ -249,6 +288,7 @@ class IWR6843CaptureMonitor:
             path = None
             error = None
             metadata = None
+            early: IWR6843Capture | None = None
             link_error: Exception | None = None
             restart_error: DumpRestartError | None = None
             try:
@@ -256,6 +296,8 @@ class IWR6843CaptureMonitor:
                     "[IWR6843] Trigger #%d: dumping firmware-frozen L3 ring",
                     sequence,
                 )
+                if self.selective_readback:
+                    early = self._publish_readback(sequence, edge_timestamp, start)
                 raw = self.radar.read_dump()
                 metadata = self._validate_dump(raw)
                 if self.save_dumps:
@@ -282,17 +324,16 @@ class IWR6843CaptureMonitor:
                 temperature_report=(
                     metadata.get("temperature_report") if metadata is not None else None
                 ),
+                readback=early.readback if early is not None else None,
+                readback_duration_s=early.readback_duration_s if early is not None else None,
             )
             with self._condition:
                 self._capture_active = False
-                self._discard_expired_captures()
-                if len(self._captures) == self._captures.maxlen:
-                    logger.warning(
-                        "[IWR6843] Discarding unclaimed capture #%d: pending queue full",
-                        self._captures[0].sequence,
-                    )
-                self._captures.append(capture)
+                if early is None:
+                    self._append_capture(capture)
                 self._condition.notify_all()
+            if early is not None and early.pending_dump is not None:
+                early.pending_dump.complete(capture)
             logger.info(
                 "[IWR6843] Capture #%d complete: %s in %.2fs",
                 sequence,
@@ -303,6 +344,55 @@ class IWR6843CaptureMonitor:
                 self._reconnect_radar(link_error)
             elif restart_error is not None:
                 self._restart_capture(restart_error)
+
+    def _append_capture(self, capture: IWR6843Capture) -> None:
+        self._discard_expired_captures()
+        if len(self._captures) == self._captures.maxlen:
+            logger.warning(
+                "[IWR6843] Discarding unclaimed capture #%d: pending queue full",
+                self._captures[0].sequence,
+            )
+        self._captures.append(capture)
+
+    def _publish_readback(
+        self, sequence: int, edge_timestamp: float, start: float
+    ) -> IWR6843Capture | None:
+        """Publish the ball's samples early; None leaves the shot to the full dump."""
+        try:
+            self.radar.freeze()
+        except RuntimeError as exc:
+            logger.warning(
+                "[IWR6843] Selective readback off for this session (l3freeze failed: %s); "
+                "is the readback firmware flashed?",
+                exc,
+            )
+            self.selective_readback = False
+            return None
+        try:
+            readback = read_selective(self.radar, **self._readback_context())
+        except (RuntimeError, ValueError) as exc:
+            logger.warning("[IWR6843] Selective readback #%d failed: %s", sequence, exc)
+            return None
+        if readback is None:
+            logger.info("[IWR6843] Selective readback #%d: no ball in the summary", sequence)
+            return None
+        completed = time.time()
+        capture = IWR6843Capture(
+            sequence=sequence,
+            trigger_timestamp=edge_timestamp,
+            completed_timestamp=completed,
+            dump_duration_s=completed - start,
+            raw=None,
+            path=None,
+            readback=readback,
+            readback_duration_s=completed - start,
+            pending_dump=_PendingDump(),
+        )
+        with self._condition:
+            self._append_capture(capture)
+            self._condition.notify_all()
+        logger.info("[IWR6843] Selective readback #%d ready in %.2fs", sequence, completed - start)
+        return capture
 
     def _restart_capture(self, error: DumpRestartError) -> None:
         """Re-send the config so capture resumes after a failed firmware restart."""

@@ -1,0 +1,204 @@
+"""Selective readback publishes the ball measurement ahead of the full dump."""
+
+from __future__ import annotations
+
+import threading
+import time
+
+import numpy as np
+import pytest
+
+from openflight.iwr6843 import Calibration, estimate_lcmf_v1
+from openflight.iwr6843.driver import ReadbackError
+from openflight.iwr6843.monitor import IWR6843CaptureMonitor
+from openflight.iwr6843.runtime import IWR6843Runtime
+from tests.test_iwr6843_monitor import FakeButton
+from tests.test_iwr6843_pipeline import RADAR_HEIGHT_M
+from tests.test_iwr6843_readback import SHOTS, FrozenRadar, _timed_capture
+
+IRON_MPH = SHOTS["iron"]["speed_ms"] * 2.23694
+
+
+class ReadbackRadar(FrozenRadar):
+    """Radar double with the readback firmware; the full dump waits to be released."""
+
+    port = "/dev/fake-iwr6843"
+
+    def __init__(self, raw: bytes, *, freeze_error: Exception | None = None):
+        super().__init__(raw)
+        self.freeze_error = freeze_error
+        self.commands: list[str] = []
+        self.release_dump = threading.Event()
+
+    def send_config(self, _path: str) -> None:
+        pass
+
+    def freeze(self) -> None:
+        self.commands.append("freeze")
+        if self.freeze_error is not None:
+            raise self.freeze_error
+
+    def read_summary(self, scope: int) -> bytes:
+        self.commands.append(f"summary {scope}")
+        return super().read_summary(scope)
+
+    def read_dump(self) -> bytes:
+        self.commands.append("dump")
+        assert self.release_dump.wait(timeout=5.0)
+        return self.raw
+
+    def stop_sensor(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+@pytest.fixture(name="cal")
+def _cal():
+    cal = Calibration.identity()
+    cal.tilt_rad = np.radians(10.4)
+    cal.tee_range_m = 1.5
+    cal.tee_ball_height_m = RADAR_HEIGHT_M
+    cal.meta["radar_height_m"] = RADAR_HEIGHT_M
+    return cal
+
+
+@pytest.fixture(name="started")
+def _started(tmp_path):
+    monitors = []
+
+    def start(radar, **kwargs):
+        config = tmp_path / "radar.cfg"
+        config.write_text("sensorStart\n", encoding="utf-8")
+        monitor = IWR6843CaptureMonitor(
+            config_path=config,
+            output_dir=tmp_path / "dumps",
+            radar=radar,
+            button_factory=FakeButton,
+            selective_readback=True,
+            readback_context=lambda: {"club": "9i", "net_range_m": None},
+            **kwargs,
+        )
+        monitor.start()
+        monitors.append((monitor, radar))
+        return monitor
+
+    yield start
+    for monitor, radar in monitors:
+        radar.release_dump.set()
+        monitor.stop()
+
+
+def test_ball_samples_are_published_before_the_full_dump_finishes(started):
+    radar = ReadbackRadar(_timed_capture("iron"))
+    monitor = started(radar)
+    edge = time.time()
+
+    assert monitor.notify_trigger(edge)
+    early = monitor.capture_for_shot(edge, timeout_s=2.0)
+
+    assert early is not None and early.valid
+    assert early.raw is None and early.readback is not None
+    assert early.full(0.05) is None, "the dump is still crossing the UART"
+    radar.release_dump.set()
+    full = early.full(2.0)
+    assert full is not None and full.raw == radar.raw
+    assert full.readback is early.readback
+    assert radar.commands == ["freeze", "summary 0", "dump"]
+    assert monitor.capture_for_shot(edge, timeout_s=0.05) is None, "one capture per shot"
+
+
+def test_firmware_without_the_readback_commands_falls_back_to_the_full_dump(started):
+    radar = ReadbackRadar(
+        _timed_capture("iron"), freeze_error=RuntimeError("IWR6843 did not acknowledge")
+    )
+    radar.release_dump.set()
+    monitor = started(radar)
+
+    for _shot in range(2):
+        time.sleep(0.15)  # the monitor ignores edges within 100 ms of the last
+        edge = time.time()
+        assert monitor.notify_trigger(edge)
+        capture = monitor.capture_for_shot(edge, timeout_s=2.0)
+        assert capture is not None and capture.raw == radar.raw and capture.readback is None
+
+    assert radar.commands == ["freeze", "dump", "dump"], "readback is not retried every shot"
+
+
+def test_a_failed_readback_leaves_the_shot_to_the_full_dump(started):
+    radar = ReadbackRadar(_timed_capture("iron"))
+    radar.read_windows = lambda _request, _nbytes: (_ for _ in ()).throw(
+        ReadbackError("IWR6843 l3bins reply stalled")
+    )
+    radar.release_dump.set()
+    monitor = started(radar)
+    edge = time.time()
+
+    assert monitor.notify_trigger(edge)
+    capture = monitor.capture_for_shot(edge, timeout_s=2.0)
+
+    assert capture is not None and capture.raw == radar.raw and capture.readback is None
+    assert monitor.selective_readback, "one bad reply does not disable readback"
+
+
+def _runtime(monitor, cal) -> IWR6843Runtime:
+    return IWR6843Runtime(capture_monitor=monitor, calibration=cal, net_range_m=None)
+
+
+def test_runtime_reports_the_ball_measurement_before_the_dump_arrives(started, cal):
+    radar = ReadbackRadar(_timed_capture("iron"))
+    monitor = started(radar)
+    runtime = _runtime(monitor, cal)
+    expected = estimate_lcmf_v1(radar.raw, cal, ball_speed_mph=IRON_MPH, club="9i")
+    early = []
+
+    def on_ball(result):
+        early.append((result, radar.release_dump.is_set()))
+        radar.release_dump.set()
+
+    edge = time.time()
+    assert monitor.notify_trigger(edge)
+    result = runtime.process_shot(
+        impact_timestamp=edge, ball_speed_mph=IRON_MPH, club="9i", on_ball_measurement=on_ball
+    )
+
+    assert len(early) == 1 and early[0][1] is False, "reported while the dump was pending"
+    assert early[0][0].measurement.angle_deg == pytest.approx(expected.angle_deg, abs=1e-6)
+    assert result.measurement is early[0][0].measurement
+    assert result.capture.raw == radar.raw
+
+
+def test_runtime_waits_for_the_full_dump_when_ops_disagrees_with_the_track(started, cal):
+    radar = ReadbackRadar(_timed_capture("iron"))
+    radar.release_dump.set()
+    monitor = started(radar)
+    runtime = _runtime(monitor, cal)
+    early = []
+
+    edge = time.time()
+    assert monitor.notify_trigger(edge)
+    result = runtime.process_shot(
+        impact_timestamp=edge,
+        ball_speed_mph=IRON_MPH * 1.5,
+        club="9i",
+        on_ball_measurement=early.append,
+    )
+
+    assert not early, "a track OPS disputes needs the recovery search on the whole ring"
+    assert result.capture.raw == radar.raw
+    assert result.measurement is not None
+
+
+def test_runtime_keeps_the_readback_measurement_when_the_dump_fails(started, cal):
+    radar = ReadbackRadar(_timed_capture("iron"))
+    radar.read_dump = lambda: b"short"
+    monitor = started(radar)
+    runtime = _runtime(monitor, cal)
+
+    edge = time.time()
+    assert monitor.notify_trigger(edge)
+    result = runtime.process_shot(impact_timestamp=edge, ball_speed_mph=IRON_MPH, club="9i")
+
+    assert result.measurement is not None and result.measurement.accepted
+    assert result.capture.valid and result.capture.raw is None

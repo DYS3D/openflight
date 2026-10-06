@@ -1483,6 +1483,7 @@ def init_iwr6843(
     radar_auto_reconnect: bool = False,
     estimator_process: bool = False,
     fast_angle_search: bool = False,
+    selective_readback: bool = False,
 ) -> bool:
     """Initialize GPIO-triggered TI capture and the frozen LCMF-v1 estimator."""
     global iwr6843_runtime, iwr6843_runtime_config  # pylint: disable=global-statement
@@ -1521,6 +1522,7 @@ def init_iwr6843(
             ),
             radar_auto_reconnect=radar_auto_reconnect,
             radar_status_callback=on_radar_status,
+            selective_readback=selective_readback,
         )
         # OPS initialization can pulse the shared sound gate. Configure TI now,
         # but do not accept edges until the OPS trigger path is fully running.
@@ -1539,10 +1541,12 @@ def init_iwr6843(
             tdm_sign_policy="positive",
             estimator_process=estimator_process,
             angle_grid_step_deg=None if fast_angle_search else PRODUCTION_ANGLE_STEP_DEG,
+            club_provider=lambda: getattr(getattr(monitor, "_current_club", None), "value", None),
         )
         iwr6843_runtime_config = {
             "enabled": True,
             "estimator": "lcmf_v1",
+            "selective_readback": selective_readback,
             "estimator_process": estimator_process,
             "fast_angle_search": fast_angle_search,
             "port": capture_monitor.port,
@@ -3248,6 +3252,76 @@ def _level_iwr_angles(
     return level_vertical, level_horizontal
 
 
+def _apply_iwr6843_ball_measurement(shot: Shot, measurement) -> None:
+    """Write an accepted LCMF-v1 ball measurement into the shot's launch fields."""
+    shot.launch_angle_vertical = measurement.angle_deg
+    # Device-level provenance is retained in iwr6843_capture. The
+    # public Shot contract uses "radar" for all measured radar angles.
+    shot.launch_angle_vertical_source = "radar"
+    shot.launch_angle_vertical_confidence = vertical_confidence(measurement)
+    shot.launch_angle_confidence = shot.launch_angle_vertical_confidence
+    shot.angle_source = "radar"
+    horizontal_deg = getattr(measurement, "horizontal_deg", None)
+    horizontal_confidence = getattr(measurement, "horizontal_confidence", None)
+    horizontal_status = getattr(measurement, "horizontal_status", None)
+    if horizontal_deg is not None:
+        shot.iwr6843_horizontal_deg = horizontal_deg
+        shot.iwr6843_horizontal_confidence = horizontal_confidence_from(horizontal_confidence)
+        shot.launch_angle_horizontal = horizontal_deg
+        shot.launch_angle_horizontal_confidence = shot.iwr6843_horizontal_confidence
+        shot.launch_angle_horizontal_source = "radar"
+        logger.info(
+            "[SERVER] IWR6843 TX2 horizontal proxy: %.2f° (coherence %.0f%%, status=%s)",
+            horizontal_deg,
+            (horizontal_confidence or 0.0) * 100,
+            horizontal_status,
+        )
+        shot.launch_angle_vertical, shot.launch_angle_horizontal = _level_iwr_angles(
+            shot, "ball", measurement.angle_deg, horizontal_deg
+        )
+        shot.iwr6843_horizontal_deg = shot.launch_angle_horizontal
+    logger.info(
+        "[SERVER] IWR6843 LCMF-v1 launch: %.2f° (%d snapshots/%d frames, component std %.2f°)",
+        measurement.angle_deg,
+        measurement.n_snapshots,
+        measurement.n_frames,
+        measurement.component_std_deg,
+    )
+
+
+def _publish_early_iwr6843_launch(shot: Shot, shot_result) -> None:
+    """Show the radar launch as soon as selective readback has it.
+
+    The full dump, club path and camera are still pending, so this publishes a
+    copy: the shot itself is finalized once, later, exactly as without readback.
+    """
+    if _gated_stage_cancelled():
+        return
+    try:
+        preview = replace(shot)
+        preview.pipeline_marks = dict(shot.pipeline_marks or {})
+        _apply_iwr6843_ball_measurement(preview, shot_result.measurement)
+        _compute_shot_flight(preview)
+        pending = {"iwr6843": True}
+        if camera_capture_runtime is not None:
+            pending["camera"] = True
+        socketio.emit(
+            "shot_update",
+            {
+                "shot": shot_to_dict(preview),
+                "stats": monitor.get_session_stats() if monitor else {},
+                "pending": pending,
+            },
+        )
+        if shot.impact_timestamp is not None:
+            logger.info(
+                "[SERVER] IWR6843 launch published %.0fms after impact (selective readback)",
+                (time.time() - shot.impact_timestamp) * 1000.0,
+            )
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        logger.warning("[SERVER] Early IWR6843 launch publish failed: %s", error, exc_info=True)
+
+
 def _process_iwr6843_angle(shot: Shot) -> float | None:
     """Apply a correlated LCMF-v1 result without risking the OPS shot."""
     if iwr6843_runtime is None or shot.mode == "mock":
@@ -3255,6 +3329,11 @@ def _process_iwr6843_angle(shot: Shot) -> float | None:
 
     started = time.time()
     try:
+        early_publish = {}
+        if iwr6843_runtime_config.get("selective_readback"):
+            early_publish["on_ball_measurement"] = lambda result: _publish_early_iwr6843_launch(
+                shot, result
+            )
         shot_result = iwr6843_runtime.process_shot(
             impact_timestamp=shot.impact_timestamp,
             ball_speed_mph=shot.ball_speed_mph,
@@ -3265,6 +3344,7 @@ def _process_iwr6843_angle(shot: Shot) -> float | None:
                 if shot.inclinometer and shot.inclinometer.get("applied")
                 else None
             ),
+            **early_publish,
         )
         if _gated_stage_cancelled():
             logger.warning(
@@ -3325,42 +3405,7 @@ def _process_iwr6843_angle(shot: Shot) -> float | None:
                 reason="no LCMF measurement",
             )
         elif measurement.accepted:
-            shot.launch_angle_vertical = measurement.angle_deg
-            # Device-level provenance is retained in iwr6843_capture. The
-            # public Shot contract uses "radar" for all measured radar angles.
-            shot.launch_angle_vertical_source = "radar"
-            shot.launch_angle_vertical_confidence = vertical_confidence(measurement)
-            shot.launch_angle_confidence = shot.launch_angle_vertical_confidence
-            shot.angle_source = "radar"
-            horizontal_deg = getattr(measurement, "horizontal_deg", None)
-            horizontal_confidence = getattr(measurement, "horizontal_confidence", None)
-            horizontal_status = getattr(measurement, "horizontal_status", None)
-            if horizontal_deg is not None:
-                shot.iwr6843_horizontal_deg = horizontal_deg
-                shot.iwr6843_horizontal_confidence = horizontal_confidence_from(
-                    horizontal_confidence
-                )
-                shot.launch_angle_horizontal = horizontal_deg
-                shot.launch_angle_horizontal_confidence = shot.iwr6843_horizontal_confidence
-                shot.launch_angle_horizontal_source = "radar"
-                logger.info(
-                    "[SERVER] IWR6843 TX2 horizontal proxy: %.2f° (coherence %.0f%%, status=%s)",
-                    horizontal_deg,
-                    (horizontal_confidence or 0.0) * 100,
-                    horizontal_status,
-                )
-                shot.launch_angle_vertical, shot.launch_angle_horizontal = _level_iwr_angles(
-                    shot, "ball", measurement.angle_deg, horizontal_deg
-                )
-                shot.iwr6843_horizontal_deg = shot.launch_angle_horizontal
-            logger.info(
-                "[SERVER] IWR6843 LCMF-v1 launch: %.2f° "
-                "(%d snapshots/%d frames, component std %.2f°)",
-                measurement.angle_deg,
-                measurement.n_snapshots,
-                measurement.n_frames,
-                measurement.component_std_deg,
-            )
+            _apply_iwr6843_ball_measurement(shot, measurement)
             _emit_iwr6843_trigger_status(
                 shot,
                 state="accepted",
@@ -4239,19 +4284,8 @@ def _log_shot_latency(shot: Shot, latency_ms: dict) -> None:
     )
 
 
-def _finalize_shot_detected(
-    shot: Shot,
-    *,
-    emit_event: str,
-    initial_ui_ms: float | None = None,
-    enrichment: _ShotEnrichmentResult | None = None,
-) -> None:
-    """Apply required fallbacks, persist once, and publish the final shot."""
-    enrichment = enrichment or _ShotEnrichmentResult()
-    iwr6843_ms = enrichment.iwr6843_ms
-    kld7_ms = enrichment.kld7_ms
-    camera_capture_ms = enrichment.camera_capture_ms
-
+def _compute_shot_flight(shot: Shot) -> LaunchConditions | None:
+    """Fill fallback angles, corrected speed, spin and carry from the shot's launch data."""
     # Always emit user-facing launch angles. Radar/camera measurements win;
     # rejected or missing axes fall back to conservative estimates.
     _ensure_user_facing_launch_angles(shot)
@@ -4323,6 +4357,23 @@ def _finalize_shot_detected(
     else:
         trajectory = _attach_mock_flight(shot)
     _attach_derived_metrics(shot, trajectory)
+    return conditions
+
+
+def _finalize_shot_detected(
+    shot: Shot,
+    *,
+    emit_event: str,
+    initial_ui_ms: float | None = None,
+    enrichment: _ShotEnrichmentResult | None = None,
+) -> None:
+    """Apply required fallbacks, persist once, and publish the final shot."""
+    enrichment = enrichment or _ShotEnrichmentResult()
+    iwr6843_ms = enrichment.iwr6843_ms
+    kld7_ms = enrichment.kld7_ms
+    camera_capture_ms = enrichment.camera_capture_ms
+
+    conditions = _compute_shot_flight(shot)
     shot.mark_stage("carry", time.time())
     if shot.spin_rejection_reason:
         logger.info(
@@ -6064,6 +6115,17 @@ def main():
         ),
     )
     parser.add_argument(
+        "--iwr6843-selective-readback",
+        action="store_true",
+        default=False,
+        help=(
+            "Fetch only the ball's range track from the radar first (~1 s) and show the "
+            "launch angles before the full ~7 s dump arrives. Needs firmware with the "
+            "l3freeze/l3sum/l3bins commands; falls back to the full dump without it. "
+            "Default off."
+        ),
+    )
+    parser.add_argument(
         "--iwr6843-fast-angle-search",
         action="store_true",
         default=False,
@@ -6636,6 +6698,7 @@ def main():
             radar_auto_reconnect=args.radar_auto_reconnect,
             estimator_process=args.iwr6843_estimator_process,
             fast_angle_search=args.iwr6843_fast_angle_search,
+            selective_readback=args.iwr6843_selective_readback,
         ):
             calibration = iwr6843_runtime.calibration
             ball_speed_correction_distance_ft = args.iwr6843_tee_m * 3.28084

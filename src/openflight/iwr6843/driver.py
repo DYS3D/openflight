@@ -35,6 +35,10 @@ class DumpRestartError(RuntimeError):
     """The dump was sent but the firmware could not restart capture afterwards."""
 
 
+class ReadbackError(RuntimeError):
+    """A selective-readback command was refused or its reply never completed."""
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -273,7 +277,7 @@ class IWR6843Radar:
         while expected is None or len(buf) < expected:
             if time.monotonic() >= deadline:
                 self.drain_stale_output()
-                raise TimeoutError(
+                raise ReadbackError(
                     f"IWR6843 {command.split()[0]} reply stalled at {len(buf)} bytes"
                 )
             waiting = self.ser.in_waiting
@@ -282,7 +286,7 @@ class IWR6843Radar:
                 start = buf.find(magic)
                 if start < 0:
                     if b"Error" in buf:
-                        raise RuntimeError(
+                        raise ReadbackError(
                             f"IWR6843 rejected {command.split()[0]}: "
                             f"{buf.decode(errors='replace').strip()}"
                         )

@@ -41,6 +41,10 @@ CameraCaptureStream = Literal["raw", "main-y"]
 RASPBERRY_PI_DIST_PACKAGES = Path("/usr/lib/python3/dist-packages")
 OV9281_VERTICAL_OFFSET_PATH = Path("/sys/module/ov9282/parameters/strip_y_offset")
 AUTO_EXPOSURE_STARTUP_SETTLE_S = 0.3
+# A "lighting required" verdict is re-examined this often, and recalibrated
+# once the scene brightness has moved by LIGHTING_RECHECK_MIN_CHANGE.
+LIGHTING_RECHECK_INTERVAL_S = 30.0
+LIGHTING_RECHECK_MIN_CHANGE = 0.25
 ARCHIVE_SHUTDOWN_TIMEOUT_S = 10.0
 # Unclaimed captures (false triggers, shots whose OPS side never arrived) each
 # hold a clip, ~15 MB of frames with frames_in_memory. Same bounds as the
@@ -310,6 +314,11 @@ class CameraCaptureRuntime:
             if self.settings.auto_exposure:
                 self._start_auto_exposure()
                 self._refill_locked_exposure_prebuffer()
+                threading.Thread(
+                    target=self._lighting_recheck_loop,
+                    name="camera-lighting-recheck",
+                    daemon=True,
+                ).start()
             if self._use_gpio_trigger:
                 self._start_gpio_trigger()
         except Exception:
@@ -703,6 +712,38 @@ class CameraCaptureRuntime:
                 return
             if self._auto_exposure_stop.wait(AUTO_EXPOSURE_STARTUP_SETTLE_S):
                 return
+
+    def _lighting_recheck_loop(self) -> None:
+        """Let a unit started in the dark recover once the lights come on."""
+        while not self._auto_exposure_stop.wait(LIGHTING_RECHECK_INTERVAL_S):
+            try:
+                self._recalibrate_if_lighting_required()
+            except Exception:  # pylint: disable=broad-exception-caught
+                logger.warning("[CAMERA] Lighting recheck failed", exc_info=True)
+
+    def _recalibrate_if_lighting_required(self) -> bool:
+        """Repeat startup calibration when a withheld scene has changed brightness.
+
+        A ready setting stays locked; only a verdict that already withholds
+        camera analysis is reopened.
+        """
+        with self._auto_exposure_lock:
+            decision = self._auto_exposure_decision
+        if decision.status != "lighting_required" or self._ring.capture_busy:
+            return False
+        frame = self._ring.latest_frame
+        if frame is None:
+            return False
+        before = decision.observation.median if decision.observation is not None else None
+        now = measure_exposure(frame.image).median
+        if before is None or now is None:
+            return False
+        if abs(now - before) <= LIGHTING_RECHECK_MIN_CHANGE * max(before, 1.0):
+            return False
+        logger.info("[CAMERA] Scene brightness changed (%.0f -> %.0f); recalibrating", before, now)
+        self._auto_exposure_policy.reset()
+        self._auto_exposure_loop()
+        return True
 
     def _run_auto_exposure_cycle(self) -> AutoExposureDecision | None:
         """Measure one stable frame and apply the policy's requested control step."""

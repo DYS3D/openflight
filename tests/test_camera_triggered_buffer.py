@@ -610,6 +610,68 @@ def test_auto_exposure_locks_first_acceptable_startup_setting(tmp_path):
     assert (runtime.settings.exposure_us, runtime.settings.gain) == (500, 12.0)
 
 
+def _runtime_locked_out_by_a_dark_start(tmp_path):
+    """Runtime whose startup calibration ran in the dark at the top exposure step."""
+
+    class FakeCamera:
+        def set_controls(self, _controls):
+            pass
+
+    runtime = CameraCaptureRuntime(
+        output_dir=tmp_path,
+        settings=CameraCaptureSettings(fps=300.0, exposure_us=1250, gain=16.0),
+    )
+    runtime._camera = FakeCamera()
+    runtime._running = True
+    _add_exposure_frame(runtime, np.full((200, 320), 18, dtype=np.uint8))
+    assert runtime._run_auto_exposure_cycle().status == "lighting_required"
+    return runtime
+
+
+def _add_exposure_frame(runtime, image):
+    runtime._ring.add_frame(
+        CameraFrame(
+            image=image,
+            sensor_timestamp_ns=1,
+            host_timestamp_ns=2,
+            exposure_us=runtime.settings.exposure_us,
+            analogue_gain=runtime.settings.gain,
+        )
+    )
+
+
+def test_lighting_verdict_from_a_dark_start_clears_once_the_lights_are_on(tmp_path):
+    """A 9:58 pm start in a dark garage withheld camera analysis all next day."""
+    runtime = _runtime_locked_out_by_a_dark_start(tmp_path)
+    assert runtime.camera_analysis_eligible is False
+
+    _add_exposure_frame(runtime, make_good_exposure_image())
+
+    assert runtime._recalibrate_if_lighting_required() is True
+    assert runtime.camera_analysis_eligible is True
+    assert runtime.auto_exposure_status()["status"] == "ready"
+
+
+def test_lighting_recheck_leaves_an_unchanged_dark_scene_alone(tmp_path):
+    runtime = _runtime_locked_out_by_a_dark_start(tmp_path)
+    checked_at = runtime.auto_exposure_status()["last_check_timestamp"]
+
+    assert runtime._recalibrate_if_lighting_required() is False
+    assert runtime.auto_exposure_status()["last_check_timestamp"] == checked_at
+    assert runtime.camera_analysis_eligible is False
+
+
+def test_lighting_recheck_never_unlocks_a_ready_setting(tmp_path):
+    runtime = _runtime_locked_out_by_a_dark_start(tmp_path)
+    _add_exposure_frame(runtime, make_good_exposure_image())
+    runtime._recalibrate_if_lighting_required()
+
+    _add_exposure_frame(runtime, np.full((200, 320), 18, dtype=np.uint8))
+
+    assert runtime._recalibrate_if_lighting_required() is False
+    assert runtime.camera_analysis_eligible is True
+
+
 def test_auto_exposure_startup_calibration_is_synchronous(tmp_path, monkeypatch):
     calibration_started = threading.Event()
     allow_calibration_to_finish = threading.Event()

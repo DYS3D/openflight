@@ -236,3 +236,45 @@ def test_runtime_keeps_the_readback_measurement_when_the_dump_fails(started, cal
 
     assert result.measurement is not None and result.measurement.accepted
     assert result.capture.valid and result.capture.raw is None
+
+
+def test_launch_is_reported_while_the_shot_pipeline_is_still_busy(started, cal, make_runtime):
+    radar = ReadbackRadar(_timed_capture("iron"))
+    monitor = started(radar)
+    runtime = make_runtime(monitor, cal)
+    early, late = [], []
+
+    edge = time.time()
+    assert monitor.notify_trigger(edge)
+    # The pipeline has not asked for this shot yet (an earlier shot holds it).
+    runtime.publish_early_ball_measurement(
+        impact_timestamp=edge, ball_speed_mph=IRON_MPH, club="9i", on_ball_measurement=early.append
+    )
+
+    assert len(early) == 1 and not radar.release_dump.is_set()
+    radar.release_dump.set()
+    result = runtime.process_shot(
+        impact_timestamp=edge, ball_speed_mph=IRON_MPH, club="9i", on_ball_measurement=late.append
+    )
+    assert not late, "the pipeline reuses the early answer instead of reporting it twice"
+    assert result.measurement is early[0].measurement
+    assert result.capture.raw == radar.raw
+
+
+def test_looking_at_a_capture_leaves_it_and_older_ones_for_their_shots(started):
+    radar = ReadbackRadar(_timed_capture("iron"))
+    radar.release_dump.set()
+    monitor = started(radar)
+    first = time.time()
+    assert monitor.notify_trigger(first)
+    assert monitor.capture_for_shot(first, timeout_s=2.0, consume=False) is not None
+    time.sleep(1.0)
+    second = time.time()
+    assert monitor.notify_trigger(second)
+
+    assert monitor.capture_for_shot(second, timeout_s=2.0, consume=False) is not None
+
+    assert monitor.capture_for_shot(first, timeout_s=0.5) is not None, (
+        "older shot keeps its capture"
+    )
+    assert monitor.capture_for_shot(second, timeout_s=0.5) is not None

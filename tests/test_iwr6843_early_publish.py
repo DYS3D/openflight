@@ -107,3 +107,36 @@ def test_a_failing_early_publish_does_not_lose_the_shot(monkeypatch, emitted):
 
     assert shot.launch_angle_vertical == pytest.approx(17.42)
     assert [event for event, _payload in emitted] == ["trigger_diagnostic_update"]
+
+
+def test_launch_is_published_ahead_of_the_enrichment_queue(monkeypatch, emitted):
+    shot = _shot()
+    result = SimpleNamespace(capture=None, measurement=_measurement())
+    asked = {}
+
+    def publish_early_ball_measurement(**kwargs):
+        asked.update(kwargs)
+        kwargs["on_ball_measurement"](result)
+
+    runtime = SimpleNamespace(publish_early_ball_measurement=publish_early_ball_measurement)
+    monkeypatch.setattr(server_module, "iwr6843_runtime", runtime)
+
+    server_module._publish_iwr6843_launch_ahead_of_queue(shot)  # pylint: disable=protected-access
+
+    assert asked["impact_timestamp"] == 100.0 and asked["club"] == ClubType.IRON_9.value
+    assert [event for event, _payload in emitted] == ["shot_update"]
+    assert emitted[0][1]["shot"]["launch_angle_vertical"] == pytest.approx(17.4, abs=0.05)
+    assert shot.launch_angle_vertical is None, "the queued shot is left for its own pipeline"
+
+
+def test_a_failing_ahead_of_queue_publish_is_contained(monkeypatch, emitted):
+    def boom(**_kwargs):
+        raise RuntimeError("radar gone")
+
+    monkeypatch.setattr(
+        server_module, "iwr6843_runtime", SimpleNamespace(publish_early_ball_measurement=boom)
+    )
+
+    server_module._publish_iwr6843_launch_ahead_of_queue(_shot())  # pylint: disable=protected-access
+
+    assert not emitted

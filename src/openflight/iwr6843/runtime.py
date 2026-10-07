@@ -130,6 +130,18 @@ def _recovery_result_rank(
     )
 
 
+class _ReadbackEstimate:
+    """One capture's readback measurement, computed once and shared by its callers."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.measurement: LCMFResult | None = None
+
+
+# Readback estimates remembered for captures the shot pipeline has not consumed yet.
+_MAX_READBACK_ESTIMATES = 8
+
+
 @dataclass(frozen=True)
 class IWR6843ShotResult:
     """Capture transport result and optional angle measurement."""
@@ -175,6 +187,9 @@ class IWR6843Runtime:
     angle_grid_step_deg: float | None = PRODUCTION_ANGLE_STEP_DEG
     _estimator_worker: EstimatorWorker | None = field(default=None, init=False, repr=False)
     _readback_worker: EstimatorWorker | None = field(default=None, init=False, repr=False)
+    _readback_estimates: dict[int, _ReadbackEstimate] = field(
+        default_factory=dict, init=False, repr=False
+    )
     _estimator_worker_lock: threading.Lock = field(
         default_factory=threading.Lock, init=False, repr=False
     )
@@ -390,6 +405,73 @@ class IWR6843Runtime:
             horizontal_raw_deg=horizontal_deg,
         )
 
+    def _shared_readback_measurement(
+        self,
+        capture: IWR6843Capture,
+        calibration: Calibration,
+        *,
+        ball_speed_mph: float,
+        club: str | None,
+        on_ball_measurement: Callable[[IWR6843ShotResult], None] | None,
+    ) -> LCMFResult | None:
+        """Estimate a capture's readback once; the first caller also reports it.
+
+        The early publisher and the shot pipeline both ask for the same capture,
+        in either order. Whoever arrives second waits for the first's answer.
+        """
+        with self._estimator_worker_lock:
+            estimate = self._readback_estimates.get(capture.sequence)
+            first = estimate is None
+            if estimate is None:
+                estimate = self._readback_estimates[capture.sequence] = _ReadbackEstimate()
+                for stale in sorted(self._readback_estimates)[:-_MAX_READBACK_ESTIMATES]:
+                    del self._readback_estimates[stale]
+        if not first:
+            estimate.done.wait(self.estimator_timeout_s)
+            return estimate.measurement
+        try:
+            estimate.measurement = self._readback_measurement(
+                capture, calibration, ball_speed_mph=ball_speed_mph, club=club
+            )
+            if estimate.measurement is not None and on_ball_measurement is not None:
+                on_ball_measurement(
+                    IWR6843ShotResult(capture=capture, measurement=estimate.measurement)
+                )
+        finally:
+            estimate.done.set()
+        return estimate.measurement
+
+    def publish_early_ball_measurement(
+        self,
+        *,
+        impact_timestamp: float | None,
+        ball_speed_mph: float,
+        club: str | None,
+        tilt_deg: float | None = None,
+        on_ball_measurement: Callable[[IWR6843ShotResult], None],
+    ) -> None:
+        """Report a shot's readback measurement without waiting for the shot pipeline.
+
+        The pipeline handles one shot at a time, so a shot hit while the previous
+        one is still in its camera stage would otherwise wait for it. This only
+        looks at the capture; ``process_shot`` still consumes it and reuses the answer.
+        """
+        capture = self.capture_monitor.capture_for_shot(
+            impact_timestamp, timeout_s=self.capture_timeout_s, consume=False
+        )
+        if capture is None or capture.readback is None or not capture.valid:
+            return
+        calibration = self.calibration
+        if tilt_deg is not None:
+            calibration = replace(self.calibration, tilt_rad=math.radians(tilt_deg))
+        self._shared_readback_measurement(
+            capture,
+            calibration,
+            ball_speed_mph=ball_speed_mph,
+            club=club,
+            on_ball_measurement=on_ball_measurement,
+        )
+
     def _readback_measurement(
         self,
         capture: IWR6843Capture,
@@ -462,12 +544,15 @@ class IWR6843Runtime:
         if tilt_deg is not None:
             shot_calibration = replace(self.calibration, tilt_rad=math.radians(tilt_deg))
         measurement = None
-        if capture.raw is None:
-            measurement = self._readback_measurement(
-                capture, shot_calibration, ball_speed_mph=ball_speed_mph, club=club
+        if getattr(capture, "readback", None) is not None:
+            measurement = self._shared_readback_measurement(
+                capture,
+                shot_calibration,
+                ball_speed_mph=ball_speed_mph,
+                club=club,
+                on_ball_measurement=on_ball_measurement,
             )
-            if measurement is not None and on_ball_measurement is not None:
-                on_ball_measurement(IWR6843ShotResult(capture=capture, measurement=measurement))
+        if capture.raw is None:
             full = capture.full(self.capture_timeout_s)
             if full is None or full.raw is None or not full.valid:
                 if measurement is not None:

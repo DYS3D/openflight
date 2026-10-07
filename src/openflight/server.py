@@ -3322,6 +3322,30 @@ def _publish_early_iwr6843_launch(shot: Shot, shot_result) -> None:
         logger.warning("[SERVER] Early IWR6843 launch publish failed: %s", error, exc_info=True)
 
 
+def _publish_iwr6843_launch_ahead_of_queue(shot: Shot) -> None:
+    """Publish the readback launch even while an earlier shot is still being enriched."""
+    runtime = iwr6843_runtime
+    if runtime is None:
+        return
+    try:
+        early = replace(shot)
+        early.pipeline_marks = dict(shot.pipeline_marks or {})
+        _snapshot_inclinometer_for_shot(early)
+        runtime.publish_early_ball_measurement(
+            impact_timestamp=early.impact_timestamp,
+            ball_speed_mph=early.ball_speed_mph,
+            club=early.club.value,
+            tilt_deg=(
+                early.inclinometer.get("effective_iwr_tilt_deg")
+                if early.inclinometer and early.inclinometer.get("applied")
+                else None
+            ),
+            on_ball_measurement=lambda result: _publish_early_iwr6843_launch(early, result),
+        )
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        logger.warning("[SERVER] Early IWR6843 launch failed: %s", error, exc_info=True)
+
+
 def _process_iwr6843_angle(shot: Shot) -> float | None:
     """Apply a correlated LCMF-v1 result without risking the OPS shot."""
     if iwr6843_runtime is None or shot.mode == "mock":
@@ -4769,6 +4793,10 @@ def _handle_shot_detected(shot: Shot) -> None:
             emit_event=final_event,
             initial_ui_ms=initial_ui_ms,
         )
+        if emitted and iwr6843_runtime_config.get("selective_readback"):
+            # Enrichment handles one shot at a time; the radar launch for this
+            # shot must not wait for the previous shot's camera stage.
+            socketio.start_background_task(_publish_iwr6843_launch_ahead_of_queue, shot)
     except queue.Full:
         logger.warning(
             "[SERVER] Shot enrichment queue is full (%d waiting); "

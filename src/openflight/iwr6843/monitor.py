@@ -497,18 +497,25 @@ class IWR6843CaptureMonitor:
         impact_timestamp: float | None,
         *,
         timeout_s: float = 12.0,
+        consume: bool = True,
     ) -> IWR6843Capture | None:
-        """Consume the capture nearest an OPS impact timestamp."""
+        """Consume the capture nearest an OPS impact timestamp.
+
+        ``consume=False`` only looks: the capture stays for the caller that
+        finalizes the shot, and older captures other shots still await are kept.
+        """
         deadline = time.monotonic() + timeout_s
         with self._condition:
             while True:
                 self._discard_expired_captures()
                 if impact_timestamp is None and self._captures:
-                    return self._captures.popleft()
+                    return self._captures.popleft() if consume else self._captures[0]
 
                 if impact_timestamp is not None:
                     cutoff = impact_timestamp - self.match_tolerance_s
-                    while self._captures and self._captures[0].trigger_timestamp < cutoff:
+                    while (
+                        consume and self._captures and self._captures[0].trigger_timestamp < cutoff
+                    ):
                         stale = self._captures.popleft()
                         logger.warning(
                             "[IWR6843] Discarding unmatched capture #%d (edge %.3f, shot %.3f)",
@@ -527,7 +534,8 @@ class IWR6843CaptureMonitor:
                             matches,
                             key=lambda capture: abs(capture.trigger_timestamp - impact_timestamp),
                         )
-                        self._captures.remove(selected)
+                        if consume:
+                            self._captures.remove(selected)
                         return selected
 
                     matching_capture_active = abs(

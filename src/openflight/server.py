@@ -1524,6 +1524,9 @@ def init_iwr6843(
             radar_status_callback=on_radar_status,
             selective_readback=selective_readback,
         )
+        from .rolling_buffer.processor import preload_signal_libraries
+
+        threading.Thread(target=preload_signal_libraries, daemon=True).start()
         # OPS initialization can pulse the shared sound gate. Configure TI now,
         # but do not accept edges until the OPS trigger path is fully running.
         capture_monitor.start(armed=False)

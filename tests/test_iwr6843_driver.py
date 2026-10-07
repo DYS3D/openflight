@@ -313,3 +313,16 @@ def test_freeze_requires_acknowledgement():
     radar.freeze()
 
     assert radar.ser.writes == [b"l3freeze\n"]
+
+
+def test_read_dump_records_how_long_the_reader_was_starved(monkeypatch):
+    raw = pack_dump(np.ones((2, 6, 4, 7), dtype=complex), n_tx=3, version=3)
+    radar = IWR6843Radar.__new__(IWR6843Radar)
+    radar.ser = FakeSerial(b"l3dump\r\n" + raw + b"Done\r\n")
+    clock = iter([0.0, 0.0, 0.25] + [0.25] * 50)
+    monkeypatch.setattr("openflight.iwr6843.driver.time.monotonic", lambda: next(clock))
+    read = radar.ser.read
+    radar.ser.read = lambda nbytes: read(min(nbytes, len(raw) // 2))
+
+    assert radar.read_dump(timeout_s=1.0) == raw
+    assert radar.last_dump_reader_stall_s == pytest.approx(0.25)

@@ -311,7 +311,13 @@ class IWR6843CaptureMonitor:
                 elif isinstance(exc, DumpRestartError):
                     restart_error = exc
                 else:
-                    logger.warning("[IWR6843] Capture #%d failed: %s", sequence, exc, exc_info=True)
+                    logger.warning(
+                        "[IWR6843] Capture #%d failed: %s (longest reader stall %.0f ms)",
+                        sequence,
+                        exc,
+                        getattr(self.radar, "last_dump_reader_stall_s", 0.0) * 1000.0,
+                        exc_info=True,
+                    )
             completed = time.time()
             capture = IWR6843Capture(
                 sequence=sequence,

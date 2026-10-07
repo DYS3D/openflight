@@ -73,6 +73,7 @@ class IWR6843Radar:
                 raise RuntimeError("no IWR6843 CLI found — board on, flashed, single-port fw?")
         self.port = port
         self.ser = open_port(port, baud)
+        self.last_dump_reader_stall_s = 0.0
 
     @staticmethod
     def detect_port(baud: int = BAUD) -> str | None:
@@ -201,8 +202,16 @@ class IWR6843Radar:
         expected: int | None = None
         start = time.time()
         last = start
+        # Longest gap between two reads while data was flowing. The CP2105 drops
+        # bytes when the reader is starved, so a short dump logs this as evidence.
+        self.last_dump_reader_stall_s = 0.0
+        polled = time.monotonic()
         while time.time() - start < timeout_s:
             waiting = self.ser.in_waiting
+            now = time.monotonic()
+            if waiting and buf:
+                self.last_dump_reader_stall_s = max(self.last_dump_reader_stall_s, now - polled)
+            polled = now
             chunk = self.ser.read(waiting if waiting else 1)
             if chunk:
                 buf.extend(chunk)

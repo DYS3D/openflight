@@ -33,6 +33,19 @@ from .types import (
 
 logger = logging.getLogger("openflight.rolling_buffer.processor")
 
+
+def preload_signal_libraries() -> None:
+    """Import the SciPy modules shot processing otherwise loads on the first shot.
+
+    Those imports hold the interpreter for hundreds of milliseconds on a Pi. On
+    the first shot that lands while the IWR6843 dump is crossing the UART.
+    """
+    # pylint: disable=import-outside-toplevel,unused-import
+    import scipy.fft  # noqa: F401, PLC0415
+    import scipy.signal  # noqa: F401, PLC0415
+    import scipy.signal.windows  # noqa: F401, PLC0415
+
+
 # scipy.signal is imported inside the spin functions that use it: it is slow to
 # import and the trigger/speed path never needs it.
 

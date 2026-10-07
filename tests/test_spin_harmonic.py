@@ -181,3 +181,13 @@ def test_process_capture_uses_the_harmonic_estimator_only_when_enabled(
 def test_monitor_plumbs_spin_harmonic_fit():
     assert RollingBufferMonitor(port=None).processor.spin_harmonic_fit is False
     assert RollingBufferMonitor(port=None, spin_harmonic_fit=True).processor.spin_harmonic_fit
+
+
+def test_signal_libraries_can_be_loaded_before_the_first_shot():
+    import sys
+
+    from openflight.rolling_buffer.processor import preload_signal_libraries
+
+    preload_signal_libraries()
+
+    assert {"scipy.fft", "scipy.signal", "scipy.signal.windows"} <= set(sys.modules)

@@ -433,6 +433,8 @@ class IWR6843Runtime:
             estimate.measurement = self._readback_measurement(
                 capture, calibration, ball_speed_mph=ball_speed_mph, club=club
             )
+            if capture.pending_dump is not None:
+                capture.pending_dump.decide(skip=estimate.measurement is not None)
             if estimate.measurement is not None and on_ball_measurement is not None:
                 on_ball_measurement(
                     IWR6843ShotResult(capture=capture, measurement=estimate.measurement)
@@ -556,6 +558,7 @@ class IWR6843Runtime:
             full = capture.full(self.capture_timeout_s)
             if full is None or full.raw is None or not full.valid:
                 if measurement is not None:
+                    self._remember_recovery_observation(measurement, ball_speed_mph)
                     return IWR6843ShotResult(capture=capture, measurement=measurement)
                 return IWR6843ShotResult(capture=full, measurement=None)
             capture = full

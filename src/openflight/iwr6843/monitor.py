@@ -59,6 +59,25 @@ class _PendingDump:
     def __init__(self) -> None:
         self._done = threading.Event()
         self._capture: IWR6843Capture | None = None
+        self._decided = threading.Event()
+        self._lock = threading.Lock()
+        self._skip = False
+        self._closed = False
+
+    def decide(self, skip: bool) -> None:
+        """Say whether the readback already settled the shot, so the dump can be skipped."""
+        with self._lock:
+            if not self._closed:
+                self._closed = True
+                self._skip = skip
+        self._decided.set()
+
+    def wait_decision(self, timeout_s: float) -> bool:
+        """Whether to skip the dump; no verdict in time means the dump is read."""
+        self._decided.wait(timeout_s)
+        with self._lock:
+            self._closed = True
+            return self._skip
 
     def complete(self, capture: IWR6843Capture) -> None:
         """Hand over the finished (or failed) full-dump capture."""
@@ -128,6 +147,8 @@ class IWR6843CaptureMonitor:
         radar_factory: Callable[[str | None], IWR6843Radar] = IWR6843Radar,
         selective_readback: bool = False,
         readback_context: Callable[[], dict] | None = None,
+        skip_full_dump: bool = False,
+        skip_decision_timeout_s: float = 4.0,
     ):
         self.config_path = Path(config_path)
         self.output_dir = Path(output_dir).expanduser()
@@ -157,6 +178,11 @@ class IWR6843CaptureMonitor:
         # not wait for the whole ring. ``readback_context`` supplies the club and
         # net range the ball search uses. Needs firmware with l3freeze/l3sum/l3bins.
         self.selective_readback = selective_readback
+        # With readback on, resume capture instead of reading the full dump when
+        # the shot's consumer reports the readback measurement as final. The radar
+        # is ready for the next shot ~6 s sooner; those shots keep no dump.
+        self.skip_full_dump = skip_full_dump
+        self.skip_decision_timeout_s = skip_decision_timeout_s
         self._readback_context = readback_context or dict
 
     @property
@@ -244,12 +270,15 @@ class IWR6843CaptureMonitor:
                 return False
             # Reject acoustic ringing and any second edge while the seven-second
             # UART dump is in flight. The OPS side makes the same shot wait.
-            if (
-                self._capture_active
-                or not self._events.empty()
-                or edge_timestamp - self._last_edge_timestamp < 0.1
-            ):
-                logger.debug("[IWR6843] Ignoring duplicate/busy trigger edge")
+            since_last_s = edge_timestamp - self._last_edge_timestamp
+            if since_last_s < 0.1:
+                logger.debug("[IWR6843] Ignoring duplicate trigger edge")
+                return False
+            if self._capture_active or not self._events.empty():
+                logger.info(
+                    "[IWR6843] Trigger ignored: radar still busy with the shot %.1fs ago",
+                    since_last_s,
+                )
                 return False
             self._last_edge_timestamp = edge_timestamp
             self._events.put_nowait(edge_timestamp)
@@ -298,11 +327,19 @@ class IWR6843CaptureMonitor:
                 )
                 if self.selective_readback:
                     early = self._publish_readback(sequence, edge_timestamp, start)
-                raw = self.radar.read_dump()
-                metadata = self._validate_dump(raw)
-                if self.save_dumps:
-                    path = self._capture_path(sequence, edge_timestamp)
-                    path.write_bytes(raw)
+                if (
+                    early is not None
+                    and early.pending_dump is not None
+                    and self.skip_full_dump
+                    and early.pending_dump.wait_decision(self.skip_decision_timeout_s)
+                ):
+                    self.radar.resume()
+                else:
+                    raw = self.radar.read_dump()
+                    metadata = self._validate_dump(raw)
+                    if self.save_dumps:
+                        path = self._capture_path(sequence, edge_timestamp)
+                        path.write_bytes(raw)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 error = str(exc)
                 raw = None
@@ -343,7 +380,7 @@ class IWR6843CaptureMonitor:
             logger.info(
                 "[IWR6843] Capture #%d complete: %s in %.2fs",
                 sequence,
-                f"{len(raw)} bytes" if raw is not None else error,
+                f"{len(raw)} bytes" if raw is not None else error or "readback only, dump skipped",
                 capture.dump_duration_s,
             )
             if link_error is not None:

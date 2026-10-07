@@ -278,3 +278,64 @@ def test_looking_at_a_capture_leaves_it_and_older_ones_for_their_shots(started):
         "older shot keeps its capture"
     )
     assert monitor.capture_for_shot(second, timeout_s=0.5) is not None
+
+
+class ResumableRadar(ReadbackRadar):
+    def resume(self) -> None:
+        self.commands.append("resume")
+
+
+def test_skip_switch_resumes_the_radar_when_the_readback_is_final(started, cal, make_runtime):
+    radar = ResumableRadar(_timed_capture("iron"))
+    monitor = started(radar, skip_full_dump=True)
+    runtime = make_runtime(monitor, cal)
+
+    edge = time.time()
+    assert monitor.notify_trigger(edge)
+    result = runtime.process_shot(impact_timestamp=edge, ball_speed_mph=IRON_MPH, club="9i")
+
+    assert result.measurement is not None and result.measurement.accepted
+    assert result.capture.raw is None and result.club_path is None
+    assert radar.commands == ["freeze", "summary 0", "resume"], "the full dump was never read"
+
+
+def test_skip_switch_still_reads_the_dump_when_the_readback_is_not_final(
+    started, cal, make_runtime
+):
+    radar = ResumableRadar(_timed_capture("iron"))
+    radar.release_dump.set()
+    monitor = started(radar, skip_full_dump=True)
+    runtime = make_runtime(monitor, cal)
+
+    edge = time.time()
+    assert monitor.notify_trigger(edge)
+    result = runtime.process_shot(impact_timestamp=edge, ball_speed_mph=IRON_MPH * 1.5, club="9i")
+
+    assert result.capture.raw == radar.raw
+    assert radar.commands == ["freeze", "summary 0", "dump"]
+
+
+def test_skip_switch_reads_the_dump_when_no_shot_claims_the_capture(started):
+    radar = ResumableRadar(_timed_capture("iron"))
+    radar.release_dump.set()
+    monitor = started(radar, skip_full_dump=True, skip_decision_timeout_s=0.1)
+
+    edge = time.time()
+    assert monitor.notify_trigger(edge)
+    early = monitor.capture_for_shot(edge, timeout_s=2.0)
+
+    assert early.full(2.0).raw == radar.raw
+    assert radar.commands == ["freeze", "summary 0", "dump"]
+
+
+def test_a_trigger_during_a_capture_is_logged_as_ignored(started, caplog):
+    radar = ReadbackRadar(_timed_capture("iron"))
+    monitor = started(radar)
+    edge = time.time()
+    assert monitor.notify_trigger(edge)
+    assert monitor.capture_for_shot(edge, timeout_s=2.0) is not None
+
+    with caplog.at_level("INFO", logger="openflight.iwr6843.monitor"):
+        assert not monitor.notify_trigger(edge + 5.0)
+
+    assert "Trigger ignored: radar still busy with the shot 5.0s ago" in caplog.text

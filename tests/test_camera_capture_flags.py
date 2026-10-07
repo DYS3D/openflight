@@ -497,6 +497,10 @@ class TestIwr6843EstimatorFlags:
             (["--iwr6843-estimator-process"], (True, False, False)),
             (["--iwr6843-fast-angle-search"], (False, True, False)),
             (["--iwr6843-selective-readback"], (False, False, True)),
+            (
+                ["--iwr6843-selective-readback", "--iwr6843-skip-full-dump"],
+                (False, False, True),
+            ),
         ],
     )
     def test_cli_flags_reach_init_iwr6843(self, monkeypatch, tmp_path, argv, expected):

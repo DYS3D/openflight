@@ -1484,6 +1484,7 @@ def init_iwr6843(
     estimator_process: bool = False,
     fast_angle_search: bool = False,
     selective_readback: bool = False,
+    skip_full_dump: bool = False,
 ) -> bool:
     """Initialize GPIO-triggered TI capture and the frozen LCMF-v1 estimator."""
     global iwr6843_runtime, iwr6843_runtime_config  # pylint: disable=global-statement
@@ -1523,6 +1524,7 @@ def init_iwr6843(
             radar_auto_reconnect=radar_auto_reconnect,
             radar_status_callback=on_radar_status,
             selective_readback=selective_readback,
+            skip_full_dump=skip_full_dump and selective_readback,
         )
         from .rolling_buffer.processor import preload_signal_libraries
 
@@ -1550,6 +1552,7 @@ def init_iwr6843(
             "enabled": True,
             "estimator": "lcmf_v1",
             "selective_readback": selective_readback,
+            "skip_full_dump": skip_full_dump and selective_readback,
             "estimator_process": estimator_process,
             "fast_angle_search": fast_angle_search,
             "port": capture_monitor.port,
@@ -6157,6 +6160,17 @@ def main():
         ),
     )
     parser.add_argument(
+        "--iwr6843-skip-full-dump",
+        action="store_true",
+        default=False,
+        help=(
+            "With --iwr6843-selective-readback: when the readback launch is already final, "
+            "resume the radar instead of reading the full ~7 s dump, so it is ready for the "
+            "next shot ~6 s sooner. Those shots get no radar club path and no saved dump. "
+            "Default off."
+        ),
+    )
+    parser.add_argument(
         "--iwr6843-fast-angle-search",
         action="store_true",
         default=False,
@@ -6730,6 +6744,7 @@ def main():
             estimator_process=args.iwr6843_estimator_process,
             fast_angle_search=args.iwr6843_fast_angle_search,
             selective_readback=args.iwr6843_selective_readback,
+            skip_full_dump=args.iwr6843_skip_full_dump,
         ):
             calibration = iwr6843_runtime.calibration
             ball_speed_correction_distance_ft = args.iwr6843_tee_m * 3.28084

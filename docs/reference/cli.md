@@ -119,6 +119,7 @@ The supported angle radar.
 | `--iwr6843-estimator-process` | flag; default off | Run the LCMF launch-angle and club-path estimators in a long-lived worker process so their numpy loops cannot stall the OPS serial reader. Off = inline, as before. Any worker failure falls back to inline for the session |
 | `--iwr6843-fast-angle-search` | flag; default off | Coarse-to-fine launch-angle search (2° sweep, then 0.25° within ±1°) instead of the exhaustive 0.5° sweep. Off = exhaustive sweep, as before |
 | `--iwr6843-selective-readback` | flag; default off | Fetch only the ball's range track from the radar first (~1 s) and show the launch angles before the full ~7 s dump arrives. Needs firmware with the `l3freeze`/`l3sum`/`l3bins` commands; falls back to the full dump without it |
+| `--iwr6843-skip-full-dump` | flag; default off | With `--iwr6843-selective-readback`: when the readback launch is already final, resume the radar instead of reading the full ~7 s dump, so it is ready for the next shot ~6 s sooner. Those shots get no radar club path and no saved dump |
 | `--iwr6843-capture-timeout` | float; default `16.0` | Maximum seconds an OPS shot waits for its TI UART dump |
 | `--iwr6843-output-dir` | — | Raw TI dump directory when --debug is enabled (default: <session-log-dir>/iwr6843) |
 | `--iwr6843-azimuth-offset-deg` | float | Azimuth of the radar boresight relative to the target line, in degrees. Positive means boresight points right of the target line. Added to the measured club path; 0 reports club path relative to boresight. |

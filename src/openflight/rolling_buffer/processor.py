@@ -108,14 +108,19 @@ class RollingBufferProcessor:
     # ball energy. Track the fastest pre-impact Doppler branch, then summarize
     # its plateau before that mixed region instead of selecting the strongest
     # reflector (which is frequently the shaft or an earlier swing return).
+    # How long before the trigger the club is in the beam (radar health reads
+    # its noise floor ahead of this).
     CLUB_BRANCH_HISTORY_MS = 30.0
-    CLUB_BALL_ONSET_SEARCH_MS = 10.0
-    CLUB_BALL_MATCH_MIN_MPH = 4.0
-    CLUB_BALL_MATCH_FRACTION = 0.06
+    # The ball first reads ~10% under its settled speed (it leaves at an angle
+    # to the beam), so the ball run is everything at or above this share of it.
+    CLUB_BALL_RUN_RATIO = 0.85
+    # Dropouts this long do not end the ball run.
+    CLUB_BALL_RUN_GAP_MS = 3.3
     CLUB_PLATEAU_LOOKBACK_MS = 18.0
     CLUB_PLATEAU_GUARD_MS = 4.0
-    CLUB_PLATEAU_QUANTILE = 0.70
-    CLUB_BALL_CONTAMINATION_RATIO = 0.95
+    # Tuned with CLUB_BALL_RUN_RATIO on 47 SkyTrak+ paired shots (8-iron and
+    # driver, 2026-10-05): 38 within 5% with one scale, against 18 before.
+    CLUB_PLATEAU_QUANTILE = 0.90
     CLUB_TERMINAL_START_MS = -2.5
     CLUB_TERMINAL_END_MS = 1.0
     CLUB_MAX_PLAUSIBLE_SPEED_MPH = 150.0
@@ -2136,7 +2141,7 @@ class RollingBufferProcessor:
             max_window_ms,
         )
 
-        history_ms = min(max_window_ms, self.CLUB_BRANCH_HISTORY_MS)
+        history_ms = max_window_ms
         upper_by_timestamp: dict[float, SpeedReading] = {}
         for reading in timeline.readings:
             relative_ms = reading.timestamp_ms - ball_timestamp_ms
@@ -2169,20 +2174,16 @@ class RollingBufferProcessor:
             if terminal_pick is not None:
                 return terminal_pick.speed_mph, terminal_pick.timestamp_ms
 
-        ball_tolerance_mph = max(
-            self.CLUB_BALL_MATCH_MIN_MPH,
-            ball_speed_mph * self.CLUB_BALL_MATCH_FRACTION,
-        )
+        # Anchor on where the ball branch begins, not on ball_timestamp_ms: that
+        # is the ball's strongest echo, which can sit 40 ms into the flight, and
+        # the early ball then passed for the club.
+        ball_floor_mph = ball_speed_mph * self.CLUB_BALL_RUN_RATIO
         onset_timestamp_ms: Optional[float] = None
-        for first, second in zip(upper_branch, upper_branch[1:]):
-            first_relative_ms = first.timestamp_ms - ball_timestamp_ms
-            if first_relative_ms < -self.CLUB_BALL_ONSET_SEARCH_MS:
-                continue
-            if (
-                abs(first.speed_mph - ball_speed_mph) <= ball_tolerance_mph
-                and abs(second.speed_mph - ball_speed_mph) <= ball_tolerance_mph
-            ):
-                onset_timestamp_ms = first.timestamp_ms
+        last_ball_ms = ball_timestamp_ms
+        for reading in reversed(upper_branch):
+            if reading.speed_mph >= ball_floor_mph:
+                onset_timestamp_ms = last_ball_ms = reading.timestamp_ms
+            elif last_ball_ms - reading.timestamp_ms > self.CLUB_BALL_RUN_GAP_MS:
                 break
 
         if onset_timestamp_ms is None:
@@ -2195,12 +2196,10 @@ class RollingBufferProcessor:
             reading
             for reading in upper_branch
             if plateau_start_ms <= reading.timestamp_ms <= plateau_end_ms
+            and reading.speed_mph < ball_floor_mph
         ]
         plateau_pick = self._quantile_reading(plateau, self.CLUB_PLATEAU_QUANTILE)
         if plateau_pick is None:
-            return legacy_speed, legacy_timestamp
-
-        if plateau_pick.speed_mph > ball_speed_mph * self.CLUB_BALL_CONTAMINATION_RATIO:
             return legacy_speed, legacy_timestamp
 
         return plateau_pick.speed_mph, plateau_pick.timestamp_ms

@@ -1925,8 +1925,9 @@ class TestFindClubSpeedOverlap:
             ball_timestamp_ms=ball_timestamp_ms,
         )
 
-        assert club_speed == pytest.approx(82.0)
-        assert club_ts == 18.0
+        # 90th percentile of the head's plateau: its speed just before impact.
+        assert club_speed == pytest.approx(83.0)
+        assert club_ts == 22.0
 
     @pytest.mark.parametrize("club_type", [ClubType.SW, ClubType.LW])
     def test_high_loft_wedge_uses_smooth_terminal_trace(self, processor, club_type):

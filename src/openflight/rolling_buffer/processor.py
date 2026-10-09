@@ -7,7 +7,7 @@ Based on OmniPreSense AN-027 Rolling Buffer application note.
 
 import json
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -121,6 +121,12 @@ class RollingBufferProcessor:
     # Tuned with CLUB_BALL_RUN_RATIO on 47 SkyTrak+ paired shots (8-iron and
     # driver, 2026-10-05): 38 within 5% with one scale, against 18 before.
     CLUB_PLATEAU_QUANTILE = 0.90
+    # On a fat or thin shot the club is as fast as the ball, so speed cannot
+    # tell them apart; the sound trigger still marks impact. Its lag behind the
+    # ball's first reading (sound travel plus relay latency, ~7 ms on the
+    # reference rig) is learned from shots where speed does separate them.
+    CLUB_IMPACT_LAG_HISTORY = 15
+    CLUB_IMPACT_LAG_RANGE_MS = (0.0, 15.0)
     CLUB_TERMINAL_START_MS = -2.5
     CLUB_TERMINAL_END_MS = 1.0
     CLUB_MAX_PLAUSIBLE_SPEED_MPH = 150.0
@@ -268,6 +274,7 @@ class RollingBufferProcessor:
             )
         self.SAMPLE_RATE = sample_rate
         self.hanning_window = np.hanning(self.WINDOW_SIZE)
+        self._trigger_lag_ms: deque[float] = deque(maxlen=self.CLUB_IMPACT_LAG_HISTORY)
         self.ball_marker = ball_marker
         self.spin_octave_check = spin_octave_check
         self.spin_octave_prior = spin_octave_prior
@@ -2110,6 +2117,7 @@ class RollingBufferProcessor:
         ball_timestamp_ms: float,
         max_window_ms: float = 100,
         club_type: ClubType = ClubType.UNKNOWN,
+        trigger_offset_ms: Optional[float] = None,
     ) -> Tuple[Optional[float], Optional[float]]:
         """
         Find club-head speed from the upper Doppler branch before impact.
@@ -2130,6 +2138,8 @@ class RollingBufferProcessor:
             ball_timestamp_ms: When ball was detected
             max_window_ms: Maximum time before ball to search
             club_type: Selected club, used for smooth wedge transitions
+            trigger_offset_ms: When the sound trigger fired within the capture;
+                locates impact on shots where the club is as fast as the ball
 
         Returns:
             Tuple of (club_speed_mph, club_timestamp_ms) or (None, None)
@@ -2186,23 +2196,46 @@ class RollingBufferProcessor:
             elif last_ball_ms - reading.timestamp_ms > self.CLUB_BALL_RUN_GAP_MS:
                 break
 
+        ball_onset_found = onset_timestamp_ms is not None
         if onset_timestamp_ms is None:
             # One overlapping FFT step before the mixed club/ball guard.
             onset_timestamp_ms = ball_timestamp_ms - 3.2
 
-        plateau_start_ms = onset_timestamp_ms - self.CLUB_PLATEAU_LOOKBACK_MS
-        plateau_end_ms = onset_timestamp_ms - self.CLUB_PLATEAU_GUARD_MS
-        plateau = [
-            reading
-            for reading in upper_branch
-            if plateau_start_ms <= reading.timestamp_ms <= plateau_end_ms
-            and reading.speed_mph < ball_floor_mph
-        ]
-        plateau_pick = self._quantile_reading(plateau, self.CLUB_PLATEAU_QUANTILE)
+        plateau_pick = self._club_plateau_pick(upper_branch, onset_timestamp_ms, ball_floor_mph)
+
+        if trigger_offset_ms is not None and trigger_offset_ms > 0.0:
+            learned_lags = list(self._trigger_lag_ms)
+            lag_ms = trigger_offset_ms - onset_timestamp_ms
+            low_ms, high_ms = self.CLUB_IMPACT_LAG_RANGE_MS
+            if ball_onset_found and plateau_pick is not None and low_ms <= lag_ms <= high_ms:
+                self._trigger_lag_ms.append(lag_ms)
+            if learned_lags:
+                impact_ms = trigger_offset_ms - float(np.median(learned_lags))
+                trigger_pick = self._club_plateau_pick(upper_branch, impact_ms, None)
+                if trigger_pick is not None:
+                    return trigger_pick.speed_mph, trigger_pick.timestamp_ms
+
         if plateau_pick is None:
             return legacy_speed, legacy_timestamp
 
         return plateau_pick.speed_mph, plateau_pick.timestamp_ms
+
+    def _club_plateau_pick(
+        self,
+        upper_branch: list[SpeedReading],
+        impact_ms: float,
+        below_mph: Optional[float],
+    ) -> Optional[SpeedReading]:
+        """Club reading from the plateau just before ``impact_ms``."""
+        plateau = [
+            reading
+            for reading in upper_branch
+            if impact_ms - self.CLUB_PLATEAU_LOOKBACK_MS
+            <= reading.timestamp_ms
+            <= impact_ms - self.CLUB_PLATEAU_GUARD_MS
+            and (below_mph is None or reading.speed_mph < below_mph)
+        ]
+        return self._quantile_reading(plateau, self.CLUB_PLATEAU_QUANTILE)
 
     @staticmethod
     def _quantile_reading(readings: list[SpeedReading], quantile: float) -> Optional[SpeedReading]:
@@ -2517,6 +2550,7 @@ class RollingBufferProcessor:
             ball_speed_mph,
             ball_timestamp_ms,
             club_type=club_type,
+            trigger_offset_ms=capture.trigger_offset_ms,
         )
         if club_speed_mph is not None:
             logger.info(

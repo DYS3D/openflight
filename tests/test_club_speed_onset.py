@@ -70,3 +70,56 @@ def test_recorded_8_iron_club_speed_is_near_skytrak(shot_number):
 
     # The radar reads this golfer's 8-iron ~5-8% under SkyTrak; shot 14 used to read 95 mph.
     assert processed.club_speed_mph == pytest.approx(SKYTRAK_CLUB_MPH[shot_number], rel=0.10)
+
+
+def _mishit_timeline(*, club_mph: float, ball_mph: float):
+    """A fat shot: the ball leaves slower than the club that hit it."""
+    impact_ms = 40.0
+    readings = []
+    time_ms = impact_ms - 25.0
+    while time_ms < impact_ms:
+        ramp = min(1.0, (time_ms - (impact_ms - 25.0)) / 12.0)
+        readings.append(_reading(club_mph * (0.8 + 0.2 * ramp), time_ms, magnitude=60.0))
+        time_ms += STEP_MS
+    while time_ms <= impact_ms + 25.0:
+        strength = 300.0 if abs(time_ms - (impact_ms + 10.0)) < STEP_MS / 2 else 20.0
+        readings.append(_reading(ball_mph, time_ms, magnitude=strength))
+        time_ms += STEP_MS
+    strongest = max(readings, key=lambda reading: reading.magnitude)
+    return SpeedTimeline(readings=readings, sample_rate_hz=937.5), strongest.timestamp_ms
+
+
+def test_mishit_club_speed_is_located_by_the_sound_trigger():
+    processor = RollingBufferProcessor()
+    sound_trigger_ms = 47.0  # the trigger fires ~7 ms after impact at 40 ms
+    clean, clean_ball_ms = _shot_timeline(
+        club_mph=68.0, ball_mph=98.0, strongest_ball_after_ms=10.0
+    )
+    processor.find_club_speed(
+        clean, ball_speed_mph=98.0, ball_timestamp_ms=clean_ball_ms, trigger_offset_ms=47.0
+    )
+    mishit, ball_ms = _mishit_timeline(club_mph=70.0, ball_mph=60.0)
+
+    without_trigger, _ = RollingBufferProcessor().find_club_speed(
+        mishit, ball_speed_mph=60.0, ball_timestamp_ms=ball_ms
+    )
+    club_mph, _ = processor.find_club_speed(
+        mishit, ball_speed_mph=60.0, ball_timestamp_ms=ball_ms, trigger_offset_ms=sound_trigger_ms
+    )
+
+    assert without_trigger is None or without_trigger < 60.0, "speed alone cannot find this club"
+    assert club_mph == pytest.approx(70.0, abs=1.5)
+
+
+def test_an_implausible_trigger_time_does_not_teach_the_impact_offset():
+    processor = RollingBufferProcessor()
+    clean, ball_ms = _shot_timeline(club_mph=68.0, ball_mph=98.0, strongest_ball_after_ms=10.0)
+
+    for trigger_offset_ms in (0.0, 5.0, 90.0):  # unset, or nowhere near impact at 40 ms
+        club_mph, _ = processor.find_club_speed(
+            clean,
+            ball_speed_mph=98.0,
+            ball_timestamp_ms=ball_ms,
+            trigger_offset_ms=trigger_offset_ms,
+        )
+        assert club_mph == pytest.approx(68.0, abs=1.0)

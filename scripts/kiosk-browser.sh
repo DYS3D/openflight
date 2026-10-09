@@ -47,6 +47,12 @@ wait_for_kiosk_display() {
     if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
         export XDG_RUNTIME_DIR="/run/user/$(id -u)"
     fi
+    # Under systemd the browser has no session bus address and logs "Failed to
+    # connect to the bus" on every helper process it starts. Point it at the
+    # desktop session's bus when there is one.
+    if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]; then
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+    fi
     local x11_dir="${OPENFLIGHT_X11_SOCKET_DIR:-/tmp/.X11-unix}"
     local display_number="${DISPLAY#*:}"
     display_number="${display_number%%.*}"

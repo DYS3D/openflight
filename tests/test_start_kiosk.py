@@ -313,7 +313,9 @@ def test_kiosk_shell_scripts_use_unix_newlines():
         "scripts/require-node.sh",
     ):
         data = (REPO_ROOT / relative).read_bytes()
-        assert b"\r" not in data, f"{relative} must use LF newlines so sourced path checks match on the Pi"
+        assert b"\r" not in data, (
+            f"{relative} must use LF newlines so sourced path checks match on the Pi"
+        )
 
 
 def test_ui_is_ensured_before_the_kiosk_browser_launches():
@@ -421,7 +423,12 @@ def _run_ensure_kiosk_ui(
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     for name in ("ensure-kiosk-ui.sh", "require-node.sh"):
-        text = (repo_scripts / name).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+        text = (
+            (repo_scripts / name)
+            .read_text(encoding="utf-8")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+        )
         (scripts_dir / name).write_bytes(text.encode("utf-8"))
     project_dir = tmp_path / "project"
     ui_dir = project_dir / "ui"
@@ -907,7 +914,14 @@ def test_uv_sync_resolves_when_the_lock_is_missing_or_stale(tmp_path):
     assert _run_sync_python_env(tmp_path, lock_newer=False, offline_exit=0) == ["sync --quiet"]
 
 
-def _run_kiosk_launch(tmp_path: Path, *, wait_s: int, electron_body: str, socket_after_s: float = -1.0):
+def _run_kiosk_launch(
+    tmp_path: Path,
+    *,
+    wait_s: int,
+    electron_body: str,
+    socket_after_s: float = -1.0,
+    session_bus: bool = False,
+):
     """Source kiosk-browser.sh with a fake Electron and a temporary X socket directory."""
     project_dir = tmp_path / "project"
     electron = project_dir / "ui" / "node_modules" / ".bin" / "electron"
@@ -945,6 +959,10 @@ def _run_kiosk_launch(tmp_path: Path, *, wait_s: int, electron_body: str, socket
         "WAYLAND_DISPLAY": "wayland-test",
     }
     sockets = []
+    env.pop("DBUS_SESSION_BUS_ADDRESS", None)
+    if session_bus:
+        (tmp_path / "runtime").mkdir()
+        sockets.append(_bind_unix_socket(tmp_path / "runtime" / "bus"))
     if socket_after_s == 0:
         sockets.append(_bind_unix_socket(x11_dir / "X0"))
     process = subprocess.Popen(
@@ -980,7 +998,9 @@ class TestKioskDisplayWait:
         assert "Waiting up to" not in output
 
     def test_waits_for_a_display_that_appears_after_boot(self, tmp_path):
-        output = _run_kiosk_launch(tmp_path, wait_s=10, electron_body="sleep 30", socket_after_s=1.5)
+        output = _run_kiosk_launch(
+            tmp_path, wait_s=10, electron_body="sleep 30", socket_after_s=1.5
+        )
         assert "Waiting up to 10s" in output
         assert "Desktop display ready after" in output
         assert "LAUNCHED true" in output
@@ -995,6 +1015,18 @@ class TestKioskDisplayWait:
         assert "skipping the early kiosk window" in output
         assert "KIOSK NOT STARTED" not in output
         assert "NOT_LAUNCHED" in output
+
+    def test_browser_is_given_the_desktop_session_bus(self, tmp_path):
+        body = 'echo "BUS=${DBUS_SESSION_BUS_ADDRESS:-none}"; sleep 30'
+        output = _run_kiosk_launch(
+            tmp_path, wait_s=5, electron_body=body, socket_after_s=0, session_bus=True
+        )
+        assert f"BUS=unix:path={tmp_path / 'runtime'}/bus" in output
+
+    def test_browser_gets_no_bus_address_without_a_session_bus(self, tmp_path):
+        body = 'echo "BUS=${DBUS_SESSION_BUS_ADDRESS:-none}"; sleep 30'
+        output = _run_kiosk_launch(tmp_path, wait_s=5, electron_body=body, socket_after_s=0)
+        assert "BUS=none" in output
 
     def test_reports_a_browser_that_dies_during_start_up(self, tmp_path):
         output = _run_kiosk_launch(tmp_path, wait_s=5, electron_body="exit 7", socket_after_s=0)

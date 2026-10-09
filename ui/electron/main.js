@@ -12,6 +12,12 @@ const targetUrl = resolveTargetUrl(process.env, process.argv);
 
 Menu.setApplicationMenu(null);
 
+// On a Raspberry Pi ANGLE tries desktop OpenGL first, fails ("Could not create
+// a backing OpenGL context") and falls back to OpenGL ES. Ask for ES directly.
+if (process.platform === 'linux' && process.arch === 'arm64') {
+  app.commandLine.appendSwitch('use-angle', 'gles');
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     kiosk: true,

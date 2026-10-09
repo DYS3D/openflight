@@ -137,3 +137,20 @@ def test_rejected_capture_rearms_fast_without_clock_sync():
     assert "clock_sync" not in radar.calls, (
         "false triggers must re-arm fast; clock sync is accepted-shots-only"
     )
+
+
+def test_a_brief_blip_of_movement_is_not_accepted_as_a_shot():
+    # Seven phantom shots on 2026-10-09: the sound gate fired on noise while something
+    # moved past the radar for a few milliseconds (1-4 readings; a real shot gives 40+).
+    quiet_i, quiet_q = synth_capture(rpm=3000, amplitude=0.0, noise_rms=1.0)
+    tone_i, tone_q = synth_capture(rpm=3000, ball_speed_mph=22.0, amplitude=400.0)
+    i_samples, q_samples = list(quiet_i), list(quiet_q)
+    i_samples[2000:2300], q_samples[2000:2300] = tone_i[2000:2300], tone_q[2000:2300]
+    radar = ScriptedRadar(_dump_response(i_samples, q_samples))
+    trigger = SoundTrigger()
+
+    capture = trigger.wait_for_trigger(radar, RollingBufferProcessor(), timeout=1.0)
+
+    assert capture is None, "10 ms of movement is not a golf shot"
+    assert "rearm" in radar.calls and "clock_sync" not in radar.calls
+    assert trigger.drain_diagnostics()[-1]["reason"] == "too_few_outbound_readings"

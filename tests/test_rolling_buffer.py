@@ -603,6 +603,7 @@ class TestSoundTriggerTimestampPropagation:
         processor = MagicMock()
         processor.parse_capture.return_value = capture
         processor.process_standard.return_value = SpeedTimeline(
+            # A real shot fills the capture; a lone reading is rejected as a blip.
             readings=[
                 SpeedReading(
                     speed_mph=100.0,
@@ -610,7 +611,8 @@ class TestSoundTriggerTimestampPropagation:
                     timestamp_ms=68.0,
                     direction="outbound",
                 )
-            ],
+            ]
+            * 20,
             sample_rate_hz=937.5,
         )
 
@@ -662,6 +664,7 @@ class TestSoundTriggerTimestampPropagation:
         processor = MagicMock()
         processor.parse_capture.return_value = capture
         processor.process_standard.return_value = SpeedTimeline(
+            # A real shot fills the capture; a lone reading is rejected as a blip.
             readings=[
                 SpeedReading(
                     speed_mph=100.0,
@@ -669,7 +672,8 @@ class TestSoundTriggerTimestampPropagation:
                     timestamp_ms=68.0,
                     direction="outbound",
                 )
-            ],
+            ]
+            * 20,
             sample_rate_hz=937.5,
         )
 
@@ -735,6 +739,7 @@ class TestSoundTriggerTimestampPropagation:
         processor = MagicMock()
         processor.parse_capture.return_value = capture
         processor.process_standard.return_value = SpeedTimeline(
+            # A real shot fills the capture; a lone reading is rejected as a blip.
             readings=[
                 SpeedReading(
                     speed_mph=100.0,
@@ -742,7 +747,8 @@ class TestSoundTriggerTimestampPropagation:
                     timestamp_ms=68.0,
                     direction="outbound",
                 )
-            ],
+            ]
+            * 20,
             sample_rate_hz=937.5,
         )
 
@@ -785,6 +791,7 @@ class TestSoundTriggerTimestampPropagation:
         processor = MagicMock()
         processor.parse_capture.return_value = capture
         processor.process_standard.return_value = SpeedTimeline(
+            # A real shot fills the capture; a lone reading is rejected as a blip.
             readings=[
                 SpeedReading(
                     speed_mph=100.0,
@@ -792,7 +799,8 @@ class TestSoundTriggerTimestampPropagation:
                     timestamp_ms=68.0,
                     direction="outbound",
                 )
-            ],
+            ]
+            * 20,
             sample_rate_hz=937.5,
         )
 

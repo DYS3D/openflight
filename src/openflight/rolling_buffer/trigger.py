@@ -32,6 +32,9 @@ class TriggerStrategy(ABC):
     """
 
     MIN_VALID_OUTBOUND_MPH = 15.0
+    # A real shot fills the capture with outbound readings (41-63 on recorded
+    # shots); noise triggers with something briefly moving past gave 1-8.
+    MIN_VALID_OUTBOUND_READINGS = 15
 
     def __init__(self, pre_trigger_segments: int = 12):
         self._diagnostics: List[dict] = []
@@ -643,21 +646,33 @@ class SoundTrigger(TriggerStrategy):
         # Discard these false triggers immediately so we re-arm fast.
         summary = self._summarize_capture_activity(processor, capture)
 
-        if not summary["valid_outbound_count"]:
+        if summary["valid_outbound_count"] < self.MIN_VALID_OUTBOUND_READINGS:
             # False trigger: re-arm immediately (no clock sync) so the
             # next real swing isn't missed.
             radar.rearm_rolling_buffer(self.pre_trigger_segments)
-            logger.info(
-                "[TRIGGER] Sound trigger rejected — no outbound speed >= %.0f mph "
-                "(peak=%.1f mph, %d readings)",
-                self.MIN_VALID_OUTBOUND_MPH,
-                summary["peak_outbound_mph"],
-                summary["total_readings"],
-            )
+            if summary["valid_outbound_count"]:
+                reason = "too_few_outbound_readings"
+                logger.info(
+                    "[TRIGGER] Sound trigger rejected — only %d outbound readings >= %.0f mph "
+                    "(need %d; peak=%.1f mph)",
+                    summary["valid_outbound_count"],
+                    self.MIN_VALID_OUTBOUND_MPH,
+                    self.MIN_VALID_OUTBOUND_READINGS,
+                    summary["peak_outbound_mph"],
+                )
+            else:
+                reason = "no_outbound_speed"
+                logger.info(
+                    "[TRIGGER] Sound trigger rejected — no outbound speed >= %.0f mph "
+                    "(peak=%.1f mph, %d readings)",
+                    self.MIN_VALID_OUTBOUND_MPH,
+                    summary["peak_outbound_mph"],
+                    summary["total_readings"],
+                )
             self._append_activity_diagnostic(
                 summary,
                 accepted=False,
-                reason="no_outbound_speed",
+                reason=reason,
                 response_bytes=response_len,
             )
             return None

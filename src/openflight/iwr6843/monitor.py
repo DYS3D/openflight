@@ -34,6 +34,10 @@ _GRACEFUL_DUMP_SHUTDOWN_S = 12.0
 # valid capture for ~40 s before capture_for_shot() asks for it.
 _MAX_PENDING_CAPTURES = 4
 _MAX_PENDING_CAPTURE_AGE_S = 60.0
+# The sound gate only triggers on a rising edge, so an impact while it is already
+# high is missed without a trace. Report a gate held high this long.
+_GATE_HELD_HIGH_S = 1.0
+_GATE_POLL_S = 0.25
 
 
 def tx_order_from_config(config_path: str | Path) -> str:
@@ -174,6 +178,9 @@ class IWR6843CaptureMonitor:
         self._stop_event = threading.Event()
         self._worker: threading.Thread | None = None
         self._trigger_observers = list(trigger_observers or [])
+        self._gate_rose_at: float | None = None
+        self._gate_watch_stop = threading.Event()
+        self._gate_rise_triggered = False
         # Fetch the ball's samples ahead of the full dump so launch numbers do
         # not wait for the whole ring. ``readback_context`` supplies the club and
         # net range the ball search uses. Needs firmware with l3freeze/l3sum/l3bins.
@@ -251,9 +258,53 @@ class IWR6843CaptureMonitor:
             return
         # Attach while logically disarmed so a line already high from OPS
         # startup cannot synchronously create a false capture.
-        self._button.when_pressed = self.notify_trigger
+        self._button.when_pressed = self._on_gate_rise
+        self._button.when_released = self._on_gate_fall
         self._armed = True
+        self._gate_watch_stop.clear()
+        threading.Thread(target=self._watch_gate, name="iwr6843-gate", daemon=True).start()
         logger.info("[IWR6843] Armed on BCM%d", self.gpio_pin)
+
+    def _on_gate_rise(self) -> None:
+        self._gate_rose_at = time.time()
+        self._gate_rise_triggered = self.notify_trigger(self._gate_rose_at)
+
+    def _on_gate_fall(self) -> None:
+        rose_at = self._gate_rose_at
+        if rose_at is None:
+            return
+        self._gate_rose_at = None
+        logger.info(
+            "[IWR6843] Sound gate pulse: high for %.0f ms (%s)",
+            (time.time() - rose_at) * 1000.0,
+            "triggered" if self._gate_rise_triggered else "no trigger",
+        )
+
+    def _watch_gate(self, poll_s: float = _GATE_POLL_S) -> None:
+        """Log when the sound gate sits high, which blocks triggering until it drops."""
+        high_since: float | None = None
+        reported = False
+        while not self._gate_watch_stop.wait(poll_s):
+            button = self._button
+            if button is None:
+                return
+            now = time.monotonic()
+            if getattr(button, "is_pressed", False):
+                high_since = now if high_since is None else high_since
+                if not reported and now - high_since >= _GATE_HELD_HIGH_S:
+                    reported = True
+                    logger.warning(
+                        "[IWR6843] Sound gate has been high for %.1fs: "
+                        "an impact cannot trigger until it drops",
+                        now - high_since,
+                    )
+            else:
+                if reported:
+                    logger.warning(
+                        "[IWR6843] Sound gate released after %.1fs high", now - high_since
+                    )
+                high_since = None
+                reported = False
 
     def add_trigger_observer(self, observer: Callable[[float], None]) -> None:
         """Call ``observer(edge_timestamp)`` for every accepted trigger edge."""
@@ -604,8 +655,10 @@ class IWR6843CaptureMonitor:
         self._armed = False
         self._running = False
         self._stop_event.set()
+        self._gate_watch_stop.set()
         if self._button is not None:
             self._button.when_pressed = None
+            self._button.when_released = None
             self._button.close()
             self._button = None
         try:

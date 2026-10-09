@@ -194,7 +194,7 @@ def test_capture_monitor_can_configure_before_arming_gpio(tmp_path):
     assert monitor._button.when_pressed is None  # pylint: disable=protected-access
 
     monitor.arm()
-    assert monitor._button.when_pressed == monitor.notify_trigger  # pylint: disable=protected-access
+    assert monitor._button.when_pressed == monitor._on_gate_rise  # pylint: disable=protected-access
     assert monitor.notify_trigger(edge)
     assert monitor.capture_for_shot(edge, timeout_s=1.0).valid
     monitor.stop()
@@ -471,3 +471,52 @@ def test_append_drops_captures_unclaimed_for_more_than_a_minute(tmp_path):
     pending = list(monitor._captures)  # pylint: disable=protected-access
     assert [capture.sequence for capture in pending] == [1]
     monitor.stop()
+
+
+def _armed_monitor(tmp_path):
+    config = tmp_path / "radar.cfg"
+    config.write_text("sensorStart\n", encoding="utf-8")
+    monitor = IWR6843CaptureMonitor(
+        config_path=config,
+        output_dir=tmp_path / "dumps",
+        radar=FakeRadar(_raw_dump()),
+        button_factory=FakeButton,
+    )
+    monitor.start()
+    return monitor
+
+
+def test_each_sound_gate_pulse_is_logged_with_its_width(tmp_path, caplog):
+    monitor = _armed_monitor(tmp_path)
+    button = monitor._button  # pylint: disable=protected-access
+
+    with caplog.at_level("INFO", logger="openflight.iwr6843.monitor"):
+        button.when_pressed()
+        time.sleep(0.03)
+        button.when_released()
+
+    assert monitor.capture_for_shot(None, timeout_s=1.0) is not None, "the rise still triggers"
+    pulses = [record.message for record in caplog.records if "Sound gate pulse" in record.message]
+    assert len(pulses) == 1 and pulses[0].endswith("(triggered)")
+    monitor.stop()
+
+
+def test_a_sound_gate_held_high_is_reported(tmp_path, caplog, monkeypatch):
+    monkeypatch.setattr("openflight.iwr6843.monitor._GATE_HELD_HIGH_S", 0.05)
+    monkeypatch.setattr("openflight.iwr6843.monitor._GATE_POLL_S", 0.01)
+    monitor = _armed_monitor(tmp_path)
+    button = monitor._button  # pylint: disable=protected-access
+
+    with caplog.at_level("WARNING", logger="openflight.iwr6843.monitor"):
+        watcher = threading.Thread(target=monitor._watch_gate, args=(0.01,))  # pylint: disable=protected-access
+        button.is_pressed = True
+        watcher.start()
+        time.sleep(0.15)
+        button.is_pressed = False
+        time.sleep(0.05)
+        monitor.stop()
+        watcher.join(timeout=1.0)
+
+    messages = [record.message for record in caplog.records]
+    assert any("an impact cannot trigger until it drops" in message for message in messages)
+    assert any("Sound gate released after" in message for message in messages)
